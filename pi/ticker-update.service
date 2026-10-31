@@ -1,0 +1,6 @@
+[Unit]
+Description=Pull bar ticker updates from GitHub
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/pi/bar-ticker/pi/update.sh

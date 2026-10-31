@@ -1,0 +1,13 @@
+[Unit]
+Description=Bar ticker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/home/pi/bar-ticker
+ExecStart=/usr/bin/python3 /home/pi/bar-ticker/ticker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ticker">
+<title>Bar Ticker</title>
+<style>
+  :root { --bg:#0b0d10; --card:#151920; --line:#252b35; --text:#e9edf2; --dim:#8a94a3;
+          --gold:#ffbe00; --live:#ff3b3b; --accent:#2f8cff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         padding:calc(env(safe-area-inset-top) + 12px) 14px 40px; }
+  h1 { font-size:20px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  h1 .dot { width:9px; height:9px; border-radius:50%; background:#3a3f48; }
+  h1 .dot.on { background:#00e050; box-shadow:0 0 8px #00e050; }
+  .screen { background:#000; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .screen img { width:100%; display:block; image-rendering:pixelated; aspect-ratio:8/1; }
+  .tabs { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin:14px 0; }
+  .tabs button { background:var(--card); color:var(--dim); border:1px solid var(--line);
+                 border-radius:10px; padding:11px 2px; font-size:14px; font-weight:600; }
+  .tabs button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 10px; }
+  .panel { display:none; } .panel.on { display:block; }
+  .chips { display:flex; gap:6px; overflow-x:auto; margin-bottom:10px; }
+  .chips button { flex:none; background:#1d222b; color:var(--dim); border:1px solid var(--line);
+                  border-radius:20px; padding:6px 12px; font-size:13px; }
+  .chips button.on { color:#fff; border-color:var(--accent); }
+  .game { display:flex; align-items:center; gap:10px; padding:11px 10px; border-radius:10px;
+          border:1px solid transparent; }
+  .game + .game { border-top-color:var(--line); border-radius:0; }
+  .game.on { border:1px solid var(--accent); border-radius:10px; background:#12233d; }
+  .game .teams { flex:1; font-weight:600; }
+  .game .teams.mine { color:var(--gold); }
+  .game .lg { font-size:11px; color:var(--dim); width:30px; }
+  .game .st { font-size:13px; color:var(--dim); text-align:right; }
+  .game .st.live { color:var(--live); }
+  .empty { color:var(--dim); padding:10px 0; }
+  label.row { display:flex; justify-content:space-between; align-items:center; margin:6px 0 2px; }
+  label.row span:last-child { color:var(--dim); font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; accent-color:var(--accent); height:28px; }
+  input[type=text] { width:100%; background:#0e1116; color:var(--text); border:1px solid var(--line);
+                     border-radius:10px; padding:12px; font-size:17px; }
+  .swatches { display:flex; gap:10px; margin:12px 0; flex-wrap:wrap; }
+  .swatches button { width:34px; height:34px; border-radius:50%; border:2px solid transparent; }
+  .swatches button.on { border-color:#fff; }
+  .btn { width:100%; background:var(--accent); color:#fff; border:0; border-radius:10px;
+         padding:13px; font-size:16px; font-weight:700; margin-top:6px; }
+  .btn.ghost { background:#1d222b; color:var(--text); border:1px solid var(--line); }
+  .seg { display:flex; background:#0e1116; border:1px solid var(--line); border-radius:10px; padding:3px; margin:10px 0; }
+  .seg button { flex:1; background:none; border:0; color:var(--dim); padding:8px; border-radius:8px; font-weight:600; }
+  .seg button.on { background:#2a313c; color:#fff; }
+  .switch { display:flex; justify-content:space-between; align-items:center; margin-top:12px; }
+  .switch input { width:46px; height:26px; accent-color:var(--accent); }
+  .hint { font-size:13px; color:var(--dim); margin:4px 0 0; }
+  .warn { display:none; margin-top:10px; background:#3a1414; border:1px solid #7a2a2a; color:#ffb4b4;
+          border-radius:10px; padding:10px 12px; font-size:14px; }
+  .warn.on { display:block; }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#222a35;
+           border:1px solid var(--line); padding:10px 16px; border-radius:20px; font-size:14px;
+           opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.on { opacity:1; }
+  input[type=file] { display:none; }
+</style>
+</head>
+<body>
+<h1><span class="dot" id="dot"></span>Bar Ticker</h1>
+
+<div class="screen"><img id="frame" alt="What the ticker is showing now"></div>
+<div class="warn" id="warn"></div>
+
+<div class="tabs" id="tabs">
+  <button data-mode="scroll">Scroll all</button>
+  <button data-mode="game">One game</button>
+  <button data-mode="image">Picture</button>
+  <button data-mode="message">Message</button>
+</div>
+
+<div class="card panel" data-panel="scroll">
+  <h2>Scroll everything</h2>
+  <p class="hint" style="margin:0">Every game today with scores and odds, plus your ParlayLabs results. Tap <b>Scroll all</b> any time to go back to this.</p>
+</div>
+
+<div class="card panel" data-panel="game">
+  <h2>Stay on one game</h2>
+  <div class="chips" id="leagues"></div>
+  <div id="games"></div>
+</div>
+
+<div class="card panel" data-panel="image">
+  <h2>Show a picture or GIF</h2>
+  <div class="seg" id="fit">
+    <button data-fit="contain">Fit whole picture</button>
+    <button data-fit="fill">Fill the strip</button>
+  </div>
+  <label for="file" class="btn" style="display:block;text-align:center">Choose photo or GIF</label>
+  <input type="file" id="file" accept="image/*">
+  <button class="btn ghost" id="showImage">Show last picture</button>
+  <p class="hint">The ticker is 8 times wider than it is tall. Wide pictures and logos look best. GIFs play as animations.</p>
+</div>
+
+<div class="card panel" data-panel="message">
+  <h2>Show a message</h2>
+  <input type="text" id="msg" maxlength="140" placeholder="GO LIONS!">
+  <div class="swatches" id="colors"></div>
+  <button class="btn" id="sendMsg">Show message</button>
+  <p class="hint">Short messages stay still. Long ones scroll.</p>
+</div>
+
+<div class="card">
+  <h2>Settings</h2>
+  <label class="row" for="bright"><span>Brightness</span><span id="brightV"></span></label>
+  <input type="range" id="bright" min="5" max="100" step="5">
+  <label class="row" for="delay"><span>TV delay</span><span id="delayV"></span></label>
+  <input type="range" id="delay" min="0" max="90" step="1">
+  <p class="hint">Holds team alerts back so they flash when the play shows on your TV, not before.</p>
+  <label class="row" for="refresh"><span>Score updates</span><span id="refreshV"></span></label>
+  <input type="range" id="refresh" min="5" max="60" step="5">
+  <p class="hint">How often the whole board checks ESPN. Lions, Pistons, MSU and your pinned game always check every 5 seconds when they're live. If scores stop updating, slow this down.</p>
+  <div class="switch"><span>Team alerts (Lions, Pistons, MSU)</span><input type="checkbox" id="alerts"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const COLORS = ["#ffbe00","#ffffff","#ff2828","#00e050","#0076b6","#009646","#c8102e","#ff7a00","#b050ff"];
+let S = {}, league = "ALL", online = false;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+  return r.json();
+}
+async function save(patch, msg) {
+  try { S = Object.assign(S, await api("/api/state", {method:"POST", body:JSON.stringify(patch)})); render(); if (msg) toast(msg); }
+  catch (e) { toast("Couldn't reach the ticker"); }
+}
+function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("on"), 1800); }
+
+function render() {
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.mode === S.mode));
+  const panel = document.querySelector("#tabs button.picked")?.dataset.mode || S.mode;
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.dataset.panel === panel));
+  $("#bright").value = S.brightness; $("#brightV").textContent = S.brightness + "%";
+  $("#delay").value = S.tv_delay; $("#delayV").textContent = S.tv_delay ? S.tv_delay + " sec" : "Off";
+  $("#alerts").checked = S.alerts;
+  $("#refresh").value = S.refresh; $("#refreshV").textContent = "every " + S.refresh + " sec";
+  const bad = S.feed_ok === false;
+  $("#warn").classList.toggle("on", bad);
+  if (bad) $("#warn").textContent = `Scores haven't updated in ${Math.round(S.last_ok / 60)} min. ESPN may be blocking the ticker for checking too often. Try slowing "Score updates" to 30 sec.`;
+  document.querySelectorAll("#fit button").forEach(b => b.classList.toggle("on", b.dataset.fit === S.fit));
+  if (!$("#msg").dataset.loaded) { $("#msg").value = S.message || ""; $("#msg").dataset.loaded = 1; }
+  document.querySelectorAll("#colors button").forEach(b => b.classList.toggle("on", b.dataset.c === S.color));
+  $("#showImage").style.display = S.has_image ? "" : "none";
+  renderGames();
+}
+
+function renderGames() {
+  const games = S.games || [];
+  const leagues = ["ALL", ...new Set(games.map(g => g.league))];
+  $("#leagues").innerHTML = leagues.map(l => `<button data-l="${l}" class="${l === league ? "on" : ""}">${l === "ALL" ? "All" : l}</button>`).join("");
+  const order = {in:0, pre:1, post:2};
+  const list = games.filter(g => league === "ALL" || g.league === league)
+                    .sort((a, b) => (b.mine - a.mine) || (order[a.state] - order[b.state]));
+  $("#games").innerHTML = list.length ? list.map(g => {
+    const score = g.state === "pre" ? `${g.away} @ ${g.home}` : `${g.away} ${g.ascore} – ${g.home} ${g.hscore}`;
+    const on = S.mode === "game" && S.game_id === g.id;
+    return `<div class="game ${on ? "on" : ""}" data-id="${g.id}">
+      <span class="lg">${g.league}</span>
+      <span class="teams ${g.mine ? "mine" : ""}">${score}</span>
+      <span class="st ${g.state === "in" ? "live" : ""}">${g.state === "in" ? "● " : ""}${g.detail.replace(/ - .*/, "")}</span></div>`;
+  }).join("") : `<div class="empty">No games on right now.</div>`;
+}
+
+$("#tabs").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("picked", x === b));
+  if (b.dataset.mode === "scroll") save({mode:"scroll"}, "Scrolling everything");
+  render();
+};
+$("#leagues").onclick = e => { const b = e.target.closest("button"); if (b) { league = b.dataset.l; renderGames(); } };
+$("#games").onclick = e => { const g = e.target.closest(".game"); if (g) save({mode:"game", game_id:g.dataset.id}, "Showing that game"); };
+$("#colors").innerHTML = COLORS.map(c => `<button data-c="${c}" style="background:${c}" aria-label="color ${c}"></button>`).join("");
+$("#colors").onclick = e => { const b = e.target.closest("button"); if (b) { S.color = b.dataset.c; render(); } };
+$("#sendMsg").onclick = () => save({mode:"message", message:$("#msg").value || "GO LIONS!", color:S.color}, "Message is up");
+$("#fit").onclick = e => { const b = e.target.closest("button"); if (b) save({fit:b.dataset.fit}); };
+$("#showImage").onclick = () => save({mode:"image"}, "Showing your picture");
+$("#file").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  toast("Sending…");
+  try { S = Object.assign(S, await api("/api/image?fit=" + S.fit, {method:"POST", body:f})); S.has_image = true; render(); toast("Picture is up"); }
+  catch (err) { toast("That file didn't work: " + err.message); }
+  e.target.value = "";
+};
+let t1; $("#bright").oninput = e => { $("#brightV").textContent = e.target.value + "%"; clearTimeout(t1); t1 = setTimeout(() => save({brightness:+e.target.value}), 200); };
+let t2; $("#delay").oninput = e => { $("#delayV").textContent = +e.target.value ? e.target.value + " sec" : "Off"; clearTimeout(t2); t2 = setTimeout(() => save({tv_delay:+e.target.value}), 300); };
+let t3; $("#refresh").oninput = e => { $("#refreshV").textContent = "every " + e.target.value + " sec"; clearTimeout(t3); t3 = setTimeout(() => save({refresh:+e.target.value}, "Score updates every " + e.target.value + " sec"), 300); };
+$("#alerts").onchange = e => save({alerts:e.target.checked}, e.target.checked ? "Alerts on" : "Alerts off");
+
+async function poll() {
+  try { S = await api("/api/state"); online = true; render(); } catch { online = false; }
+  $("#dot").classList.toggle("on", online);
+}
+setInterval(() => { $("#frame").src = "/api/frame.png?" + Date.now(); }, 500);
+poll(); setInterval(poll, 5000);
+</script>
+</body>
+</html>
