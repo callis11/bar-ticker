@@ -54,6 +54,8 @@ CLOSE = {
     "MLB": dict(period=7, clock=None, margin=2),     # 7th inning or later, within 2 runs
 }
 CLOSE_GAMES = "@close"     # put in game_ids to follow every close game automatically
+LIVE_GAMES  = "@live"      # follow every game in progress ("@live:NFL" for one league)
+LINGER_SEC  = 15 * 60      # live games stay on this long after they end
 
 def late(g):
     rule = CLOSE.get(g["league"])
@@ -819,6 +821,7 @@ class Feed:
     def __init__(self, ctl, demo=False):
         self.ctl, self.demo, self.pl, self.games = ctl, demo, [], []
         self.last_ok, self.fails, self.last_error = time.time(), 0, ""
+        self.last_state, self.ended = {}, {}       # to know when a game just finished
         self.strip = text_strip([("Loading…", GRAY)])
         self.strip_off = self.strip_mask = None
         self.cards = []
@@ -846,6 +849,7 @@ class Feed:
                         last[label] = now
                 self.games = [g for l, _, _ in LEAGUES for g in by_league.get(l, [])]
                 self.watcher.check(self.games)
+                self.note_finishes()
                 if now - last_pl > PL_REFRESH:    # ParlayLabs files are big (~8 MB) and change slowly
                     self.pl, last_pl = parlaylabs() or self.pl, now
             self.build_strip()
@@ -875,17 +879,37 @@ class Feed:
         self.strip_mask = (self.strip.convert("L").point(lambda v: 255 if v > 0 else 0)
                            if ctl.msg_in_scroll and ctl.effect == "fireworks" else None)
 
+    def note_finishes(self):
+        now = time.time()
+        for g in self.games:
+            if g["state"] == "post" and self.last_state.get(g["id"]) == "in":
+                self.ended[g["id"]] = now
+            self.last_state[g["id"]] = g["state"]
+
+    def linger_left(self, g):
+        """Seconds a just-finished game stays on with Live games (0 if not)."""
+        if g["state"] != "post" or g["id"] not in self.ended:
+            return 0
+        return max(0, int(LINGER_SEC - (time.time() - self.ended[g["id"]])))
+
     def hot_leagues(self):
-        follow_close = CLOSE_GAMES in self.ctl.game_ids      # watching close games: every live league is hot
+        ids = self.ctl.game_ids
+        follow_all = CLOSE_GAMES in ids or LIVE_GAMES in ids                       # every live league is hot
+        follow = {i.split(":", 1)[1] for i in ids if i.startswith(LIVE_GAMES + ":")}  # just these leagues
         return {g["league"] for g in self.games
-                if g["state"] == "in" and (mine(g)[0] or g["id"] in self.ctl.game_ids or follow_close)}
+                if g["state"] == "in" and (mine(g)[0] or g["id"] in ids or follow_all or g["league"] in follow)}
 
     def picked(self):
-        """Games chosen on the phone. "Close games" expands to every close game right now."""
+        """Games chosen on the phone. "Close games" expands to every close game right now; "Live games"
+        to every game in progress plus ones that ended in the last 15 minutes."""
         out = []
         for gid in self.ctl.game_ids:
             if gid == CLOSE_GAMES:
                 out += [g for g in self.games if is_close(g) and g not in out]
+            elif gid == LIVE_GAMES or gid.startswith(LIVE_GAMES + ":"):
+                lg = gid.split(":", 1)[1] if ":" in gid else None
+                out += [g for g in self.games if g not in out and (not lg or g["league"] == lg)
+                        and (g["state"] == "in" or self.linger_left(g))]
             elif (g := self.game(gid)) and g not in out:
                 out.append(g)
         return out
@@ -956,7 +980,8 @@ def make_handler(ctl, feed):
             if path in ("/", "/index.html"):
                 self.send(200, open(os.path.join(HERE, "control.html"), "rb").read(), "text/html; charset=utf-8")
             elif path == "/api/state":
-                games = [dict(g, mine=bool(mine(g)[0]), close=is_close(g)) for g in feed.games]
+                games = [dict(g, mine=bool(mine(g)[0]), close=is_close(g), linger=feed.linger_left(g))
+                         for g in feed.games]
                 stale = time.time() - feed.last_ok           # nothing from ESPN for a while = likely blocked
                 feed_ok = feed.demo or stale < max(90, 6 * ctl.refresh)
                 self.send(200, dict(ctl.as_dict(), games=games, has_image=bool(ctl.frames),

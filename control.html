@@ -38,9 +38,10 @@
                   border-radius:20px; padding:6px 12px; font-size:13px; }
   .chips button.on { color:#fff; border-color:var(--accent); }
   .chips.wrap { flex-wrap:wrap; overflow:visible; }
-  .quick { display:flex; gap:6px; margin-bottom:6px; }
-  .quick button { flex:1; background:#1d222b; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 4px; font-size:13px; font-weight:600; }
+  .quick { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:6px; }
+  .quick button { background:#1d222b; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 4px; font-size:13px; font-weight:600; }
   .quick button.on { border-color:var(--live); color:#fff; background:#3a1414; }
+  .badge.fin { background:#3a4250; }
   .badge { font-size:10px; font-weight:800; color:#fff; background:var(--live); border-radius:4px; padding:2px 5px; margin-left:6px; vertical-align:2px; }
   .check { width:22px; height:22px; border-radius:50%; border:2px solid #3a4250; flex:none; display:grid; place-items:center; font-size:13px; color:#fff; }
   .game.on .check { background:var(--accent); border-color:var(--accent); }
@@ -135,6 +136,7 @@
   <div class="quick">
     <button id="pickShown">Select all</button>
     <button id="pickMine">My teams</button>
+    <button id="pickLive">Live games</button>
     <button id="pickClose">Close games</button>
     <button id="pickNone">Clear</button>
   </div>
@@ -143,7 +145,7 @@
     <span class="segLabel">Switch every</span>
     <button data-r="5">5 sec</button><button data-r="10">10 sec</button><button data-r="20">20 sec</button>
   </div>
-  <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>Close games</b> follows every close game in every league by itself (late and within one score) and scrolls everything else until one gets tight.</p>
+  <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>Live games</b> follows every game in progress (just one league if you picked a league above), adds new ones as they start, and keeps each one on for 15 minutes after it ends. <b>Close games</b> follows every close game in every league by itself (late and within one score) and scrolls everything else until one gets tight.</p>
 </div>
 
 <div class="card panel" data-panel="image">
@@ -273,6 +275,11 @@ function setGames(ids, msg) {
 
 function renderGames() {
   const following = S.mode === "game" && (S.game_ids || []).includes("@close");
+  const liveTok = (S.game_ids || []).find(i => i === "@live" || i.startsWith("@live:"));
+  const liveOn = S.mode === "game" && !!liveTok;
+  $("#pickLive").classList.toggle("on", liveOn);
+  $("#pickLive").textContent = liveOn ? (liveTok.includes(":") ? `Live ${liveTok.split(":")[1]} ✓` : "Live games ✓")
+                                      : (league === "ALL" ? "Live games" : `Live ${league}`);
   $("#pickClose").classList.toggle("on", following);
   $("#pickClose").textContent = following ? "Close games ✓" : "Close games";
   const games = S.games || [];
@@ -287,7 +294,7 @@ function renderGames() {
     return `<div class="game ${on ? "on" : ""}" data-id="${g.id}">
       <span class="check">${on ? "✓" : ""}</span>
       <span class="lg">${g.league}</span>
-      <span class="teams ${g.mine ? "mine" : ""}">${score}${g.close ? '<span class="badge">CLOSE</span>' : ""}</span>
+      <span class="teams ${g.mine ? "mine" : ""}">${score}${g.close ? '<span class="badge">CLOSE</span>' : ""}${g.linger ? `<span class="badge fin">ON ${Math.ceil(g.linger / 60)} MIN</span>` : ""}</span>
       <span class="st ${g.state === "in" ? "live" : ""}">${g.state === "in" ? "● " : ""}${g.detail.replace(/ - .*/, "")}</span></div>`;
   }).join("") : `<div class="empty">No games on right now.</div>`;
 }
@@ -313,6 +320,17 @@ $("#pickClose").onclick = () => {
   ids.add("@close");
   const now = (S.games || []).filter(g => g.close).length;
   setGames([...ids], now ? `Following ${now} close game${now > 1 ? "s" : ""}` : "Following close games. Scrolling until one gets tight");
+};
+$("#pickLive").onclick = () => {
+  const ids = new Set(S.mode === "game" ? S.game_ids || [] : []);
+  const had = [...ids].filter(i => i === "@live" || i.startsWith("@live:"));
+  had.forEach(i => ids.delete(i));
+  if (had.length) return setGames([...ids], ids.size ? "Stopped following live games" : undefined);
+  const tok = league === "ALL" ? "@live" : `@live:${league}`;
+  ids.add(tok);
+  const n = (S.games || []).filter(g => g.state === "in" && (league === "ALL" || g.league === league)).length;
+  const what = league === "ALL" ? "live games" : `live ${league} games`;
+  setGames([...ids], n ? `Following ${n} ${what}. New ones join when they start` : `Following ${what}. They'll join when they start`);
 };
 $("#pickNone").onclick = () => setGames([]);
 $("#rotate").onclick = e => { const b = e.target.closest("button"); if (b) save({rotate:+b.dataset.r}, `Switching every ${b.dataset.r} sec`); };
@@ -444,6 +462,10 @@ const Demo = (() => {
   const pickedGames = () => { const out = [];
     for (const id of S.game_ids || []) {
       if (id === "@close") games.filter(isClose).forEach(z => { if (!out.includes(z)) out.push(z); });
+      else if (id === "@live" || id.startsWith("@live:")) {
+        const lg = id.includes(":") ? id.split(":")[1] : null;
+        games.filter(z => z.state === "in" && (!lg || z.league === lg)).forEach(z => { if (!out.includes(z)) out.push(z); });
+      }
       else { const z = games.find(q => q.id === id); if (z && !out.includes(z)) out.push(z); }
     } return out; };
   const mlFmt = v => v == null || v === "" ? null : (v = parseInt(String(v).replace("+", "")), isNaN(v) ? null : v > 0 ? "+" + v : "" + v);
