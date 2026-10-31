@@ -83,7 +83,7 @@ LEAGUES = [  # (label, espn path, color)
     ("NHL", "hockey/nhl",                        (200, 200, 200)),
     ("MLB", "baseball/mlb",                      (255, 40, 40)),
 ]
-MOTIONS = ["scroll", "fade", "flash", "slide"]       # how the scores move: crawl, or one item at a time
+MOTIONS = ["scroll", "cut", "fade", "flash", "slide", "push"]   # crawl, or one item at a time
 EFFECTS = ["steady", "scroll", "blink", "rainbow", "fireworks"]          # message styles
 SCROLL_CHOICES = ["NFL", "NBA", "CFB", "CBB", "NHL", "MLB", "PL"]   # PL = ParlayLabs results
 CFB_TOP25_ONLY = True      # college slates are huge; scroll only ranked teams + my teams
@@ -100,7 +100,7 @@ class Control:
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
-            "game_speed": SCROLL_SPEED}
+            "game_speed": SCROLL_SPEED, "msg_on_image": False}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -127,10 +127,13 @@ class Control:
                 setattr(self, k, v)
         self.game_ids = [str(i) for i in (self.game_ids or [])][:40]
         self.rotate = max(3, min(60, int(self.rotate)))
-        self.leagues = [l for l in (self.leagues or []) if l in SCROLL_CHOICES]   # empty = everything
+        if self.mode == "game":                   # Scroll all + Games are one Ticker now
+            self.mode = "scroll"
+        self.leagues = [l for l in (self.leagues or []) if l in SCROLL_CHOICES and l != "PL"]  # sports; empty = all
         self.odds = [o for o in (self.odds or []) if o in ("ou", "ml", "spread")]
         self.msg_in_scroll = bool(self.msg_in_scroll)
         self.odds_on = bool(self.odds_on)
+        self.msg_on_image = bool(self.msg_on_image)
         self.group = "time" if self.group == "time" else "league"
         self.days = "today" if self.days == "today" else "week"
         self.pl_parts = [x for x in (self.pl_parts or []) if x in ("record", "parlays", "props")]
@@ -361,7 +364,9 @@ def game_text(g, odds):
     col = GOLD if gold else (WHITE if g["state"] == "in" else (180, 180, 180))
     return [(f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}", col)]
 
-def visible_games(games, only=None, days="week"):
+def visible_games(games, only=None, days="week", raw=False):
+    if raw:                                       # games you picked on the phone: show them as they are
+        return list(games)
     out = []
     for g in games:
         if only and g["league"] not in only:
@@ -373,11 +378,11 @@ def visible_games(games, only=None, days="week"):
         out.append(g)
     return out
 
-def time_segments(games, only=None, odds=("ou", "ml"), days="week"):
+def time_segments(games, only=None, odds=("ou", "ml"), days="week", raw=False):
     """Every game grouped by when it plays: LIVE first, then each start time in order, then FINAL.
     Each game gets a small league tag since leagues are mixed together."""
     lg_color = {l: c for l, _, c in LEAGUES}
-    games = visible_games(games, only, days)
+    games = visible_games(games, only, days, raw)
     live  = [g for g in games if g["state"] == "in"]
     pre   = sorted((g for g in games if g["state"] == "pre"), key=lambda g: (g.get("start") or 0, g["league"]))
     final = sorted((g for g in games if g["state"] == "post"), key=lambda g: -(g.get("start") or 0))
@@ -399,13 +404,13 @@ def time_segments(games, only=None, odds=("ou", "ml"), days="week"):
             segs.append(DOT)
     return segs
 
-def score_segments(games, only=None, odds=("ou", "ml"), days="week"):
+def score_segments(games, only=None, odds=("ou", "ml"), days="week", raw=False):
     """Scrolling text for every game: live/final scores, and odds for games not started."""
     segs = []
     for label, _, color in LEAGUES:
         if only and label not in only:
             continue
-        lg = [g for g in visible_games(games, None, days) if g["league"] == label]
+        lg = [g for g in visible_games(games, None, days, raw) if g["league"] == label]
         lg.sort(key=lambda g: {"in": 0, "pre": 1, "post": 2}[g["state"]])   # live games first
         if not lg:
             continue
@@ -736,16 +741,17 @@ def fireworks(d, t, x0=0, x1=W):
                 px, py = int(px), int(py)
                 d.rectangle([px, py, px + size - 1, py + size - 1], fill=col)
 
-def draw_fx_text(d, xy, text, f, color, effect, t, still_rainbow=False):
-    """Text with the chosen style. Returns its width."""
+def draw_fx_text(d, xy, text, f, color, effect, t, still_rainbow=False, outline_px=0):
+    """Text with the chosen style. Returns its width. outline_px puts a black edge around it (over pictures)."""
     w = f.getlength(text)
     if effect == "blink" and blink_off(t):
         return w
-    outline = dict(stroke_width=1, stroke_fill=(0, 0, 0)) if effect == "fireworks" else {}
+    px = outline_px or (1 if effect == "fireworks" else 0)
+    outline = dict(stroke_width=px, stroke_fill=(0, 0, 0)) if px else {}
     if effect == "rainbow":
         x, y = xy
         for i, ch in enumerate(text):
-            d.text((x, y), ch, font=f, fill=rainbow(i, 0 if still_rainbow else t))
+            d.text((x, y), ch, font=f, fill=rainbow(i, 0 if still_rainbow else t), **outline)
             x += f.getlength(ch)
     else:
         d.text(xy, text, font=f, fill=color, **outline)
@@ -776,10 +782,10 @@ def text_strip(segs, stamp=True, hide_msg=False):
     img.info["spans"] = spans
     return img
 
-def message_frame(ctl, t, x):
-    """Your message on its own, in its style. Returns (frame, scrolling?, width)."""
+def message_frame(ctl, t, x, background=None):
+    """Your message in its style, on black or over a picture. Returns (frame, scrolling?, width)."""
     txt, col, fx = (ctl.message or " ").strip() or " ", hex_rgb(ctl.color), ctl.effect
-    img = Image.new("RGB", (W, ROWS))
+    img = background.copy() if background is not None else Image.new("RGB", (W, ROWS))
     d = ImageDraw.Draw(img)
     f = fit_font(txt, start=26)
     scrolling = fx == "scroll" or f.size < 16
@@ -790,7 +796,7 @@ def message_frame(ctl, t, x):
     l, top, r, b = d.textbbox((0, 0), txt, font=f)
     y = (ROWS - (b - top)) // 2 - top
     px = x if scrolling else (W - (r - l)) // 2 - l
-    w = draw_fx_text(d, (px, y), txt, f, col, fx, t)
+    w = draw_fx_text(d, (px, y), txt, f, col, fx, t, outline_px=2 if background is not None else 0)
     return img, scrolling, w
 
 # ---- one-at-a-time cards (Fade / Flash / Slide up) --------------------------------
@@ -833,6 +839,8 @@ def card_size(card):
     return None
 
 def card_length(card, ctl):
+    if card.get("game"):
+        return ctl.hold
     size = card_size(card)
     if size:
         return ctl.hold
@@ -841,6 +849,8 @@ def card_length(card, ctl):
 
 def card_frame(card, t, ctl):
     """Draws one card, t seconds after it came up."""
+    if card.get("game"):
+        return game_frame(card["game"], 0, ctl.show_odds())
     img = Image.new("RGB", (W, ROWS))
     d = ImageDraw.Draw(img)
     size = card_size(card)
@@ -945,12 +955,21 @@ class Feed:
             self.build_strip()
             time.sleep(1)
 
+    def shown_games(self):
+        """Games on the ticker: the ones picked on the phone (incl. My teams / Live / Close),
+        or every game in the chosen sports when nothing is picked."""
+        ctl = self.ctl
+        if ctl.game_ids:
+            return self.picked(), True
+        return visible_games(self.games, ctl.leagues, ctl.days), True
+
     def build_strip(self):
         ctl = self.ctl
-        only = ctl.leagues                       # leagues picked on the phone (empty = everything)
-        pl = pl_segments(self.pl, ctl) if not only or "PL" in only else []
+        games, raw = self.shown_games()
+        pl = pl_segments(self.pl, ctl)
         build = time_segments if ctl.group == "time" else score_segments
-        segs = pl + build(self.games, only, ctl.show_odds(), ctl.days)
+        game_segs = build(games, None, ctl.show_odds(), "week", raw)
+        segs = game_segs + pl                     # games first, then ParlayLabs
         if ctl.msg_in_scroll and ctl.message.strip():
             # your message comes around before each league (and before ParlayLabs)
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
@@ -962,12 +981,30 @@ class Feed:
                 mixed.append(seg)
             segs = mixed or note
         self.strip = text_strip(segs)
-        self.cards = make_cards(segs)
+        self.cards = self.make_ticker_cards(pl, games, segs)
         # blink: a copy with the message blanked out, swapped in for the "off" moments
         self.strip_off = text_strip(segs, hide_msg=True) if ctl.msg_in_scroll and ctl.effect == "blink" else None
         # fireworks: which pixels are text, so sparks can go behind the words
         self.strip_mask = (self.strip.convert("L").point(lambda v: 255 if v > 0 else 0)
                            if ctl.msg_in_scroll and ctl.effect == "fireworks" else None)
+
+    def make_ticker_cards(self, pl, games, segs):
+        """One-at-a-time cards: clock, your message, ParlayLabs items, then each game as a big scoreboard."""
+        ctl = self.ctl
+        pl_cards = make_cards(pl)                # clock + ParlayLabs, as text cards
+        cards = pl_cards[:1]
+        if ctl.msg_in_scroll and ctl.message.strip():
+            col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
+            cards.append({"label": None, "segs": [(ctl.message.strip(), col)], "msg": True})
+        order = {"in": 0, "pre": 1, "post": 2}
+        if ctl.group == "time":
+            games = sorted(games, key=lambda g: (order[g["state"]],
+                           (g.get("start") or 0) * (-1 if g["state"] == "post" else 1)))
+        else:
+            lg_order = {l: i for i, (l, _, _) in enumerate(LEAGUES)}
+            games = sorted(games, key=lambda g: (lg_order.get(g["league"], 9), order[g["state"]], g.get("start") or 0))
+        cards += [{"label": None, "segs": [], "msg": False, "game": g} for g in games]
+        return cards + pl_cards[1:]              # games first, then ParlayLabs
 
     def note_finishes(self):
         now = time.time()
@@ -1191,7 +1228,6 @@ def run_display(ctl, feed, matrix):
 
     x, seen, img_i = W, -1, 0
     card_i, card_t0 = 0, time.time()
-    gx, gstrip, gkey = W, None, None              # the picked games as one crawling strip (Scroll style)
     while True:
         al = feed.next_alert()
         if al:                                    # takeover, then go back to whatever was showing
@@ -1205,33 +1241,23 @@ def run_display(ctl, feed, matrix):
             feed.build_strip()                    # league picks may have changed
 
         mode = ctl.mode
-        picked = feed.picked() if mode == "game" else []
-        if picked and ctl.game_motion == "scroll":  # picked games crawl across like a mini ticker
-            lg_color = {l: c for l, _, c in LEAGUES}
-            segs = []
-            for g in picked:
-                segs += [(f"{g['league']} ", lg_color[g["league"]])] + game_text(g, ctl.show_odds()) + [DOT]
-            key = tuple(sg[0] for sg in segs)
-            if key != gkey:                       # scores changed: redraw the strip, keep its place
-                gstrip, gkey = text_strip(segs, stamp=False), key
-            show(gstrip, gx)
-            step = 1 if ctl.game_speed <= 50 else 2
-            gx -= step
-            if gx < -gstrip.width:
-                gx = W
-            time.sleep(step / ctl.game_speed)
-        elif picked:                              # one game holds; several take turns
-            now = time.time()
-            g = picked[int(now // ctl.rotate) % len(picked)]
-            img = game_frame(g, ctl.rotate if len(picked) > 1 else 0, ctl.show_odds())
-            if len(picked) > 1 and ctl.game_motion != "cut":
-                img = with_motion(img, now % ctl.rotate, ctl.rotate, ctl.game_motion)
-                show(img); time.sleep(1 / 40)     # smooth while changing games
+        if mode == "image" and ctl.frames:
+            # GIF frames go by the clock, so a message on top can move smoothly
+            total = sum(ms for _, ms in ctl.frames) or 100
+            pos, img = (time.time() * 1000) % total, ctl.frames[0][0]
+            for fr, ms in ctl.frames:
+                if pos < ms:
+                    img = fr
+                    break
+                pos -= ms
+            if ctl.msg_on_image and (ctl.message or "").strip():   # message over the picture
+                img, scrolling, w = message_frame(ctl, time.time(), x, background=img)
+                step = 1 if ctl.speed <= 50 else 2
+                if scrolling:
+                    x = W if x < -w else x - step
+                show(img); time.sleep(step / ctl.speed)
             else:
-                show(img); time.sleep(0.25)
-        elif mode == "image" and ctl.frames:
-            img, ms = ctl.frames[img_i % len(ctl.frames)]
-            show(img); img_i += 1; time.sleep(ms / 1000)
+                show(img); time.sleep(1 / 30 if len(ctl.frames) > 1 else 0.25)
         elif mode == "message":
             img, scrolling, w = message_frame(ctl, time.time(), x)
             show(img)
