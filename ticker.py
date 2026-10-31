@@ -822,6 +822,7 @@ class Feed:
         self.ctl, self.demo, self.pl, self.games = ctl, demo, [], []
         self.last_ok, self.fails, self.last_error = time.time(), 0, ""
         self.last_state, self.ended = {}, {}       # to know when a game just finished
+        self.force = False                         # set by the refresh button
         self.strip = text_strip([("Loading…", GRAY)])
         self.strip_off = self.strip_mask = None
         self.cards = []
@@ -833,6 +834,8 @@ class Feed:
         by_league, last, last_pl = {}, {}, 0
         while True:
             now = time.time()
+            if self.force:                               # refresh button: skip the waits this time
+                self.force, last, last_pl = False, {}, 0
             if self.demo:
                 self.games, self.pl = DEMO_GAMES, demo_parlaylabs()
             else:
@@ -958,6 +961,9 @@ DEMO_GAMES = [
 ]
 
 # ------------------------------------------------------------------ control page / API
+STATIC_FILES = {"icon-32.png": "image/png", "icon-180.png": "image/png", "icon-192.png": "image/png",
+                "icon-512.png": "image/png", "manifest.json": "application/manifest+json"}
+
 def make_handler(ctl, feed):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -978,7 +984,10 @@ def make_handler(ctl, feed):
         def do_GET(self):
             path = self.path.split("?")[0]
             if path in ("/", "/index.html"):
-                self.send(200, open(os.path.join(HERE, "control.html"), "rb").read(), "text/html; charset=utf-8")
+                self.send(200, open(os.path.join(HERE, "index.html"), "rb").read(), "text/html; charset=utf-8")
+            elif path.lstrip("/") in STATIC_FILES:                # icon + home-screen bookmark files
+                name = path.lstrip("/")
+                self.send(200, open(os.path.join(HERE, name), "rb").read(), STATIC_FILES[name])
             elif path == "/api/state":
                 games = [dict(g, mine=bool(mine(g)[0]), close=is_close(g), linger=feed.linger_left(g))
                          for g in feed.games]
@@ -1002,6 +1011,8 @@ def make_handler(ctl, feed):
             try:
                 if path == "/api/state":
                     ctl.update(json.loads(body or b"{}"))
+                elif path == "/api/refresh":                 # the phone's refresh button: pull everything now
+                    feed.force = True
                 elif path == "/api/image":
                     fit = "fill" if "fit=fill" in self.path else "contain"
                     ctl.set_image(body, fit)
