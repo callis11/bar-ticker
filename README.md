@@ -49,7 +49,7 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 - Your choices are saved, so the ticker comes back the same way after a power cut
 - It only works on your home network. Reaching it from away would need something like Tailscale on the Pi
 
-Try it on a computer first: `python3 ticker.py --sim --demo`, then open http://localhost:8080.
+**Try it before the Pi arrives:** open the page from GitHub Pages (https://callis11.github.io/bar-ticker/) and it runs in demo mode with a pretend ticker drawn on the page. Every button works, there are test buttons for the touchdown, win and close-game alerts, and it shows today's real games when ESPN allows it. You can also run `python3 ticker.py --sim --demo` on a computer and open http://localhost:8080.
 
 ## What the script does now
 - Scrolls every game today in the NFL, NBA, college football, college hoops (ranked teams + MSU), NHL and MLB, using ESPN's free scoreboard feed. Everything refreshes every 5 seconds by default. The Lions, Pistons, MSU and your pinned game always refresh every 5 seconds while live; the rest can be slowed on the phone page (5–60 sec). If ESPN stops answering for a while, the phone page shows a red warning so you know to slow it down

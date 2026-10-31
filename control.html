@@ -10,6 +10,7 @@
 <style>
   :root { --bg:#0b0d10; --card:#151920; --line:#252b35; --text:#e9edf2; --dim:#8a94a3;
           --gold:#ffbe00; --live:#ff3b3b; --accent:#2f8cff; }
+  [hidden] { display:none !important; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   body { margin:0; background:var(--bg); color:var(--text);
          font:16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -18,7 +19,13 @@
   h1 .dot { width:9px; height:9px; border-radius:50%; background:#3a3f48; }
   h1 .dot.on { background:#00e050; box-shadow:0 0 8px #00e050; }
   .screen { background:#000; border:1px solid var(--line); border-radius:10px; padding:8px; }
-  .screen img { width:100%; display:block; image-rendering:pixelated; aspect-ratio:8/1; }
+  .screen img, .screen canvas { width:100%; display:block; image-rendering:pixelated; aspect-ratio:8/1; }
+  .demo { display:none; background:#10233f; border:1px solid #24497a; color:#bcd6ff; border-radius:10px;
+          padding:10px 12px; font-size:14px; margin-bottom:10px; }
+  .demo.on, .demoOnly.on { display:block; }
+  .demoOnly { display:none; }
+  .row3 { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .row3 .btn { margin:0; padding:11px 4px; font-size:14px; }
   .tabs { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin:14px 0; }
   .tabs button { background:var(--card); color:var(--dim); border:1px solid var(--line);
                  border-radius:10px; padding:11px 2px; font-size:14px; font-weight:600; }
@@ -70,7 +77,8 @@
 <body>
 <h1><span class="dot" id="dot"></span>Bar Ticker</h1>
 
-<div class="screen"><img id="frame" alt="What the ticker is showing now"></div>
+<div class="demo" id="demoBar">Demo mode: this is a pretend ticker so you can try the controls. On the real one, this page runs on the Pi and controls the LEDs.</div>
+<div class="screen"><img id="frame" alt="What the ticker is showing now"><canvas id="sim" width="256" height="32" hidden></canvas></div>
 <div class="warn" id="warn"></div>
 
 <div class="tabs" id="tabs">
@@ -111,6 +119,16 @@
   <p class="hint">Short messages stay still. Long ones scroll.</p>
 </div>
 
+<div class="card demoOnly" id="demoTests">
+  <h2>Try the team alerts</h2>
+  <div class="row3">
+    <button class="btn ghost" data-test="td">Touchdown</button>
+    <button class="btn ghost" data-test="win">Win</button>
+    <button class="btn ghost" data-test="close">Close game</button>
+  </div>
+  <p class="hint">On the real ticker these fire by themselves when the Lions, Pistons or MSU score, win, or get into a close game. The TV delay and the alerts switch below work here too.</p>
+</div>
+
 <div class="card">
   <h2>Settings</h2>
   <label class="row" for="bright"><span>Brightness</span><span id="brightV"></span></label>
@@ -131,7 +149,9 @@ const $ = s => document.querySelector(s);
 const COLORS = ["#ffbe00","#ffffff","#ff2828","#00e050","#0076b6","#009646","#c8102e","#ff7a00","#b050ff"];
 let S = {}, league = "ALL", online = false;
 
+let DEMO = false;
 async function api(path, opts) {
+  if (DEMO) return Demo.api(path, opts);
   const r = await fetch(path, opts);
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
   return r.json();
@@ -190,6 +210,7 @@ $("#colors").onclick = e => { const b = e.target.closest("button"); if (b) { S.c
 $("#sendMsg").onclick = () => save({mode:"message", message:$("#msg").value || "GO LIONS!", color:S.color}, "Message is up");
 $("#fit").onclick = e => { const b = e.target.closest("button"); if (b) save({fit:b.dataset.fit}); };
 $("#showImage").onclick = () => save({mode:"image"}, "Showing your picture");
+$("#demoTests").onclick = e => { const b = e.target.closest("button"); if (b) Demo.testAlert(b.dataset.test); };
 $("#file").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   toast("Sending…");
@@ -206,8 +227,245 @@ async function poll() {
   try { S = await api("/api/state"); online = true; render(); } catch { online = false; }
   $("#dot").classList.toggle("on", online);
 }
-setInterval(() => { $("#frame").src = "/api/frame.png?" + Date.now(); }, 500);
-poll(); setInterval(poll, 5000);
+
+/* ---------------------------------------------------------------- demo mode
+   No Pi to talk to (opened from GitHub or a link): run a pretend ticker in the page.
+   Same buttons, same look as the LEDs, drawn on a 256 x 32 canvas.               */
+const Demo = (() => {
+  const W = 256, H = 32, FONT = 'bold SIZEpx "DejaVu Sans", Verdana, Arial, sans-serif';
+  const C = {white:"#fff", gold:"#ffbe00", green:"#00e650", red:"#ff2828", gray:"#828282", odds:"#00c8c8", dot:"#3c3c3c", blue:"#00b4ff"};
+  const LEAGUE_COLORS = {NFL:"#0078ff", NBA:"#ff5a00", CFB:"#00c85a", CBB:"#a050ff", NHL:"#c8c8c8", MLB:"#ff2828"};
+  const ESPN = {NFL:"football/nfl", NBA:"basketball/nba", CFB:"football/college-football",
+                CBB:"basketball/mens-college-basketball", NHL:"hockey/nhl", MLB:"baseball/mlb"};
+  const MY = {"NFL|DET":["LIONS","#0076b6","#bec3c8"], "NBA|DET":["PISTONS","#c8102e","#1d428a"],
+              "CFB|MSU":["SPARTANS","#009646","#ffffff"], "CBB|MSU":["SPARTANS","#009646","#ffffff"]};
+  const fake = (league, away, home, a, h, state, detail, spread, total) =>
+    ({id:`${league}-${away}${home}`, league, away, home, ascore:a, hscore:h, state, detail, spread, total});
+  const SAMPLE = [
+    fake("NFL","MIN","DET",17,24,"in","4th 3:12"), fake("NFL","CHI","GB",10,14,"in","2nd 0:45"),
+    fake("NFL","KC","BUF",0,0,"pre","Sun 4:25 PM EST","BUF -2.5",51.5), fake("NFL","NYJ","MIA",20,23,"post","Final"),
+    fake("NBA","DET","BOS",0,0,"pre","7:30 PM EST","BOS -6.5",224.5), fake("CFB","MSU","IOWA",21,17,"in","3rd 9:58"),
+    fake("CBB","MSU","DUKE",0,0,"pre","Tue 9:00 PM EST","DUKE -3",148.5)];
+  // ParlayLabs as of Oct 31 (used when the live site can't be reached)
+  const PL_SAMPLE = [{sport:"NFL", won:0, lost:9, profit:-90, live:73,
+    latest:[["Best Shot at +100",false],["Best Shot at +300",false],["Best 3-Leg",false]]}];
+
+  let S = {mode:"scroll", game_id:null, message:"GO LIONS!", color:"#ffbe00", brightness:60,
+           tv_delay:0, alerts:true, fit:"contain", refresh:5};
+  let games = SAMPLE, pl = PL_SAMPLE, live = false, image = null, alerts = [], showing = null;
+  const cv = $("#sim"), g = cv.getContext("2d");
+  const mine = x => MY[`${x.league}|${x.away}`] ? x.away : MY[`${x.league}|${x.home}`] ? x.home : null;
+  const font = n => FONT.replace("SIZE", n);
+  const shortTime = d => d.split(" - ").pop().replace(/ E[SD]T$/, "");
+
+  async function loadLive() {           // works when hosted on GitHub Pages; falls back to samples
+    try {
+      const all = [];
+      for (const [lg, path] of Object.entries(ESPN)) {
+        const d = await (await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard`)).json();
+        for (const ev of d.events || []) {
+          const comp = ev.competitions[0], t = {};
+          comp.competitors.forEach(c => t[c.homeAway] = c);
+          const ranked = [t.away, t.home].some(c => (c.curatedRank || {}).current <= 25);
+          const x = fake(lg, t.away.team.abbreviation, t.home.team.abbreviation, +t.away.score || 0, +t.home.score || 0,
+                         ev.status.type.state, ev.status.type.shortDetail, (comp.odds || [{}])[0].details, (comp.odds || [{}])[0].overUnder);
+          if ((lg === "CFB" || lg === "CBB") && !ranked && !mine(x)) continue;
+          all.push(x);
+        }
+      }
+      if (all.length) { games = all; live = true; }
+    } catch {}
+    try {
+      const out = [];
+      for (const [sport, sub] of [["NFL",""],["NBA","/nba"],["CFB","/cfb"],["CBB","/cbb"]]) {
+        const slips = Object.values((await (await fetch(`https://callis11.github.io/parlay-lab${sub}/picks.json`)).json()).slips);
+        const done = slips.filter(s => s.status === "won" || s.status === "lost");
+        if (!done.length) continue;
+        const won = done.filter(s => s.status === "won");
+        out.push({sport, won:won.length, lost:done.length - won.length,
+          profit: won.reduce((a, s) => a + 10 * s.dec - 10, 0) - 10 * (done.length - won.length),
+          live: slips.filter(s => s.status === "open").length,
+          latest: done.sort((a, b) => (a.graded || 0) - (b.graded || 0)).slice(-3).reverse().map(s => [s.name, s.status === "won", 10 * s.dec])});
+      }
+      if (out.length) pl = out;
+    } catch {}
+    buildStrip();
+  }
+
+  function segments() {
+    const segs = [[`  ${new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}).replace(/ ?[AP]M/, "")}  `, C.blue]];
+    for (const p of pl) {
+      segs.push([`  PARLAYLABS ${p.sport}  `, C.gold], [`${p.won}-${p.lost}  `, C.white],
+                [`${p.profit >= 0 ? "+" : "-"}$${Math.abs(p.profit).toFixed(0)}  `, p.profit >= 0 ? C.green : C.red]);
+      for (const [name, hit, pay] of p.latest) {
+        segs.push([`${name} ${hit ? "WON" : "LOST"}`, hit ? C.green : C.red]);
+        if (hit) segs.push([` $${pay.toFixed(0)}`, C.green]);
+        segs.push(["  •  ", C.dot]);
+      }
+      if (p.live) segs.push([`${p.live} parlays live  `, C.blue]);
+    }
+    const order = {in:0, pre:1, post:2};
+    for (const lg of Object.keys(ESPN)) {
+      const list = games.filter(x => x.league === lg).sort((a, b) => order[a.state] - order[b.state]);
+      if (!list.length) continue;
+      segs.push([`  ${lg}  `, LEAGUE_COLORS[lg]]);
+      for (const x of list) {
+        const gold = !!mine(x);
+        if (x.state === "pre") {
+          segs.push([`${x.away} @ ${x.home} ${shortTime(x.detail)}`, gold ? C.gold : C.gray]);
+          const line = [x.spread, x.total ? `O/U ${x.total}` : null].filter(Boolean).join("  ");
+          if (line) segs.push([`  ${line}`, C.odds]);
+        } else {
+          segs.push([`${x.away} ${x.ascore}  ${x.home} ${x.hscore}  ${x.detail}`,
+                     gold ? C.gold : x.state === "in" ? C.white : "#b4b4b4"]);
+        }
+        segs.push(["  •  ", C.dot]);
+      }
+    }
+    return segs;
+  }
+
+  let strip, x = W;
+  function buildStrip(segs = segments()) {
+    g.font = font(20);
+    const w = segs.reduce((a, [t]) => a + g.measureText(t).width, 0) + 4;
+    strip = document.createElement("canvas"); strip.width = Math.ceil(w); strip.height = H;
+    const s = strip.getContext("2d"); s.font = font(20); s.textBaseline = "middle";
+    let px = 0;
+    for (const [t, c] of segs) { s.fillStyle = c; s.fillText(t, px, H / 2 + 1); px += s.measureText(t).width; }
+    return strip;
+  }
+
+  function fit(text, max = W - 8, start = 28) {
+    for (let n = start; n > 9; n--) { g.font = font(n); if (g.measureText(text).width <= max) return n; }
+    return 10;
+  }
+  function center(text, size, color, cx = W / 2, cy = H / 2) {
+    g.font = font(size); g.fillStyle = color; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(text, cx, cy + 1); g.textAlign = "left";
+  }
+  const clear = (c = "#000") => { g.fillStyle = c; g.fillRect(0, 0, W, H); };
+
+  function drawGame(x) {
+    clear();
+    const pre = x.state === "pre";
+    const left = pre ? x.away : `${x.away} ${x.ascore}`, right = pre ? x.home : `${x.hscore} ${x.home}`;
+    const mid1 = pre ? shortTime(x.detail) : x.detail, mid2 = pre ? (x.spread || "") : "";
+    let big = 24, small;
+    for (; big > 11; big--) {
+      small = Math.max(10, (big >> 1) + 1);
+      g.font = font(big); const lw = g.measureText(left).width + g.measureText(right).width;
+      g.font = font(small); const mw = Math.max(g.measureText(mid1).width, g.measureText(mid2).width);
+      if (lw + mw + 16 <= W) break;
+    }
+    const my = mine(x);
+    g.font = font(big); const lw = g.measureText(left).width, rw = g.measureText(right).width;
+    center(left, big, x.away === my ? C.gold : C.white, 4 + lw / 2);
+    center(right, big, x.home === my ? C.gold : C.white, W - 4 - rw / 2);
+    g.fillStyle = C.green;
+    if (!pre && x.ascore > x.hscore) g.fillRect(4, H - 3, lw, 2);
+    if (!pre && x.hscore > x.ascore) g.fillRect(W - 4 - rw, H - 3, rw, 2);
+    if (mid2) { center(mid1, small, C.odds, W / 2, 9); center(mid2, small, C.odds, W / 2, 23); }
+    else {
+      g.font = font(small);
+      const parts = g.measureText(mid1).width > 70 && mid1.includes(" ") ? [mid1.slice(0, mid1.indexOf(" ")), mid1.slice(mid1.indexOf(" ") + 1)] : [mid1];
+      parts.forEach((p, i) => center(p, small, x.state === "in" ? C.red : C.gray, W / 2, parts.length === 1 ? H / 2 : i ? 23 : 9));
+    }
+  }
+
+  function drawAlert(al, t) {
+    const amber = "#ffaa00";
+    if (t < 6) {
+      const flash = Math.floor(t * 4) % 2 === 0, word = al.words[Math.floor(t) % 2];
+      let bg = flash ? al.c1 : "#000", fg = flash ? "#fff" : al.c1;
+      if (al.kind === "close") { bg = flash ? amber : "#000"; fg = flash ? "#000" : amber; }
+      clear(bg); center(word, fit(word), fg);
+      if (al.kind === "win") for (let i = 0; i < 60; i++) {
+        g.fillStyle = [C.gold, "#fff", al.c2, C.green][i % 4];
+        g.fillRect(Math.random() * W | 0, Math.random() * H | 0, 1, 1);
+      }
+    } else {
+      clear(); g.strokeStyle = Math.floor(t * 2) % 2 ? al.c2 : al.c1; g.lineWidth = 2; g.strokeRect(1, 1, W - 2, H - 2);
+      center(al.score, fit(al.score, W - 8, 20), al.kind === "close" ? amber : C.gold);
+    }
+  }
+
+  let msg = null, last = performance.now(), frameIdx = 0, seen = "";
+  function tick(now) {
+    const dt = (now - last) / 1000; last = now;
+    cv.style.filter = `brightness(${0.35 + S.brightness / 100 * 0.9})`;
+    const due = alerts.findIndex(a => now - a.at >= S.tv_delay * 1000);
+    if (!showing && due >= 0) { showing = alerts.splice(due, 1)[0]; showing.start = now; }
+    if (showing) {
+      const t = (now - showing.start) / 1000;
+      if (t < 10) { drawAlert(showing, t); return requestAnimationFrame(tick); }
+      showing = null; x = W;
+    }
+    const key = JSON.stringify([S.mode, S.game_id, S.message, S.color]);
+    if (key !== seen) { seen = key; x = W; msg = null; }
+    if (S.mode === "game" && games.find(z => z.id === S.game_id)) drawGame(games.find(z => z.id === S.game_id));
+    else if (S.mode === "image" && image) {
+      clear(); const sc = S.fit === "fill" ? Math.max(W / image.width, H / image.height) : Math.min(W / image.width, H / image.height);
+      const w = image.width * sc, h = image.height * sc; g.drawImage(image, (W - w) / 2, (H - h) / 2, w, h);
+    } else if (S.mode === "message") {
+      const txt = S.message || " ", n = fit(txt, W - 8, 26);
+      if (n >= 16) { clear(); center(txt, n, S.color); }
+      else {
+        msg = msg || buildStrip([["     " + txt + "     ", S.color]]);
+        clear(); g.drawImage(msg, Math.round(x), 0); x -= 40 * dt; if (x < -msg.width) x = W;
+      }
+    } else {
+      clear(); g.drawImage(strip, Math.round(x), 0); x -= 40 * dt;
+      if (x < -strip.width) { x = W; buildStrip(); }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function testAlert(kind) {
+    if (!S.alerts) return toast("Team alerts are switched off");
+    const gm = {td: fake("NFL","MIN","DET",17,24,"in","4th 3:12"), win: fake("NFL","MIN","DET",17,31,"post","Final"),
+                close: fake("NBA","DET","BOS",101,99,"in","4th 2:31")}[kind];
+    const [name, c1, c2] = MY[`${gm.league}|DET`];
+    alerts.push({kind, c1, c2, at: performance.now(),
+      score: `${gm.away} ${gm.ascore}  ${gm.home} ${gm.hscore}  ${gm.detail}`,
+      words: {td:["TOUCHDOWN!", name + "!"], win:[name, "WIN!"], close:["CLOSE GAME", name]}[kind]});
+    toast(S.tv_delay ? `Alert in ${S.tv_delay} sec (TV delay)` : "Here it comes");
+  }
+
+  async function api(path, opts = {}) {
+    if (path.startsWith("/api/state") && opts.method === "POST") {
+      Object.assign(S, JSON.parse(opts.body || "{}"));
+    } else if (path.startsWith("/api/image")) {
+      const f = opts.body;
+      try { image = await createImageBitmap(f); }
+      catch { throw new Error("couldn't open that picture"); }
+      S.mode = "image"; S.fit = path.includes("fit=fill") ? "fill" : "contain";
+      if (/gif/i.test(f.type)) setTimeout(() => toast("GIFs animate on the real ticker"), 1900);
+    }
+    return Object.assign({}, S, {games: games.map(z => Object.assign({mine: !!mine(z)}, z)),
+                                 has_image: !!image, feed_ok: true, last_ok: 0});
+  }
+
+  async function start() {
+    $("#demoBar").classList.add("on"); $("#demoTests").classList.add("on");
+    $("#frame").hidden = true; cv.hidden = false;
+    buildStrip(); requestAnimationFrame(tick);
+    loadLive().then(() => { if (live) toast("Showing today's real games"); });
+  }
+  return {start, api, testAlert};
+})();
+
+async function start() {
+  try {
+    if (location.hash === "#demo") throw 0;
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 2500);
+    const r = await fetch("/api/state", {signal: ctl.signal});
+    if (!r.ok || !(r.headers.get("content-type") || "").includes("json")) throw 0;
+  } catch { DEMO = true; await Demo.start(); }
+  if (!DEMO) setInterval(() => { $("#frame").src = "/api/frame.png?" + Date.now(); }, 500);
+  poll(); setInterval(poll, 5000);
+}
+start();
 </script>
 </body>
 </html>
