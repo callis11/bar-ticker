@@ -167,7 +167,11 @@
   <h2 style="margin-top:10px">Change style</h2>
   <div class="chips wrap" id="gameMotion">
     <button data-gm="cut">Cut</button><button data-gm="fade">Fade</button><button data-gm="flash">Flash</button>
-    <button data-gm="slide">Slide up</button><button data-gm="push">Slide left</button>
+    <button data-gm="slide">Slide up</button><button data-gm="push">Slide left</button><button data-gm="scroll">Scroll</button>
+  </div>
+  <div id="gameSpeedBox" hidden>
+    <label class="row" for="gameSpeed"><span>Scroll speed</span><span id="gameSpeedV"></span></label>
+    <input type="range" id="gameSpeed" min="10" max="120" step="5">
   </div>
   <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>My teams</b> follows the Lions, Pistons and MSU (live, today, or just finished; otherwise each team's next game). <b>Live games</b> follows every game in progress (just one league if you picked a league above), adds new ones as they start, and keeps each one on for 15 minutes after it ends. <b>Close games</b> follows every close game in every league by itself (late and within one score) and scrolls everything else until one gets tight.</p>
 </div>
@@ -264,6 +268,9 @@ function render() {
   $("#mixMsg").textContent = S.msg_in_scroll ? "Update message in the scroll" : "Mix into the scores scroll";
   document.querySelectorAll("#oddsPick button").forEach(b => b.classList.toggle("on", (S.odds || []).includes(b.dataset.o)));
   document.querySelectorAll("#gameMotion button").forEach(b => b.classList.toggle("on", b.dataset.gm === (S.game_motion || "slide")));
+  $("#gameSpeedBox").hidden = S.game_motion !== "scroll";
+  $("#gameSpeed").value = S.game_speed || 40; $("#gameSpeedV").textContent = speedWord(S.game_speed || 40);
+  $("#rotate").style.display = S.game_motion === "scroll" ? "none" : "";
   document.querySelectorAll("#plCount button").forEach(b => b.classList.toggle("on", +b.dataset.n === (S.pl_count || 5)));
   const ps = S.pl_sports || [], pt = S.prop_types || [];
   $("#plSports").innerHTML = `<button data-s="" class="${ps.length ? "" : "on"}">All sports</button>` +
@@ -407,6 +414,7 @@ const PROP_TYPES = [["Anytime TD","TD"],["Receptions","Receptions"],["Receiving 
   ["Assists","Assists"],["Threes","Threes"],["Pts + reb + ast","PRA"]];
 function toggleList(list, key) { const on = new Set(list || []); if (!key) on.clear(); else on.has(key) ? on.delete(key) : on.add(key); return [...on]; }
 $("#gameMotion").onclick = e => { const b = e.target.closest("button"); if (b) save({game_motion:b.dataset.gm}, `Games change with ${b.textContent}`); };
+let t5; $("#gameSpeed").oninput = e => { $("#gameSpeedV").textContent = speedWord(+e.target.value); clearTimeout(t5); t5 = setTimeout(() => save({game_speed:+e.target.value}), 250); };
 $("#plCount").onclick = e => { const b = e.target.closest("button"); if (b) save({pl_count:+b.dataset.n}, b.textContent); };
 $("#plSports").onclick = e => { const b = e.target.closest("button"); if (b) save({pl_sports:toggleList(S.pl_sports, b.dataset.s)}, "ParlayLabs sports updated"); };
 $("#propTypes").onclick = e => { const b = e.target.closest("button"); if (b) save({prop_types:toggleList(S.prop_types, b.dataset.t)}, "Prop types updated"); };
@@ -554,7 +562,7 @@ const Demo = (() => {
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
            group:"league", days:"week", pl_parts:["record","parlays","props"],
-           speed:40, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide", ranks:true};
+           speed:40, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide", ranks:true, game_speed:40};
   const picks = () => S.odds_on === false ? [] : (S.odds || []);
   let games = SAMPLE, pl = PL_SAMPLE, live = false, image = null, alerts = [], showing = null;
   const cv = $("#sim"), g = cv.getContext("2d");
@@ -755,6 +763,12 @@ const Demo = (() => {
     if (cardSize(c)) return S.hold;
     g.font = font(20); return Math.max(S.hold, (W + g.measureText(cardText(c)).width) / S.speed);
   }
+  let gStrip = null, gKey = "", gx = W;
+  const gameSegsFor = x => {
+    const gold = !!mine(x);
+    if (x.state === "pre") { const line = oddsText(x); return [[`${team(x, "away")} @ ${team(x, "home")}`, gold ? C.gold : C.gray], ...(line ? [[`  ${line}`, C.odds]] : [])]; }
+    return [[`${team(x, "away")} ${x.ascore}  ${team(x, "home")} ${x.hscore}  ${x.detail}`, gold ? C.gold : x.state === "in" ? C.white : "#b4b4b4"]];
+  };
   const gameCanvas = document.createElement("canvas"); gameCanvas.width = W; gameCanvas.height = H;
   const cardCanvas = document.createElement("canvas"); cardCanvas.width = W; cardCanvas.height = H;
   function drawCard(c, t) {
@@ -863,7 +877,13 @@ const Demo = (() => {
     const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks]);
     if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; }
     const picked = S.mode === "game" ? pickedGames() : [];
-    if (picked.length) {
+    if (picked.length && S.game_motion === "scroll") {   // picked games crawl across like a mini ticker
+      const segs = picked.flatMap(z => [[`${z.league} `, LEAGUE_COLORS[z.league]], ...gameSegsFor(z), ["  •  ", C.dot]]);
+      const key = segs.map(q => q[0]).join("|");
+      if (key !== gKey) { gStrip = makeStrip(segs); gKey = key; }
+      clear(); g.drawImage(gStrip, Math.round(gx), 0); gx -= (S.game_speed || 40) * dt; if (gx < -gStrip.width) gx = W;
+    }
+    else if (picked.length) {
       const secs = Date.now() / 1000;
       drawGame(picked[Math.floor(secs / S.rotate) % picked.length]);
       if (picked.length > 1) {

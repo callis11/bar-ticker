@@ -99,7 +99,8 @@ class Control:
             "msg_in_scroll": False, "effect": "steady",
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
-            "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True}
+            "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
+            "game_speed": SCROLL_SPEED}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -138,7 +139,8 @@ class Control:
         self.hold = max(2, min(15, int(self.hold)))
         self.ranks = bool(self.ranks)
         SHOW_RANKS["on"] = self.ranks
-        self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push") else "slide"
+        self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push", "scroll") else "slide"
+        self.game_speed = max(10, min(120, int(self.game_speed)))
         self.pl_count = max(1, min(10, int(self.pl_count)))
         self.pl_sports = [x for x in (self.pl_sports or []) if x in PL_SPORTS]      # empty = all sports
         self.prop_types = [x for x in (self.prop_types or []) if x in PROP_TYPES]  # empty = all types
@@ -1109,6 +1111,7 @@ def run_display(ctl, feed, matrix):
 
     x, seen, img_i = W, -1, 0
     card_i, card_t0 = 0, time.time()
+    gx, gstrip, gkey = W, None, None              # the picked games as one crawling strip (Scroll style)
     while True:
         al = feed.next_alert()
         if al:                                    # takeover, then go back to whatever was showing
@@ -1123,7 +1126,21 @@ def run_display(ctl, feed, matrix):
 
         mode = ctl.mode
         picked = feed.picked() if mode == "game" else []
-        if picked:                                # one game holds; several take turns
+        if picked and ctl.game_motion == "scroll":  # picked games crawl across like a mini ticker
+            lg_color = {l: c for l, _, c in LEAGUES}
+            segs = []
+            for g in picked:
+                segs += [(f"{g['league']} ", lg_color[g["league"]])] + game_text(g, ctl.show_odds()) + [DOT]
+            key = tuple(sg[0] for sg in segs)
+            if key != gkey:                       # scores changed: redraw the strip, keep its place
+                gstrip, gkey = text_strip(segs, stamp=False), key
+            show(gstrip, gx)
+            step = 1 if ctl.game_speed <= 50 else 2
+            gx -= step
+            if gx < -gstrip.width:
+                gx = W
+            time.sleep(step / ctl.game_speed)
+        elif picked:                              # one game holds; several take turns
             now = time.time()
             g = picked[int(now // ctl.rotate) % len(picked)]
             img = game_frame(g, ctl.rotate if len(picked) > 1 else 0, ctl.show_odds())
