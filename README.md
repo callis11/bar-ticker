@@ -42,6 +42,7 @@ Handy commands on the Pi: `sudo systemctl restart ticker` (restart), `journalctl
 On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap Share → Add to Home Screen so it opens like an app.
 - **Live preview** of what's on the ticker right now
 - **Scroll all**: every game with scores, plus ParlayLabs (pick Record, Top parlays and/or Top overs). Pick any mix of NFL, NBA, college football, college hoops, NHL, MLB and ParlayLabs, or Everything
+- **How it moves**: Scroll (the classic crawl), or one item at a time with **Fade**, **Flash** or **Slide up**, each with a small label on top (league, time slot or ParlayLabs part). A Speed slider (Slow to Very fast) sets the crawl speed, and for one-at-a-time you pick how long each item stays (3, 5 or 8 sec). Long items like parlays crawl across inside their card
 - **Order**: By league, or **By start time** (LIVE first, then each kickoff/tip-off slot like "SUN 1:00 PM" with every game in it, then FINAL)
 - **Days**: Today only, or This week (NFL and college football list the whole week)
 - **Odds**: a Show odds switch, plus Moneyline, Over/Under and Spread picks (Moneyline and Over/Under on by default). Odds show for games that haven't started, in the scroll and when you hold a game

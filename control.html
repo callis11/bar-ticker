@@ -103,6 +103,15 @@
     <button data-p="record">Record</button><button data-p="parlays">Top parlays</button><button data-p="props">Top overs</button>
   </div>
   <p class="hint" style="margin:0 0 4px">Pulled from your ParlayLabs site: this week's featured parlays with what $10 pays, and the best player overs with how often each player has hit it lately.</p>
+  <h2 style="margin-top:6px">How it moves</h2>
+  <div class="chips wrap" id="motionPick">
+    <button data-m="scroll">Scroll</button><button data-m="fade">Fade</button><button data-m="flash">Flash</button><button data-m="slide">Slide up</button>
+  </div>
+  <label class="row" for="speed"><span>Speed</span><span id="speedV"></span></label>
+  <input type="range" id="speed" min="10" max="120" step="5">
+  <div class="seg" id="holdPick"><span class="segLabel">Each item stays</span>
+    <button data-h="3">3 sec</button><button data-h="5">5 sec</button><button data-h="8">8 sec</button></div>
+  <p class="hint" id="motionHint" style="margin:0 0 10px"></p>
   <div class="seg" id="groupPick"><span class="segLabel">Order</span>
     <button data-g="league">By league</button><button data-g="time">By start time</button></div>
   <div class="seg" id="daysPick" style="margin-bottom:14px"><span class="segLabel">Days</span>
@@ -219,6 +228,13 @@ function render() {
   $("#unmixMsg").style.display = S.msg_in_scroll ? "" : "none";
   $("#mixMsg").textContent = S.msg_in_scroll ? "Update message in the scroll" : "Mix into the scores scroll";
   document.querySelectorAll("#oddsPick button").forEach(b => b.classList.toggle("on", (S.odds || []).includes(b.dataset.o)));
+  document.querySelectorAll("#motionPick button").forEach(b => b.classList.toggle("on", b.dataset.m === (S.motion || "scroll")));
+  document.querySelectorAll("#holdPick button").forEach(b => b.classList.toggle("on", +b.dataset.h === S.hold));
+  $("#holdPick").style.display = (S.motion || "scroll") === "scroll" ? "none" : "";
+  $("#speed").value = S.speed || 40; $("#speedV").textContent = speedWord(S.speed || 40);
+  $("#motionHint").textContent = (S.motion || "scroll") === "scroll"
+    ? "Scroll is the classic crawl. Fade, Flash and Slide up show one game at a time with a small label on top."
+    : "One game at a time with a small label on top. Speed sets how fast long ones (like parlays) crawl across.";
   document.querySelectorAll("#plParts button").forEach(b => b.classList.toggle("on", (S.pl_parts || []).includes(b.dataset.p)));
   document.querySelectorAll("#groupPick button").forEach(b => b.classList.toggle("on", b.dataset.g === (S.group || "league")));
   document.querySelectorAll("#daysPick button").forEach(b => b.classList.toggle("on", b.dataset.d === (S.days || "week")));
@@ -290,6 +306,10 @@ $("#sendMsg").onclick = () => save({mode:"message", message:$("#msg").value || "
 $("#mixMsg").onclick = () => save({mode:"scroll", msg_in_scroll:true, message:$("#msg").value || "GO LIONS!", color:S.color}, "Message added to the scroll");
 $("#effect").onclick = e => { const b = e.target.closest("button"); if (b) save({effect:b.dataset.e}, b.textContent + " style"); };
 $("#unmixMsg").onclick = () => save({msg_in_scroll:false}, "Message taken out of the scroll");
+function speedWord(v) { return v < 25 ? "Slow" : v < 50 ? "Normal" : v < 80 ? "Fast" : "Very fast"; }
+$("#motionPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", motion:b.dataset.m}, b.textContent); };
+$("#holdPick").onclick = e => { const b = e.target.closest("button"); if (b) save({hold:+b.dataset.h}, `Each item stays ${b.dataset.h} sec`); };
+let t4; $("#speed").oninput = e => { $("#speedV").textContent = speedWord(+e.target.value); clearTimeout(t4); t4 = setTimeout(() => save({speed:+e.target.value}), 250); };
 $("#plParts").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
   const on = new Set(S.pl_parts || []); on.has(b.dataset.p) ? on.delete(b.dataset.p) : on.add(b.dataset.p);
@@ -395,11 +415,12 @@ const Demo = (() => {
     fake("NBA","DET","BOS",0,0,"pre","7:30 PM EST","BOS -6.5",224.5,"+225","-275",4), fake("CFB","MSU","IOWA",21,17,"in","3rd 9:58",0,0,0,0,-2),
     fake("CBB","MSU","DUKE",0,0,"pre","Tue 9:00 PM EST","DUKE -3",148.5,"+130","-155",72)];
   // ParlayLabs as of Oct 31 (used when the live site can't be reached)
-  const PL_SAMPLE = [{"sport":"NFL","record":[["0-9  ","#ffffff"],["-$90  ","#ff2828"],["Best Shot at +100 LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["Best Shot at +300 LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["Best 3-Leg LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["73 parlays live  ","#00b4ff"]],"parlays":[["TOP PARLAYS  ","#00b4ff"],["Safe 4 +140: ","#ffffff"],["Bengals ML \u00b7 S. Diggs 25+ rec yds \u00b7 K. Murray 15+ rush yds \u00b7 R. Dowdle 2+ rec","#c8c8c8"],["  $10 pays $24","#00e650"],["  \u2022  ","#3c3c3c"],["Favorites + Floors 5 +184: ","#ffffff"],["Bengals ML \u00b7 Jaguars ML \u00b7 Cowboys ML \u00b7 S. Diggs 25+ rec yds \u00b7 K. Murray 15+ rush yds","#c8c8c8"],["  $10 pays $28","#00e650"],["  \u2022  ","#3c3c3c"],["Value 3 +771: ","#ffffff"],["J. Jennings 20+ rec yds \u00b7 J. Warren 26+ rec yds \u00b7 A. Jeanty 30+ rec yds","#c8c8c8"],["  $10 pays $87","#00e650"],["  \u2022  ","#3c3c3c"],["TDs + Spreads +548: ","#ffffff"],["J. Gibbs TD \u00b7 J. Williams TD \u00b7 Commanders -5.5 \u00b7 Rams -6.5","#c8c8c8"],["  $10 pays $65","#00e650"],["  \u2022  ","#3c3c3c"],["Longshot 5 +5836: ","#ffffff"],["A. Mitchell 3+ rec \u00b7 K. Walker III 100+ rush yds \u00b7 T. Higgins 90+ rec yds \u00b7 Commanders -5.5 \u00b7 Rams -6.5","#c8c8c8"],["  $10 pays $594","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Safe +264: ","#ffffff"],["Lions ML \u00b7 J. Gibbs TD \u00b7 J. Williams 30+ rec yds \u00b7 S. LaPorta 30+ rec yds","#c8c8c8"],["  $10 pays $36","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Shootout +974: ","#ffffff"],["Vikings/Lions over 46.5 \u00b7 S. Vaki 5+ rush yds \u00b7 J. Goff 2+ pass TDs \u00b7 J. Gibbs 25+ rec yds","#c8c8c8"],["  $10 pays $107","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Long Shot +2373: ","#ffffff"],["Lions -3.5 \u00b7 J. Gibbs 100+ rush yds \u00b7 A. St. Brown TD \u00b7 I. TeSlaa 25+ rec yds","#c8c8c8"],["  $10 pays $247","#00e650"],["  \u2022  ","#3c3c3c"]],"props":[["TOP OVERS  ","#00b4ff"],["J. Gibbs 20+ rec yds","#ffbe00"],[" -250","#00c8c8"],["  hit 6/6","#828282"],["  \u2022  ","#3c3c3c"],["J. Williams 40+ rec yds","#ffbe00"],[" -210","#00c8c8"],["  hit 5/6","#828282"],["  \u2022  ","#3c3c3c"],["J. Dobbins 20+ rush yds","#ffffff"],[" -223","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["J. Warren 15+ rec yds","#ffffff"],[" -248","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["A. Jones 25+ rush yds","#ffffff"],[" -160","#00c8c8"],["  hit 6/6","#828282"],["  \u2022  ","#3c3c3c"],["R. Odunze 30+ rec yds","#ffffff"],[" -194","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["A. Jeanty 20+ rec yds","#ffffff"],[" -221","#00c8c8"],["  hit 6/7","#828282"],["  \u2022  ","#3c3c3c"],["R. Rice 4+ rec","#ffffff"],[" -204","#00c8c8"],["  hit 9/10","#828282"],["  \u2022  ","#3c3c3c"]]}];
+  const PL_SAMPLE = [{"sport":"NFL","record":[["0-9  ","#ffffff"],["-$90  ","#ff2828"],["Best Shot at +100 LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["Best Shot at +300 LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["Best 3-Leg LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["73 parlays live  ","#00b4ff"]],"parlays":[["TOP PARLAYS  ","#00b4ff","sub"],["Safe 4 +140: ","#ffffff"],["Bengals ML \u00b7 S. Diggs 25+ rec yds \u00b7 K. Murray 15+ rush yds \u00b7 R. Dowdle 2+ rec","#c8c8c8"],["  $10 pays $24","#00e650"],["  \u2022  ","#3c3c3c"],["Favorites + Floors 5 +184: ","#ffffff"],["Bengals ML \u00b7 Jaguars ML \u00b7 Cowboys ML \u00b7 S. Diggs 25+ rec yds \u00b7 K. Murray 15+ rush yds","#c8c8c8"],["  $10 pays $28","#00e650"],["  \u2022  ","#3c3c3c"],["Value 3 +771: ","#ffffff"],["J. Jennings 20+ rec yds \u00b7 J. Warren 26+ rec yds \u00b7 A. Jeanty 30+ rec yds","#c8c8c8"],["  $10 pays $87","#00e650"],["  \u2022  ","#3c3c3c"],["TDs + Spreads +548: ","#ffffff"],["J. Gibbs TD \u00b7 J. Williams TD \u00b7 Commanders -5.5 \u00b7 Rams -6.5","#c8c8c8"],["  $10 pays $65","#00e650"],["  \u2022  ","#3c3c3c"],["Longshot 5 +5836: ","#ffffff"],["A. Mitchell 3+ rec \u00b7 K. Walker III 100+ rush yds \u00b7 T. Higgins 90+ rec yds \u00b7 Commanders -5.5 \u00b7 Rams -6.5","#c8c8c8"],["  $10 pays $594","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Safe +264: ","#ffffff"],["Lions ML \u00b7 J. Gibbs TD \u00b7 J. Williams 30+ rec yds \u00b7 S. LaPorta 30+ rec yds","#c8c8c8"],["  $10 pays $36","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Shootout +974: ","#ffffff"],["Vikings/Lions over 46.5 \u00b7 S. Vaki 5+ rush yds \u00b7 J. Goff 2+ pass TDs \u00b7 J. Gibbs 25+ rec yds","#c8c8c8"],["  $10 pays $107","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Long Shot +2373: ","#ffffff"],["Lions -3.5 \u00b7 J. Gibbs 100+ rush yds \u00b7 A. St. Brown TD \u00b7 I. TeSlaa 25+ rec yds","#c8c8c8"],["  $10 pays $247","#00e650"],["  \u2022  ","#3c3c3c"]],"props":[["TOP OVERS  ","#00b4ff","sub"],["J. Gibbs 20+ rec yds","#ffbe00"],[" -250","#00c8c8"],["  hit 6/6","#828282"],["  \u2022  ","#3c3c3c"],["J. Williams 40+ rec yds","#ffbe00"],[" -210","#00c8c8"],["  hit 5/6","#828282"],["  \u2022  ","#3c3c3c"],["J. Dobbins 20+ rush yds","#ffffff"],[" -223","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["J. Warren 15+ rec yds","#ffffff"],[" -248","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["A. Jones 25+ rush yds","#ffffff"],[" -160","#00c8c8"],["  hit 6/6","#828282"],["  \u2022  ","#3c3c3c"],["R. Odunze 30+ rec yds","#ffffff"],[" -194","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["A. Jeanty 20+ rec yds","#ffffff"],[" -221","#00c8c8"],["  hit 6/7","#828282"],["  \u2022  ","#3c3c3c"],["R. Rice 4+ rec","#ffffff"],[" -204","#00c8c8"],["  hit 9/10","#828282"],["  \u2022  ","#3c3c3c"]]}];
 
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
-           group:"league", days:"week", pl_parts:["record","parlays","props"]};
+           group:"league", days:"week", pl_parts:["record","parlays","props"],
+           speed:40, motion:"scroll", hold:4};
   const picks = () => S.odds_on === false ? [] : (S.odds || []);
   let games = SAMPLE, pl = PL_SAMPLE, live = false, image = null, alerts = [], showing = null;
   const cv = $("#sim"), g = cv.getContext("2d");
@@ -446,11 +467,11 @@ const Demo = (() => {
           if (open) block.record.push([`${open} parlays live  `, C.blue]);
         }
         const tp = PL.topParlays(slips);
-        if (tp.length) block.parlays = [["TOP PARLAYS  ", C.blue], ...tp];
+        if (tp.length) block.parlays = [["TOP PARLAYS  ", C.blue, "sub"], ...tp];
         try {
           const [data, odds] = await Promise.all([fetch(`${base}/data.json`).then(r => r.json()), fetch(`${base}/odds.json`).then(r => r.json())]);
           const ov = PL.topOvers(data, odds, sport);
-          if (ov.length) block.props = [["TOP OVERS  ", C.blue], ...ov];
+          if (ov.length) block.props = [["TOP OVERS  ", C.blue, "sub"], ...ov];
         } catch {}
         if (block.record.length || block.parlays.length || block.props.length) out.push(block);
       }
@@ -464,7 +485,7 @@ const Demo = (() => {
     const segs = [[`  ${new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}).replace(/ ?[AP]M/, "")}  `, C.blue]];
     for (const b of want("PL") ? pl : []) {
       const body = ["record", "parlays", "props"].filter(k => (S.pl_parts || []).includes(k)).flatMap(k => b[k] || []);
-      if (body.length) segs.push([`  PARLAYLABS ${b.sport}  `, C.gold], ...body);
+      if (body.length) segs.push([`  PARLAYLABS ${b.sport}  `, C.gold, "hdr"], ...body);
     }
     const order = {in:0, pre:1, post:2};
     const sameDay = (a, b) => a.toDateString() === b.toDateString();
@@ -475,7 +496,6 @@ const Demo = (() => {
       if (x.state === "pre") { const line = oddsText(x); return [[`${x.away} @ ${x.home}`, gold ? C.gold : C.gray], ...(line ? [[`  ${line}`, C.odds]] : [])]; }
       return [[`${x.away} ${x.ascore}  ${x.home} ${x.hscore}  ${x.detail}`, gold ? C.gold : x.state === "in" ? C.white : "#b4b4b4"]];
     };
-    const heads = new Set(["NFL","NBA","CFB","CBB"].map(s => `  PARLAYLABS ${s}  `));
     if (S.group === "time") {                     // LIVE, then each start time, then FINAL
       const slot = ts => { const d = new Date(ts * 1000), clock = d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
         return sameDay(d, new Date()) ? clock : `${d.toLocaleDateString([], {weekday:"short"}).toUpperCase()} ${clock}`; };
@@ -488,15 +508,14 @@ const Demo = (() => {
       groups.push(["FINAL", "#969696", shown.filter(x => x.state === "post").sort((a, b) => b.start - a.start)]);
       for (const [label, col, gs] of groups) {
         if (!gs.length) continue;
-        segs.push([`  ${label}  `, col]); heads.add(`  ${label}  `);
+        segs.push([`  ${label}  `, col, "hdr"]);
         for (const x of gs) { segs.push([`${x.league} `, LEAGUE_COLORS[x.league]], ...gameSegs(x), ["  •  ", C.dot]); }
       }
     }
     for (const lg of (S.group === "time" ? [] : Object.keys(ESPN).filter(want))) {
-      heads.add(`  ${lg}  `);
       const list = shown.filter(x => x.league === lg).sort((a, b) => order[a.state] - order[b.state]);
       if (!list.length) continue;
-      segs.push([`  ${lg}  `, LEAGUE_COLORS[lg]]);
+      segs.push([`  ${lg}  `, LEAGUE_COLORS[lg], "hdr"]);
       for (const x of list) {
         const gold = !!mine(x);
         if (x.state === "pre") {
@@ -512,7 +531,7 @@ const Demo = (() => {
     }
     if (S.msg_in_scroll && (S.message || "").trim()) {      // message comes around before each league
       const mixed = [];
-      for (const sg of segs) { if (heads.has(sg[0])) mixed.push([`   ${S.message.trim()}   `, S.effect === "rainbow" ? "rainbow" : S.color, "msg"], ["  •  ", C.dot]); mixed.push(sg); }
+      for (const sg of segs) { if (sg[2] === "hdr") mixed.push([`   ${S.message.trim()}   `, S.effect === "rainbow" ? "rainbow" : S.color, "msg"], ["  •  ", C.dot]); mixed.push(sg); }
       return mixed;
     }
     return segs;
@@ -570,9 +589,61 @@ const Demo = (() => {
     }
     return cnv;
   }
+  // ---- one-at-a-time cards (Fade / Flash / Slide up), same rules as ticker.py
+  let cards = [], cardI = 0, cardT0 = performance.now();
+  function makeCards(segs) {
+    const out = [{label:null, segs:[[new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}).replace(/ ?[AP]M/, ""), C.blue]], msg:false}];
+    let label = null, sub = null, cur = [];
+    const flush = () => { const body = cur.filter(x => x[0].trim()); if (body.length) out.push({label: sub ? [label ? `${label[0]} · ${sub[0]}` : sub[0], sub[1]] : label, segs: body, msg:false}); cur = []; };
+    for (const sg of segs) {
+      if (sg[2] === "hdr") { flush(); label = [sg[0].trim(), sg[1]]; sub = null; }
+      else if (sg[2] === "sub") { flush(); sub = [sg[0].trim(), sg[1]]; }
+      else if (sg[2] === "msg") { flush(); out.push({label:null, segs:[[sg[0].trim(), sg[1]]], msg:true}); }
+      else if (sg[0].trim() === "•") flush();
+      else cur.push(sg);
+    }
+    flush(); return out;
+  }
+  const cardText = c => c.segs.map(x => x[0]).join("").trim();
+  function cardSize(c) {
+    const txt = cardText(c);
+    for (let n = c.label ? 19 : 24; n > 12; n--) { g.font = font(n); if (g.measureText(txt).width <= W - 6) return n; }
+    return null;
+  }
+  function cardLength(c) {
+    if (cardSize(c)) return S.hold;
+    g.font = font(20); return Math.max(S.hold, (W + g.measureText(cardText(c)).width) / S.speed);
+  }
+  const cardCanvas = document.createElement("canvas"); cardCanvas.width = W; cardCanvas.height = H;
+  function drawCard(c, t) {
+    const cc = cardCanvas.getContext("2d"); cc.clearRect(0, 0, W, H);
+    const size = cardSize(c), n = size || 20, fx = c.msg ? (S.effect || "steady") : "steady";
+    let top = 0, h = H;
+    if (c.label) { cc.font = font(10); cc.textBaseline = "top"; cc.fillStyle = c.label[1]; cc.fillText(c.label[0].toUpperCase(), 3, 0); top = 11; h = H - 11; }
+    if (fx === "fireworks") fireworks(cc, t);
+    cc.font = font(n);
+    const parts = c.segs.map((x, i) => [i === 0 ? x[0].trimStart() : i === c.segs.length - 1 ? x[0].trimEnd() : x[0], x[1]]);
+    const width = parts.reduce((a, [tx]) => a + cc.measureText(tx).width, 0);
+    let px = size ? (W - width) / 2 : W - t * S.speed;
+    for (const [tx, col] of parts) {
+      fxText(cc, tx, px, top + h / 2 + 1, n, col === "rainbow" ? null : col, col === "rainbow" ? "rainbow" : fx, t);
+      cc.font = font(n); px += cc.measureText(tx).width;
+    }
+    return cardCanvas;
+  }
+  function drawWithMotion(cnv, t, len) {
+    const tr = 0.3, m = S.motion;
+    clear();
+    if (m === "fade") { g.globalAlpha = Math.max(0, Math.min(1, t / tr, (len - t) / tr)); g.drawImage(cnv, 0, 0); g.globalAlpha = 1; return; }
+    if (m === "flash") { if (!(t < 0.45 && Math.floor(t / 0.075) % 2)) g.drawImage(cnv, 0, 0); return; }
+    if (m === "slide") { const dy = t < tr ? H * (1 - t / tr) : t > len - tr ? -H * (t - (len - tr)) / tr : 0; g.drawImage(cnv, 0, Math.round(dy)); return; }
+    g.drawImage(cnv, 0, 0);
+  }
+
   let stripOff = null;
   function buildStrip() {
     const segs = segments();
+    cards = makeCards(segs);
     strip = makeStrip(segs);
     stripOff = S.msg_in_scroll && S.effect === "blink" ? makeStrip(segs, true) : null;
   }
@@ -643,8 +714,8 @@ const Demo = (() => {
       if (t < 10) { drawAlert(showing, t); return requestAnimationFrame(tick); }
       showing = null; x = W;
     }
-    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts]);
-    if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); }
+    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.motion]);
+    if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; }
     const picked = S.mode === "game" ? (S.game_ids || []).map(id => games.find(z => z.id === id)).filter(Boolean) : [];
     if (picked.length) {
       const secs = Date.now() / 1000;
@@ -660,13 +731,17 @@ const Demo = (() => {
       clear(); if (fx === "fireworks") fireworks(g, t);
       g.font = font(n); const tw = g.measureText(txt).width;
       fxText(g, txt, scrolling ? Math.round(x) : (W - tw) / 2, H / 2 + 1, n, S.color, fx, t);
-      if (scrolling) { x -= 40 * dt; if (x < -tw) x = W; }
+      if (scrolling) { x -= S.speed * dt; if (x < -tw) x = W; }
+    } else if ((S.motion || "scroll") !== "scroll" && cards.length) {
+      let c = cards[cardI % cards.length], len = cardLength(c), t = (now - cardT0) / 1000;
+      if (t >= len) { cardI = (cardI + 1) % cards.length; cardT0 = now; if (cardI === 0) buildStrip(); c = cards[cardI % cards.length]; len = cardLength(c); t = 0; }
+      drawWithMotion(drawCard(c, t), t, len);
     } else {
       const t = now / 1000, s2 = stripOff && blinkOff(t) ? stripOff : strip, xi = Math.round(x);
       clear();
       if (S.msg_in_scroll && S.effect === "fireworks")
         for (const [a, b] of strip.spans) if (a + xi < W && b + xi > 0) fireworks(g, t, a + xi, b + xi);
-      g.drawImage(s2, xi, 0); x -= 40 * dt;
+      g.drawImage(s2, xi, 0); x -= S.speed * dt;
       if (x < -strip.width) { x = W; buildStrip(); }
     }
     requestAnimationFrame(tick);

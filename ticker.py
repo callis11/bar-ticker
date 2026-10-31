@@ -18,7 +18,7 @@ Alert GIF:          python3 ticker.py --test-alert td     (td / win / close)
 import argparse, colorsys, io, json, math, os, random, time, threading, urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from PIL import Image, ImageDraw, ImageFont, ImageSequence
+from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageSequence
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -65,6 +65,7 @@ LEAGUES = [  # (label, espn path, color)
     ("NHL", "hockey/nhl",                        (200, 200, 200)),
     ("MLB", "baseball/mlb",                      (255, 40, 40)),
 ]
+MOTIONS = ["scroll", "fade", "flash", "slide"]       # how the scores move: crawl, or one item at a time
 EFFECTS = ["steady", "scroll", "blink", "rainbow", "fireworks"]          # message styles
 SCROLL_CHOICES = ["NFL", "NBA", "CFB", "CBB", "NHL", "MLB", "PL"]   # PL = ParlayLabs results
 CFB_TOP25_ONLY = True      # college slates are huge; scroll only ranked teams + my teams
@@ -78,7 +79,8 @@ class Control:
             "brightness": 60, "tv_delay": 0, "alerts": True, "fit": "contain",
             "refresh": REFRESH_SEC, "odds": ["ou", "ml"], "odds_on": True,
             "msg_in_scroll": False, "effect": "steady",
-            "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"]}
+            "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
+            "speed": SCROLL_SPEED, "motion": "scroll", "hold": 4}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -112,6 +114,9 @@ class Control:
         self.group = "time" if self.group == "time" else "league"
         self.days = "today" if self.days == "today" else "week"
         self.pl_parts = [x for x in (self.pl_parts or []) if x in ("record", "parlays", "props")]
+        self.speed = max(10, min(120, int(self.speed)))
+        self.motion = self.motion if self.motion in MOTIONS else "scroll"
+        self.hold = max(2, min(15, int(self.hold)))
         if self.effect not in EFFECTS:
             self.effect = "steady"
 
@@ -297,7 +302,7 @@ def time_segments(games, only=None, odds=("ou", "ml"), days="week"):
     for label, color, gs in groups:
         if not gs:
             continue
-        segs.append((f"  {label}  ", color))
+        segs.append((f"  {label}  ", color, "hdr"))
         for g in gs:
             segs.append((f"{g['league']} ", lg_color[g["league"]]))
             segs += game_text(g, odds)
@@ -314,7 +319,7 @@ def score_segments(games, only=None, odds=("ou", "ml"), days="week"):
         lg.sort(key=lambda g: {"in": 0, "pre": 1, "post": 2}[g["state"]])   # live games first
         if not lg:
             continue
-        segs.append((f"  {label}  ", color))
+        segs.append((f"  {label}  ", color, "hdr"))
         for g in lg:
             gold = bool(mine(g)[0])
             if g["state"] == "pre":
@@ -438,11 +443,11 @@ def parlaylabs(loader=None, sports=None, now=None):
                 rec.append((f"{len(live)} parlays live  ", (0, 180, 255)))
         tp = top_parlays(slips, now=now)
         if tp:
-            block["parlays"] = [("TOP PARLAYS  ", (0, 180, 255))] + tp
+            block["parlays"] = [("TOP PARLAYS  ", (0, 180, 255), "sub")] + tp
         try:
             ov = top_overs(loader(f"{PARLAYLABS}{sub}/data.json"), loader(f"{PARLAYLABS}{sub}/odds.json"), sport, now=now)
             if ov:
-                block["props"] = [("TOP OVERS  ", (0, 180, 255))] + ov
+                block["props"] = [("TOP OVERS  ", (0, 180, 255), "sub")] + ov
         except Exception:
             pass
         if block["record"] or block["parlays"] or block["props"]:
@@ -454,7 +459,7 @@ def pl_segments(blocks, parts):
     for b in blocks:
         body = [seg for part in ("record", "parlays", "props") if part in parts for seg in b[part]]
         if body:
-            segs += [(f"  PARLAYLABS {b['sport']}  ", GOLD)] + body
+            segs += [(f"  PARLAYLABS {b['sport']}  ", GOLD, "hdr")] + body
     return segs
 
 # ------------------------------------------------------------------ alerts
@@ -677,6 +682,102 @@ def message_frame(ctl, t, x):
     w = draw_fx_text(d, (px, y), txt, f, col, fx, t)
     return img, scrolling, w
 
+# ---- one-at-a-time cards (Fade / Flash / Slide up) --------------------------------
+def make_cards(segs):
+    """Splits the scroll into cards: a small label on top (league, time slot, ParlayLabs part)
+    and one game, parlay, prop or message underneath."""
+    cards, label, sub, cur = [], None, None, []
+    def flush():
+        nonlocal cur
+        body = [sg for sg in cur if sg[0].strip()]
+        if body:
+            lab = label if not sub else (f"{label[0]} · {sub[0]}" if label else sub[0], sub[1])
+            cards.append({"label": lab, "segs": body, "msg": False})
+        cur = []
+    cards.append({"label": None, "segs": [(datetime.now().strftime("%-I:%M"), (0, 180, 255))], "msg": False})
+    for sg in segs:
+        tag = sg[2] if len(sg) > 2 else None
+        if tag == "hdr":
+            flush(); label, sub = (sg[0].strip(), sg[1]), None
+        elif tag == "sub":
+            flush(); sub = (sg[0].strip(), sg[1])
+        elif tag == "msg":
+            flush(); cards.append({"label": None, "segs": [(sg[0].strip(), sg[1])], "msg": True})
+        elif sg == DOT or sg[0].strip() == "•":
+            flush()
+        else:
+            cur.append(sg)
+    flush()
+    return cards
+
+LABEL_FONT = 10
+
+def card_size(card):
+    """Main-line font size that fits, or None if it has to crawl across."""
+    txt = "".join(sg[0] for sg in card["segs"]).strip()
+    start = 24 if card["label"] is None else 19
+    for size in range(start, 12, -1):
+        if font(size).getlength(txt) <= W - 6:
+            return size
+    return None
+
+def card_length(card, ctl):
+    size = card_size(card)
+    if size:
+        return ctl.hold
+    txt = "".join(sg[0] for sg in card["segs"]).strip()
+    return max(ctl.hold, (W + FONT.getlength(txt)) / ctl.speed)
+
+def card_frame(card, t, ctl):
+    """Draws one card, t seconds after it came up."""
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    size = card_size(card)
+    f = font(size) if size else FONT
+    texts = [(sg[0], sg[1]) for sg in card["segs"]]
+    texts[0] = (texts[0][0].lstrip(), texts[0][1]); texts[-1] = (texts[-1][0].rstrip(), texts[-1][1])
+    width = sum(f.getlength(tx) for tx, _ in texts)
+    if card["label"]:
+        lt, lc = card["label"]
+        d.text((3, 0), lt.upper(), font=font(LABEL_FONT), fill=lc)
+        top, h = 11, ROWS - 11
+    else:
+        top, h = 0, ROWS
+    fx = ctl.effect if card["msg"] else "steady"
+    if fx == "fireworks":
+        fireworks(d, t)
+    x = (W - width) / 2 if size else W - t * ctl.speed
+    l, tt, r, b = d.textbbox((0, 0), "Ag", font=f)
+    y = top + (h - (b - tt)) // 2 - tt
+    for tx, col in texts:
+        if col == "rainbow":
+            draw_fx_text(d, (x, y), tx, f, None, "rainbow", t)
+        else:
+            draw_fx_text(d, (x, y), tx, f, col, fx, t)
+        x += f.getlength(tx)
+    return img
+
+def with_motion(img, t, length, motion):
+    """Fade / Flash / Slide-up in and out around a card."""
+    tr = 0.3
+    if motion == "fade":
+        k = max(0.0, min(1.0, t / tr, (length - t) / tr))
+        return ImageEnhance.Brightness(img).enhance(k) if k < 1 else img
+    if motion == "flash":
+        if t < 0.45 and int(t / 0.075) % 2:              # blinks in 3 times
+            return Image.new("RGB", (W, ROWS))
+        return img
+    if motion == "slide":
+        if t < tr:
+            dy = int(ROWS * (1 - t / tr))
+        elif t > length - tr:
+            dy = -int(ROWS * (t - (length - tr)) / tr)
+        else:
+            return img
+        out = Image.new("RGB", (W, ROWS)); out.paste(img, (0, dy))
+        return out
+    return img
+
 # ------------------------------------------------------------------ feed
 class Feed:
     """Pulls data in a background thread so the display never stutters."""
@@ -685,6 +786,7 @@ class Feed:
         self.last_ok, self.fails, self.last_error = time.time(), 0, ""
         self.strip = text_strip([("Loading…", GRAY)])
         self.strip_off = self.strip_mask = None
+        self.cards = []
         self.watcher = AlertWatcher()
         threading.Thread(target=self.loop, daemon=True).start()
 
@@ -724,16 +826,14 @@ class Feed:
             # your message comes around before each league (and before ParlayLabs)
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
             note = [(f"   {ctl.message.strip()}   ", col, "msg"), DOT]
-            headers = {f"  {l}  " for l, _, _ in LEAGUES} | {f"  PARLAYLABS {s}  " for s in PL_SPORTS}
             mixed = []
             for seg in segs:
-                is_time_header = ctl.group == "time" and seg[0].startswith("  ") and seg[0].endswith("  ") \
-                                 and len(seg) == 2 and seg[1] in ((0, 180, 255), RED, (150, 150, 150))
-                if seg[0] in headers or is_time_header:
+                if len(seg) > 2 and seg[2] == "hdr":
                     mixed += note
                 mixed.append(seg)
             segs = mixed or note
         self.strip = text_strip(segs)
+        self.cards = make_cards(segs)
         # blink: a copy with the message blanked out, swapped in for the "off" moments
         self.strip_off = text_strip(segs, hide_msg=True) if ctl.msg_in_scroll and ctl.effect == "blink" else None
         # fireworks: which pixels are text, so sparks can go behind the words
@@ -880,6 +980,7 @@ def run_display(ctl, feed, matrix):
         ctl.last_frame = frame.copy() if int(time.time() * 4) % 2 == 0 else ctl.last_frame
 
     x, seen, img_i = W, -1, 0
+    card_i, card_t0 = 0, time.time()
     while True:
         al = feed.next_alert()
         if al:                                    # takeover, then go back to whatever was showing
@@ -889,6 +990,7 @@ def run_display(ctl, feed, matrix):
             x = W
         if ctl.version != seen:                   # something changed on the phone
             seen, x, img_i = ctl.version, W, 0
+            card_i, card_t0 = 0, time.time()
             feed.build_strip()                    # league picks may have changed
 
         mode = ctl.mode
@@ -902,9 +1004,19 @@ def run_display(ctl, feed, matrix):
         elif mode == "message":
             img, scrolling, w = message_frame(ctl, time.time(), x)
             show(img)
+            step = 1 if ctl.speed <= 50 else 2
             if scrolling:
-                x = W if x < -w else x - 1
-            time.sleep(1 / SCROLL_SPEED)
+                x = W if x < -w else x - step
+            time.sleep(step / ctl.speed)
+        elif ctl.motion != "scroll" and feed.cards:   # one item at a time
+            cards = feed.cards
+            card = cards[card_i % len(cards)]
+            length, t = card_length(card, ctl), time.time() - card_t0
+            if t >= length:
+                card_i, card_t0 = (card_i + 1) % len(cards), time.time()
+                continue
+            show(with_motion(card_frame(card, t, ctl), t, length, ctl.motion))
+            time.sleep(1 / 40)
         else:                                     # scroll everything
             strip, t = feed.strip, time.time()
             if feed.strip_off is not None and blink_off(t) and feed.strip_off.width == strip.width:
@@ -920,10 +1032,11 @@ def run_display(ctl, feed, matrix):
                 show(layer)
             else:
                 show(strip, x)
-            x -= 1
+            step = 1 if ctl.speed <= 50 else 2
+            x -= step
             if x < -strip.width:
                 x = W
-            time.sleep(1 / SCROLL_SPEED)
+            time.sleep(step / ctl.speed)
 
 # ------------------------------------------------------------------ test helpers
 def save_gif(frames, name, ms):
