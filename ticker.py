@@ -76,7 +76,8 @@ class Control:
     KEYS = {"mode": "scroll", "leagues": [], "game_ids": [], "rotate": 10, "message": "GO LIONS!", "color": "#ffbe00",
             "brightness": 60, "tv_delay": 0, "alerts": True, "fit": "contain",
             "refresh": REFRESH_SEC, "odds": ["ou", "ml"], "odds_on": True,
-            "msg_in_scroll": False, "effect": "steady"}
+            "msg_in_scroll": False, "effect": "steady",
+            "group": "league", "days": "week"}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -107,6 +108,8 @@ class Control:
         self.odds = [o for o in (self.odds or []) if o in ("ou", "ml", "spread")]
         self.msg_in_scroll = bool(self.msg_in_scroll)
         self.odds_on = bool(self.odds_on)
+        self.group = "time" if self.group == "time" else "league"
+        self.days = "today" if self.days == "today" else "week"
         if self.effect not in EFFECTS:
             self.effect = "steady"
 
@@ -183,7 +186,15 @@ def parse_game(label, ev):
         ranked=any(c.get("curatedRank", {}).get("current", 99) <= 25 for c in (a, h)),
         spread=odds.get("details"), total=odds.get("overUnder"),
         mla=moneyline(odds, "away"), mlh=moneyline(odds, "home"),
+        start=start_time(ev.get("date")),
     )
+
+def start_time(iso):
+    """ESPN start time ("2026-11-01T18:00Z") as seconds since 1970, or 0."""
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return 0
 
 def moneyline(odds, side):
     """ESPN moneyline for one team, as text like "-142" / "+120", or None."""
@@ -231,15 +242,73 @@ def odds_text(g, picks):
         out.append(g["spread"])
     return "  ".join(out)
 
-def score_segments(games, only=None, odds=("ou", "ml")):
+def is_today(g):
+    return g["state"] == "in" or (g.get("start") and
+           datetime.fromtimestamp(g["start"]).date() == datetime.now().date())
+
+def slot_label(ts):
+    """Start time slot like "SUN 1:00 PM" (just "1:00 PM" for today)."""
+    t = datetime.fromtimestamp(ts)
+    clock = t.strftime("%-I:%M %p")
+    return clock if t.date() == datetime.now().date() else f"{t:%a} {clock}".upper()
+
+def game_text(g, odds):
+    """One game as scroll segments (without the league or time header)."""
+    gold = bool(mine(g)[0])
+    if g["state"] == "pre":
+        out = [(f"{g['away']} @ {g['home']}", GOLD if gold else GRAY)]
+        line = odds_text(g, odds)
+        if line:
+            out.append((f"  {line}", ODDS_COLOR))
+        return out
+    col = GOLD if gold else (WHITE if g["state"] == "in" else (180, 180, 180))
+    return [(f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}  {g['detail']}", col)]
+
+def visible_games(games, only=None, days="week"):
+    out = []
+    for g in games:
+        if only and g["league"] not in only:
+            continue
+        if g["league"] in ("CFB", "CBB") and CFB_TOP25_ONLY and not (g["ranked"] or mine(g)[0]):
+            continue
+        if days == "today" and not is_today(g):
+            continue
+        out.append(g)
+    return out
+
+def time_segments(games, only=None, odds=("ou", "ml"), days="week"):
+    """Every game grouped by when it plays: LIVE first, then each start time in order, then FINAL.
+    Each game gets a small league tag since leagues are mixed together."""
+    lg_color = {l: c for l, _, c in LEAGUES}
+    games = visible_games(games, only, days)
+    live  = [g for g in games if g["state"] == "in"]
+    pre   = sorted((g for g in games if g["state"] == "pre"), key=lambda g: (g.get("start") or 0, g["league"]))
+    final = sorted((g for g in games if g["state"] == "post"), key=lambda g: -(g.get("start") or 0))
+    groups = [("LIVE", RED, live)]
+    for g in pre:
+        label = slot_label(g["start"]) if g.get("start") else short_time(g["detail"]).upper()
+        if groups[-1][0] != label:
+            groups.append((label, (0, 180, 255), []))
+        groups[-1][2].append(g)
+    groups.append(("FINAL", (150, 150, 150), final))
+    segs = []
+    for label, color, gs in groups:
+        if not gs:
+            continue
+        segs.append((f"  {label}  ", color))
+        for g in gs:
+            segs.append((f"{g['league']} ", lg_color[g["league"]]))
+            segs += game_text(g, odds)
+            segs.append(DOT)
+    return segs
+
+def score_segments(games, only=None, odds=("ou", "ml"), days="week"):
     """Scrolling text for every game: live/final scores, and odds for games not started."""
     segs = []
     for label, _, color in LEAGUES:
         if only and label not in only:
             continue
-        lg = [g for g in games if g["league"] == label]
-        if label in ("CFB", "CBB") and CFB_TOP25_ONLY:
-            lg = [g for g in lg if g["ranked"] or mine(g)[0]]
+        lg = [g for g in visible_games(games, None, days) if g["league"] == label]
         lg.sort(key=lambda g: {"in": 0, "pre": 1, "post": 2}[g["state"]])   # live games first
         if not lg:
             continue
@@ -546,7 +615,8 @@ class Feed:
         ctl = self.ctl
         only = ctl.leagues                       # leagues picked on the phone (empty = everything)
         pl = self.pl if not only or "PL" in only else []
-        segs = pl + score_segments(self.games, only, ctl.show_odds())
+        build = time_segments if ctl.group == "time" else score_segments
+        segs = pl + build(self.games, only, ctl.show_odds(), ctl.days)
         if ctl.msg_in_scroll and ctl.message.strip():
             # your message comes around before each league (and before ParlayLabs)
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
@@ -554,7 +624,9 @@ class Feed:
             headers = {f"  {l}  " for l, _, _ in LEAGUES} | {f"  PARLAYLABS {s}  " for s in PL_SPORTS}
             mixed = []
             for seg in segs:
-                if seg[0] in headers:
+                is_time_header = ctl.group == "time" and seg[0].startswith("  ") and seg[0].endswith("  ") \
+                                 and len(seg) == 2 and seg[1] in ((0, 180, 255), RED, (150, 150, 150))
+                if seg[0] in headers or is_time_header:
                     mixed += note
                 mixed.append(seg)
             segs = mixed or note
@@ -587,19 +659,26 @@ def demo_parlaylabs():
     except Exception:
         return []
 
-def fake(league, away, home, a, h, state, detail, spread=None, total=None, period=4, clock=180, mla=None, mlh=None):
+def fake(league, away, home, a, h, state, detail, spread=None, total=None, period=4, clock=180, mla=None, mlh=None,
+         hours=0):
     return dict(id=f"{league}-{away}{home}", league=league, away=away, home=home, ascore=a, hscore=h,
                 state=state, detail=detail, period=period, clock=clock, ranked=True, spread=spread, total=total,
-                mla=mla, mlh=mlh)
+                mla=mla, mlh=mlh, start=_demo_start(hours))
+
+def _demo_start(hours):
+    """Sample start times: on the hour, `hours` from now."""
+    t = time.time() + hours * 3600
+    return t - t % 1800
 
 DEMO_GAMES = [
-    fake("NFL", "MIN", "DET", 17, 24, "in", "4th 3:12"),
-    fake("NFL", "CHI", "GB", 10, 14, "in", "2nd 0:45", period=2),
-    fake("NFL", "KC", "BUF", 0, 0, "pre", "Sun 4:25 PM EST", "BUF -2.5", 51.5, mla="+120", mlh="-142"),
-    fake("NFL", "NYJ", "MIA", 20, 23, "post", "Final"),
-    fake("NBA", "DET", "BOS", 0, 0, "pre", "7:30 PM EST", "BOS -6.5", 224.5, mla="+225", mlh="-275"),
-    fake("CFB", "MSU", "IOWA", 21, 17, "in", "3rd 9:58", period=3),
-    fake("CBB", "MSU", "DUKE", 0, 0, "pre", "Tue 9:00 PM EST", "DUKE -3", 148.5, mla="+130", mlh="-155"),
+    fake("NFL", "MIN", "DET", 17, 24, "in", "4th 3:12", hours=-3),
+    fake("NFL", "CHI", "GB", 10, 14, "in", "2nd 0:45", period=2, hours=-1),
+    fake("NFL", "KC", "BUF", 0, 0, "pre", "Sun 4:25 PM EST", "BUF -2.5", 51.5, mla="+120", mlh="-142", hours=26),
+    fake("NFL", "PHI", "DAL", 0, 0, "pre", "Sun 4:25 PM EST", "DAL +3", 47.5, mla="-150", mlh="+128", hours=26),
+    fake("NFL", "NYJ", "MIA", 20, 23, "post", "Final", hours=-5),
+    fake("NBA", "DET", "BOS", 0, 0, "pre", "7:30 PM EST", "BOS -6.5", 224.5, mla="+225", mlh="-275", hours=4),
+    fake("CFB", "MSU", "IOWA", 21, 17, "in", "3rd 9:58", period=3, hours=-2),
+    fake("CBB", "MSU", "DUKE", 0, 0, "pre", "Tue 9:00 PM EST", "DUKE -3", 148.5, mla="+130", mlh="-155", hours=72),
 ]
 
 # ------------------------------------------------------------------ control page / API
