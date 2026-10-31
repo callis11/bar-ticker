@@ -41,10 +41,11 @@ Handy commands on the Pi: `sudo systemctl restart ticker` (restart), `journalctl
 ## Phone control page
 On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap Share → Add to Home Screen so it opens like an app.
 - **Live preview** of what's on the ticker right now
-- **Scroll all**: every game with scores and odds, plus ParlayLabs. Pick any mix of NFL, NBA, college football, college hoops, NHL, MLB and ParlayLabs, or Everything
+- **Scroll all**: every game with scores, plus ParlayLabs. Pick any mix of NFL, NBA, college football, college hoops, NHL, MLB and ParlayLabs, or Everything
+- **Odds**: a Show odds switch, plus Moneyline, Over/Under and Spread picks (Moneyline and Over/Under on by default). Odds show for games that haven't started, in the scroll and when you hold a game
 - **Games**: tap one game to hold it, or several and the ticker takes turns (switch every 5, 10 or 20 sec). Quick buttons: Select all, My teams, Clear. My teams are listed first
 - **Picture**: send a photo or GIF from your phone (GIFs animate). Pick "Fit whole picture" or "Fill the strip"
-- **Message**: type anything, pick a color
+- **Message**: type anything, pick a color and a style: Steady, Scroll, Blink, Rainbow or Fireworks. Show it on its own, or mix it into the scores scroll so it comes around before each league (the style works both ways)
 - **Brightness**, **TV delay** (holds alerts so they line up with your TV), **score update speed** and **team alerts on/off**
 - Your choices are saved, so the ticker comes back the same way after a power cut
 - It only works on your home network. Reaching it from away would need something like Tailscale on the Pi
@@ -53,12 +54,12 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 
 ## What the script does now
 - Scrolls every game today in the NFL, NBA, college football, college hoops (ranked teams + MSU), NHL and MLB, using ESPN's free scoreboard feed. Everything refreshes every 5 seconds by default. The Lions, Pistons, MSU and any games you picked always refresh every 5 seconds while live; the rest can be slowed on the phone page (5–60 sec). If ESPN stops answering for a while, the phone page shows a red warning so you know to slow it down
-- Live games come first, then upcoming games with the spread and over/under, then final scores
+- Live games come first, then upcoming games with the odds you picked, then final scores
 - Pulls ParlayLabs `picks.json` for each sport: record, $10-bet profit, the last 3 graded parlays, and how many are still live
 - Lions, Pistons and Michigan State games show in gold
 - **Team alerts:** the whole ticker flashes for 10 seconds, then goes back to whatever was showing (scroll, game, picture or message)
   - Touchdown (Lions, MSU football): flashes TOUCHDOWN! / LIONS! in team colors, then the score
-  - Win (Lions, Pistons, MSU football and basketball): flashes the team name and WIN! with confetti, then the final score
+  - Win (Lions, Pistons, MSU football and basketball): flashes the team name and WIN! with fireworks, then the final score
   - Close game: flashes CLOSE GAME in amber once a game gets tight late. Football: 4th quarter, under 8:00, within 8 points. NBA: 4th quarter, under 5:00, within 6. College hoops: 2nd half, under 5:00, within 6
 - Test without LEDs: `python3 ticker.py --preview` (scroll) or `python3 ticker.py --test-alert td` (also `win`, `close`). Sample GIFs are in `previews/`
 

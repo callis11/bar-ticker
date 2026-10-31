@@ -15,7 +15,7 @@ Try it on a PC:     python3 ticker.py --sim --demo        (control page at http:
 Scroll GIF:         python3 ticker.py --preview
 Alert GIF:          python3 ticker.py --test-alert td     (td / win / close)
 """
-import argparse, io, json, os, random, time, threading, urllib.request
+import argparse, colorsys, io, json, math, os, random, time, threading, urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image, ImageDraw, ImageFont, ImageSequence
@@ -64,6 +64,7 @@ LEAGUES = [  # (label, espn path, color)
     ("NHL", "hockey/nhl",                        (200, 200, 200)),
     ("MLB", "baseball/mlb",                      (255, 40, 40)),
 ]
+EFFECTS = ["steady", "scroll", "blink", "rainbow", "fireworks"]          # message styles
 SCROLL_CHOICES = ["NFL", "NBA", "CFB", "CBB", "NHL", "MLB", "PL"]   # PL = ParlayLabs results
 CFB_TOP25_ONLY = True      # college slates are huge; scroll only ranked teams + my teams
 
@@ -75,7 +76,7 @@ class Control:
     KEYS = {"mode": "scroll", "leagues": [], "game_ids": [], "rotate": 10, "message": "GO LIONS!", "color": "#ffbe00",
             "brightness": 60, "tv_delay": 0, "alerts": True, "fit": "contain",
             "refresh": REFRESH_SEC, "odds": ["ou", "ml"], "odds_on": True,
-            "msg_in_scroll": False}
+            "msg_in_scroll": False, "effect": "steady"}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -106,6 +107,8 @@ class Control:
         self.odds = [o for o in (self.odds or []) if o in ("ou", "ml", "spread")]
         self.msg_in_scroll = bool(self.msg_in_scroll)
         self.odds_on = bool(self.odds_on)
+        if self.effect not in EFFECTS:
+            self.effect = "steady"
 
     def show_odds(self):
         """The odds to show right now: the picks, unless the master switch is off."""
@@ -357,11 +360,9 @@ def alert_frame(al, t, rng=random.Random(1)):
         if al.kind == "close":
             bg, fg = (amber, (0, 0, 0)) if flash else ((0, 0, 0), amber)
         d.rectangle([0, 0, W, ROWS], fill=bg)
+        if al.kind == "win":                             # fireworks behind the words
+            fireworks(d, t)
         centered(d, word, fit_font(word), fg)
-        if al.kind == "win":                             # confetti
-            for _ in range(60):
-                d.point((rng.randrange(W), rng.randrange(ROWS)),
-                        fill=rng.choice([GOLD, WHITE, al.c2, GREEN]))
     else:
         pulse = int(t * 2) % 2 == 0                      # slow border pulse
         d.rectangle([0, 0, W - 1, ROWS - 1], outline=al.c1 if pulse else al.c2, width=2)
@@ -409,26 +410,100 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
         d.line([(0, 0), (int(W * (time.time() % rotate) / rotate), 0)], fill=(50, 50, 80))
     return img
 
-def text_strip(segs, stamp=True):
-    """Draws segments onto one long image; we scroll a window across it."""
+# ---- message effects -----------------------------------------------------------
+FIREWORK_COLORS = [(255, 60, 60), (255, 190, 0), (0, 200, 255), (0, 230, 80), (255, 80, 220), (255, 255, 255)]
+
+def blink_off(t):
+    return t % 0.6 > 0.42                                   # on 0.42 s, off 0.18 s
+
+def rainbow(i, t=0.0):
+    r, g, b = colorsys.hsv_to_rgb(((i * 25 + t * 140) % 360) / 360, 1, 1)
+    return int(r * 255), int(g * 255), int(b * 255)
+
+def fireworks(d, t, x0=0, x1=W):
+    """Bursts of sparks between x0 and x1. Each burst is worked out from the clock, so nothing to keep track of."""
+    period, life = 0.2, 1.2
+    x0, x1 = max(0, x0), min(W, x1)
+    if x1 - x0 < 20:
+        return
+    for n in range(int((t - life) / period), int(t / period) + 1):
+        age = t - n * period
+        if not 0 <= age <= life:
+            continue
+        r = random.Random(n * 7919)
+        cx, cy = r.uniform(x0 + 6, x1 - 6), r.uniform(4, ROWS - 6)
+        base = r.choice(FIREWORK_COLORS)
+        fade = 1 - (age / life) ** 2                        # stays bright, then drops off
+        col = tuple(int(c * fade) for c in base)
+        if age < 0.1:                                       # the pop
+            d.ellipse([cx - 3, cy - 3, cx + 3, cy + 3], fill=(255, 255, 255))
+            continue
+        size = 2 if age < 0.7 else 1
+        for k in range(22):
+            a = 2 * math.pi * k / 22 + n
+            dist = 34 * age * (0.7 + 0.3 * ((k * 37 + n) % 5) / 4)
+            px = cx + math.cos(a) * dist
+            py = cy + math.sin(a) * dist * 0.6 + 9 * age * age   # flatter for the short strip, then fall
+            if -1 <= px < W and -1 <= py < ROWS:
+                px, py = int(px), int(py)
+                d.rectangle([px, py, px + size - 1, py + size - 1], fill=col)
+
+def draw_fx_text(d, xy, text, f, color, effect, t, still_rainbow=False):
+    """Text with the chosen style. Returns its width."""
+    w = f.getlength(text)
+    if effect == "blink" and blink_off(t):
+        return w
+    outline = dict(stroke_width=1, stroke_fill=(0, 0, 0)) if effect == "fireworks" else {}
+    if effect == "rainbow":
+        x, y = xy
+        for i, ch in enumerate(text):
+            d.text((x, y), ch, font=f, fill=rainbow(i, 0 if still_rainbow else t))
+            x += f.getlength(ch)
+    else:
+        d.text(xy, text, font=f, fill=color, **outline)
+    return w
+
+def text_strip(segs, stamp=True, hide_msg=False):
+    """Draws segments onto one long image; we scroll a window across it.
+    A segment can be (text, color) or (text, color, "msg") for your message. Where the message
+    sits is kept in img.info["spans"] so effects can find it while it scrolls by."""
     if stamp:
         segs = [(f"  {datetime.now():%-I:%M}  ", (0, 180, 255))] + (segs or [("No games right now", GRAY)])
-    width = sum(int(FONT.getlength(t)) for t, _ in segs) + 4
+    width = sum(int(FONT.getlength(sg[0])) for sg in segs) + 4
     img = Image.new("RGB", (max(width, 1), ROWS))
     d = ImageDraw.Draw(img)
-    x, y = 0, (ROWS - FONT_SIZE) // 2 - 2
-    for text, color in segs:
-        d.text((x, y), text, font=FONT, fill=color)
-        x += int(FONT.getlength(text))
+    x, y, spans = 0, (ROWS - FONT_SIZE) // 2 - 2, []
+    for sg in segs:
+        text, color = sg[0], sg[1]
+        is_msg = len(sg) > 2 and sg[2] == "msg"
+        w = int(FONT.getlength(text))
+        if is_msg:
+            spans.append((x, x + w))
+        if not (is_msg and hide_msg):
+            if color == "rainbow":
+                draw_fx_text(d, (x, y), text, FONT, None, "rainbow", 0, still_rainbow=True)
+            else:
+                d.text((x, y), text, font=FONT, fill=color)
+        x += w
+    img.info["spans"] = spans
     return img
 
-def message_image(ctl):
-    txt, col = ctl.message or " ", hex_rgb(ctl.color)
+def message_frame(ctl, t, x):
+    """Your message on its own, in its style. Returns (frame, scrolling?, width)."""
+    txt, col, fx = (ctl.message or " ").strip() or " ", hex_rgb(ctl.color), ctl.effect
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
     f = fit_font(txt, start=26)
-    if f.getlength(txt) <= W - 8 and f.size >= 16:      # fits: hold it in the middle
-        img = Image.new("RGB", (W, ROWS)); centered(ImageDraw.Draw(img), txt, f, col)
-        return img, False
-    return text_strip([("     " + txt + "     ", col)], stamp=False), True
+    scrolling = fx == "scroll" or f.size < 16
+    if scrolling:
+        f = FONT
+    if fx == "fireworks":
+        fireworks(d, t)
+    l, top, r, b = d.textbbox((0, 0), txt, font=f)
+    y = (ROWS - (b - top)) // 2 - top
+    px = x if scrolling else (W - (r - l)) // 2 - l
+    w = draw_fx_text(d, (px, y), txt, f, col, fx, t)
+    return img, scrolling, w
 
 # ------------------------------------------------------------------ feed
 class Feed:
@@ -437,6 +512,7 @@ class Feed:
         self.ctl, self.demo, self.pl, self.games = ctl, demo, [], []
         self.last_ok, self.fails, self.last_error = time.time(), 0, ""
         self.strip = text_strip([("Loading…", GRAY)])
+        self.strip_off = self.strip_mask = None
         self.watcher = AlertWatcher()
         threading.Thread(target=self.loop, daemon=True).start()
 
@@ -473,7 +549,8 @@ class Feed:
         segs = pl + score_segments(self.games, only, ctl.show_odds())
         if ctl.msg_in_scroll and ctl.message.strip():
             # your message comes around before each league (and before ParlayLabs)
-            note = [(f"   {ctl.message.strip()}   ", hex_rgb(ctl.color)), DOT]
+            col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
+            note = [(f"   {ctl.message.strip()}   ", col, "msg"), DOT]
             headers = {f"  {l}  " for l, _, _ in LEAGUES} | {f"  PARLAYLABS {s}  " for s in PL_SPORTS}
             mixed = []
             for seg in segs:
@@ -482,6 +559,11 @@ class Feed:
                 mixed.append(seg)
             segs = mixed or note
         self.strip = text_strip(segs)
+        # blink: a copy with the message blanked out, swapped in for the "off" moments
+        self.strip_off = text_strip(segs, hide_msg=True) if ctl.msg_in_scroll and ctl.effect == "blink" else None
+        # fireworks: which pixels are text, so sparks can go behind the words
+        self.strip_mask = (self.strip.convert("L").point(lambda v: 255 if v > 0 else 0)
+                           if ctl.msg_in_scroll and ctl.effect == "fireworks" else None)
 
     def hot_leagues(self):
         return {g["league"] for g in self.games
@@ -612,7 +694,7 @@ def run_display(ctl, feed, matrix):
         canvas = matrix.SwapOnVSync(canvas)
         ctl.last_frame = frame.copy() if int(time.time() * 4) % 2 == 0 else ctl.last_frame
 
-    x, seen, img_i, msg = W, -1, 0, None
+    x, seen, img_i = W, -1, 0
     while True:
         al = feed.next_alert()
         if al:                                    # takeover, then go back to whatever was showing
@@ -621,7 +703,7 @@ def run_display(ctl, feed, matrix):
                 show(alert_frame(al, t)); time.sleep(1 / 30)
             x = W
         if ctl.version != seen:                   # something changed on the phone
-            seen, x, img_i, msg = ctl.version, W, 0, None
+            seen, x, img_i = ctl.version, W, 0
             feed.build_strip()                    # league picks may have changed
 
         mode = ctl.mode
@@ -633,16 +715,26 @@ def run_display(ctl, feed, matrix):
             img, ms = ctl.frames[img_i % len(ctl.frames)]
             show(img); img_i += 1; time.sleep(ms / 1000)
         elif mode == "message":
-            if msg is None:
-                msg = message_image(ctl)
-            img, scrolls = msg
-            if scrolls:
-                show(img, x); x = W if x < -img.width else x - 1; time.sleep(1 / SCROLL_SPEED)
-            else:
-                show(img); time.sleep(0.25)
+            img, scrolling, w = message_frame(ctl, time.time(), x)
+            show(img)
+            if scrolling:
+                x = W if x < -w else x - 1
+            time.sleep(1 / SCROLL_SPEED)
         else:                                     # scroll everything
-            strip = feed.strip
-            show(strip, x)
+            strip, t = feed.strip, time.time()
+            if feed.strip_off is not None and blink_off(t) and feed.strip_off.width == strip.width:
+                strip = feed.strip_off
+            mask = feed.strip_mask
+            on_screen = [(a + x, b + x) for a, b in strip.info.get("spans", []) if a + x < W and b + x > 0]
+            if mask is not None and on_screen and mask.size == strip.size:
+                layer = Image.new("RGB", (W, ROWS))
+                dl = ImageDraw.Draw(layer)
+                for a, b in on_screen:
+                    fireworks(dl, t, a, b)
+                layer.paste(strip, (x, 0), mask)
+                show(layer)
+            else:
+                show(strip, x)
             x -= 1
             if x < -strip.width:
                 x = W
