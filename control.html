@@ -40,6 +40,8 @@
   .chips.wrap { flex-wrap:wrap; overflow:visible; }
   .quick { display:flex; gap:6px; margin-bottom:6px; }
   .quick button { flex:1; background:#1d222b; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 4px; font-size:13px; font-weight:600; }
+  .quick button.on { border-color:var(--live); color:#fff; background:#3a1414; }
+  .badge { font-size:10px; font-weight:800; color:#fff; background:var(--live); border-radius:4px; padding:2px 5px; margin-left:6px; vertical-align:2px; }
   .check { width:22px; height:22px; border-radius:50%; border:2px solid #3a4250; flex:none; display:grid; place-items:center; font-size:13px; color:#fff; }
   .game.on .check { background:var(--accent); border-color:var(--accent); }
   .segLabel { align-self:center; color:var(--dim); font-size:13px; padding:0 6px 0 8px; white-space:nowrap; }
@@ -133,6 +135,7 @@
   <div class="quick">
     <button id="pickShown">Select all</button>
     <button id="pickMine">My teams</button>
+    <button id="pickClose">Close games</button>
     <button id="pickNone">Clear</button>
   </div>
   <div id="games"></div>
@@ -140,7 +143,7 @@
     <span class="segLabel">Switch every</span>
     <button data-r="5">5 sec</button><button data-r="10">10 sec</button><button data-r="20">20 sec</button>
   </div>
-  <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns.</p>
+  <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>Close games</b> follows every close game in every league by itself (late and within one score) and scrolls everything else until one gets tight.</p>
 </div>
 
 <div class="card panel" data-panel="image">
@@ -269,6 +272,9 @@ function setGames(ids, msg) {
 }
 
 function renderGames() {
+  const following = S.mode === "game" && (S.game_ids || []).includes("@close");
+  $("#pickClose").classList.toggle("on", following);
+  $("#pickClose").textContent = following ? "Close games ✓" : "Close games";
   const games = S.games || [];
   const leagues = ["ALL", ...new Set(games.map(g => g.league))];
   $("#leagues").innerHTML = leagues.map(l => `<button data-l="${l}" class="${l === league ? "on" : ""}">${l === "ALL" ? "All" : l}</button>`).join("");
@@ -281,7 +287,7 @@ function renderGames() {
     return `<div class="game ${on ? "on" : ""}" data-id="${g.id}">
       <span class="check">${on ? "✓" : ""}</span>
       <span class="lg">${g.league}</span>
-      <span class="teams ${g.mine ? "mine" : ""}">${score}</span>
+      <span class="teams ${g.mine ? "mine" : ""}">${score}${g.close ? '<span class="badge">CLOSE</span>' : ""}</span>
       <span class="st ${g.state === "in" ? "live" : ""}">${g.state === "in" ? "● " : ""}${g.detail.replace(/ - .*/, "")}</span></div>`;
   }).join("") : `<div class="empty">No games on right now.</div>`;
 }
@@ -301,6 +307,13 @@ $("#games").onclick = e => {
 };
 $("#pickShown").onclick = () => setGames(shownGames().map(g => g.id));
 $("#pickMine").onclick = () => { const ids = (S.games || []).filter(g => g.mine).map(g => g.id); ids.length ? setGames(ids) : toast("No Lions, Pistons or MSU games today"); };
+$("#pickClose").onclick = () => {
+  const ids = new Set(S.mode === "game" ? S.game_ids || [] : []);
+  if (ids.has("@close")) { ids.delete("@close"); return setGames([...ids], ids.size ? "Stopped following close games" : undefined); }
+  ids.add("@close");
+  const now = (S.games || []).filter(g => g.close).length;
+  setGames([...ids], now ? `Following ${now} close game${now > 1 ? "s" : ""}` : "Following close games. Scrolling until one gets tight");
+};
 $("#pickNone").onclick = () => setGames([]);
 $("#rotate").onclick = e => { const b = e.target.closest("button"); if (b) save({rotate:+b.dataset.r}, `Switching every ${b.dataset.r} sec`); };
 $("#scrollLeagues").onclick = e => {
@@ -418,9 +431,21 @@ const Demo = (() => {
                 CBB:"basketball/mens-college-basketball", NHL:"hockey/nhl", MLB:"baseball/mlb"};
   const MY = {"NFL|DET":["LIONS","#0076b6","#bec3c8"], "NBA|DET":["PISTONS","#c8102e","#1d428a"],
               "CFB|MSU":["SPARTANS","#009646","#ffffff"], "CBB|MSU":["SPARTANS","#009646","#ffffff"]};
-  const fake = (league, away, home, a, h, state, detail, spread, total, mla, mlh, hours = 0) =>
-    ({id:`${league}-${away}${home}`, league, away, home, ascore:a, hscore:h, state, detail, spread, total, mla, mlh,
-      start: Math.floor((Date.now() / 1000 + hours * 3600) / 1800) * 1800});
+  const fake = (league, away, home, a, h, state, detail, spread, total, mla, mlh, hours = 0) => {
+    const m = /(\d+)(?:st|nd|rd|th)\s+(\d+):(\d+)/.exec(detail || "");
+    return {id:`${league}-${away}${home}`, league, away, home, ascore:a, hscore:h, state, detail, spread, total, mla, mlh,
+      period: m ? +m[1] : 0, clock: m ? +m[2] * 60 + +m[3] : 0,
+      start: Math.floor((Date.now() / 1000 + hours * 3600) / 1800) * 1800};
+  };
+  const CLOSE = {NFL:[4, 480, 8], CFB:[4, 480, 8], NBA:[4, 300, 6], CBB:[2, 300, 6], NHL:[3, 600, 1], MLB:[7, null, 2]};
+  const isClose = x => { const r = CLOSE[x.league]; if (!r || x.state !== "in") return false;
+    const late = x.period > r[0] || r[1] == null ? x.period >= r[0] : x.period === r[0] && x.clock <= r[1];
+    return late && Math.abs(x.ascore - x.hscore) <= r[2]; };
+  const pickedGames = () => { const out = [];
+    for (const id of S.game_ids || []) {
+      if (id === "@close") games.filter(isClose).forEach(z => { if (!out.includes(z)) out.push(z); });
+      else { const z = games.find(q => q.id === id); if (z && !out.includes(z)) out.push(z); }
+    } return out; };
   const mlFmt = v => v == null || v === "" ? null : (v = parseInt(String(v).replace("+", "")), isNaN(v) ? null : v > 0 ? "+" + v : "" + v);
   const espnML = (o, side) => mlFmt(((o || {})[side + "TeamOdds"] || {}).moneyLine ??
                                      ((((o || {}).moneyline || {})[side] || {}).close || {}).odds);
@@ -465,6 +490,8 @@ const Demo = (() => {
                          ev.status.type.state, ev.status.type.shortDetail, (comp.odds || [{}])[0].details, (comp.odds || [{}])[0].overUnder,
                          espnML((comp.odds || [{}])[0], "away"), espnML((comp.odds || [{}])[0], "home"));
           x.start = Date.parse(ev.date) / 1000 || 0;
+          x.period = ev.status.period || 0;
+          x.clock = (([m, s2]) => (+m || 0) * 60 + (+s2 || 0))(String(ev.status.displayClock || "0:00").split(":"));
           if ((lg === "CFB" || lg === "CBB") && !ranked && !mine(x)) continue;
           all.push(x);
         }
@@ -742,7 +769,7 @@ const Demo = (() => {
     }
     const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.motion, S.pl_count, S.pl_sports, S.prop_types]);
     if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; }
-    const picked = S.mode === "game" ? (S.game_ids || []).map(id => games.find(z => z.id === id)).filter(Boolean) : [];
+    const picked = S.mode === "game" ? pickedGames() : [];
     if (picked.length) {
       const secs = Date.now() / 1000;
       drawGame(picked[Math.floor(secs / S.rotate) % picked.length]);
@@ -794,7 +821,7 @@ const Demo = (() => {
       S.mode = "image"; S.fit = path.includes("fit=fill") ? "fill" : "contain";
       if (/gif/i.test(f.type)) setTimeout(() => toast("GIFs animate on the real ticker"), 1900);
     }
-    return Object.assign({}, S, {games: games.map(z => Object.assign({mine: !!mine(z)}, z)),
+    return Object.assign({}, S, {games: games.map(z => Object.assign({mine: !!mine(z), close: isClose(z)}, z)),
                                  has_image: !!image, feed_ok: true, last_ok: 0});
   }
 

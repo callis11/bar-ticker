@@ -50,7 +50,22 @@ CLOSE = {
     "CFB": dict(period=4, clock=8 * 60, margin=8),
     "NBA": dict(period=4, clock=5 * 60, margin=6),   # 4th quarter, under 5:00
     "CBB": dict(period=2, clock=5 * 60, margin=6),   # 2nd half, under 5:00
+    "NHL": dict(period=3, clock=10 * 60, margin=1),  # 3rd period, under 10:00, one goal (or OT)
+    "MLB": dict(period=7, clock=None, margin=2),     # 7th inning or later, within 2 runs
 }
+CLOSE_GAMES = "@close"     # put in game_ids to follow every close game automatically
+
+def late(g):
+    rule = CLOSE.get(g["league"])
+    if not rule or g["state"] != "in":
+        return False
+    if g["period"] > rule["period"] or rule["clock"] is None:
+        return g["period"] >= rule["period"]
+    return g["period"] == rule["period"] and g["clock"] <= rule["clock"]
+
+def is_close(g):
+    """Late in the game and within one score (see CLOSE)."""
+    return late(g) and abs(g["ascore"] - g["hscore"]) <= CLOSE[g["league"]]["margin"]
 
 PARLAYLABS = "https://callis11.github.io/parlay-lab"
 PL_REFRESH = 600           # check ParlayLabs every 10 minutes
@@ -519,14 +534,12 @@ class AlertWatcher:
             if old["state"] == "in" and g["state"] == "post" and my_now > opp:
                 self.queue.append(Alert("win", g, abbr, team))
             # close game: late and within the margin; once per game, re-armed if it opens up
-            rule = CLOSE[g["league"]]
-            late = g["state"] == "in" and (g["period"] > rule["period"] or
-                   (g["period"] == rule["period"] and g["clock"] <= rule["clock"]))
-            if late and abs(my_now - opp) <= rule["margin"]:
+            is_late = late(g)
+            if is_late and abs(my_now - opp) <= CLOSE[g["league"]]["margin"]:
                 if g["id"] not in self.close_shown:
                     self.close_shown.add(g["id"])
                     self.queue.append(Alert("close", g, abbr, team))
-            elif late:
+            elif is_late:
                 self.close_shown.discard(g["id"])
 
 # ------------------------------------------------------------------ drawing
@@ -863,8 +876,19 @@ class Feed:
                            if ctl.msg_in_scroll and ctl.effect == "fireworks" else None)
 
     def hot_leagues(self):
+        follow_close = CLOSE_GAMES in self.ctl.game_ids      # watching close games: every live league is hot
         return {g["league"] for g in self.games
-                if g["state"] == "in" and (mine(g)[0] or g["id"] in self.ctl.game_ids)}
+                if g["state"] == "in" and (mine(g)[0] or g["id"] in self.ctl.game_ids or follow_close)}
+
+    def picked(self):
+        """Games chosen on the phone. "Close games" expands to every close game right now."""
+        out = []
+        for gid in self.ctl.game_ids:
+            if gid == CLOSE_GAMES:
+                out += [g for g in self.games if is_close(g) and g not in out]
+            elif (g := self.game(gid)) and g not in out:
+                out.append(g)
+        return out
 
     def game(self, gid):
         return next((g for g in self.games if g["id"] == gid), None)
@@ -932,7 +956,7 @@ def make_handler(ctl, feed):
             if path in ("/", "/index.html"):
                 self.send(200, open(os.path.join(HERE, "control.html"), "rb").read(), "text/html; charset=utf-8")
             elif path == "/api/state":
-                games = [dict(g, mine=bool(mine(g)[0])) for g in feed.games]
+                games = [dict(g, mine=bool(mine(g)[0]), close=is_close(g)) for g in feed.games]
                 stale = time.time() - feed.last_ok           # nothing from ESPN for a while = likely blocked
                 feed_ok = feed.demo or stale < max(90, 6 * ctl.refresh)
                 self.send(200, dict(ctl.as_dict(), games=games, has_image=bool(ctl.frames),
@@ -1016,7 +1040,7 @@ def run_display(ctl, feed, matrix):
             feed.build_strip()                    # league picks may have changed
 
         mode = ctl.mode
-        picked = [g for g in map(feed.game, ctl.game_ids) if g] if mode == "game" else []
+        picked = feed.picked() if mode == "game" else []
         if picked:                                # one game holds; several take turns
             g = picked[int(time.time() // ctl.rotate) % len(picked)]
             show(game_frame(g, ctl.rotate if len(picked) > 1 else 0, ctl.show_odds())); time.sleep(0.25)
