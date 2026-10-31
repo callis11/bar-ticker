@@ -74,7 +74,8 @@ ODDS_COLOR, DOT = (0, 200, 200), ("  •  ", (60, 60, 60))
 class Control:
     KEYS = {"mode": "scroll", "leagues": [], "game_ids": [], "rotate": 10, "message": "GO LIONS!", "color": "#ffbe00",
             "brightness": 60, "tv_delay": 0, "alerts": True, "fit": "contain",
-            "refresh": REFRESH_SEC}
+            "refresh": REFRESH_SEC, "odds": ["ou", "ml"], "odds_on": True,
+            "msg_in_scroll": False}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -102,6 +103,13 @@ class Control:
         self.game_ids = [str(i) for i in (self.game_ids or [])][:40]
         self.rotate = max(3, min(60, int(self.rotate)))
         self.leagues = [l for l in (self.leagues or []) if l in SCROLL_CHOICES]   # empty = everything
+        self.odds = [o for o in (self.odds or []) if o in ("ou", "ml", "spread")]
+        self.msg_in_scroll = bool(self.msg_in_scroll)
+        self.odds_on = bool(self.odds_on)
+
+    def show_odds(self):
+        """The odds to show right now: the picks, unless the master switch is off."""
+        return self.odds if self.odds_on else []
         self.brightness = max(5, min(100, int(self.brightness)))
         self.tv_delay = max(0, min(120, int(self.tv_delay)))
         self.refresh = max(5, min(60, int(self.refresh)))
@@ -171,7 +179,22 @@ def parse_game(label, ev):
         period=st.get("period", 0), clock=clock_secs(st.get("displayClock")),
         ranked=any(c.get("curatedRank", {}).get("current", 99) <= 25 for c in (a, h)),
         spread=odds.get("details"), total=odds.get("overUnder"),
+        mla=moneyline(odds, "away"), mlh=moneyline(odds, "home"),
     )
+
+def moneyline(odds, side):
+    """ESPN moneyline for one team, as text like "-142" / "+120", or None."""
+    try:
+        v = (odds.get(f"{side}TeamOdds") or {}).get("moneyLine")
+        if v is None:
+            ml = (odds.get("moneyline") or {}).get(side) or {}
+            v = (ml.get("close") or ml.get("open") or {}).get("odds")
+        if v in (None, "", "OFF", "EVEN"):
+            return "EVEN" if v == "EVEN" else None
+        v = int(float(str(v).replace("+", "")))
+        return f"+{v}" if v > 0 else str(v)
+    except (TypeError, ValueError):
+        return None
 
 def mine(g):
     """Returns (abbr, team-info) if one of my teams is in this game."""
@@ -194,7 +217,18 @@ def fetch_league(label, path):
 def short_time(detail):
     return detail.split(" - ")[-1].replace(" EST", "").replace(" EDT", "")
 
-def score_segments(games, only=None):
+def odds_text(g, picks):
+    """The odds the phone has switched on, for a game that hasn't started."""
+    out = []
+    if "ml" in picks and g.get("mla") and g.get("mlh"):
+        out.append(f"{g['away']} {g['mla']} {g['home']} {g['mlh']}")
+    if "ou" in picks and g.get("total"):
+        out.append(f"O/U {g['total']}")
+    if "spread" in picks and g.get("spread"):
+        out.append(g["spread"])
+    return "  ".join(out)
+
+def score_segments(games, only=None, odds=("ou", "ml")):
     """Scrolling text for every game: live/final scores, and odds for games not started."""
     segs = []
     for label, _, color in LEAGUES:
@@ -211,7 +245,7 @@ def score_segments(games, only=None):
             gold = bool(mine(g)[0])
             if g["state"] == "pre":
                 segs.append((f"{g['away']} @ {g['home']} {short_time(g['detail'])}", GOLD if gold else GRAY))
-                line = "  ".join(x for x in (g["spread"], f"O/U {g['total']}" if g["total"] else None) if x)
+                line = odds_text(g, odds)
                 if line:
                     segs.append((f"  {line}", ODDS_COLOR))
             else:
@@ -334,15 +368,20 @@ def alert_frame(al, t, rng=random.Random(1)):
         centered(d, al.score, fit_font(al.score, start=20), amber if al.kind == "close" else GOLD)
     return img
 
-def game_frame(g, rotate=0):
-    """A single game, held on screen: away on the left, home on the right, clock in the middle."""
+def game_frame(g, rotate=0, odds=("ou", "ml")):
+    """A single game, held on screen: away on the left, home on the right, clock in the middle.
+    Before kickoff: moneyline next to each team, start time and O/U (or spread) in the middle."""
     img = Image.new("RGB", (W, ROWS))
     d = ImageDraw.Draw(img)
     pre = g["state"] == "pre"
-    left  = g["away"] if pre else f"{g['away']} {g['ascore']}"
-    right = g["home"] if pre else f"{g['hscore']} {g['home']}"
+    ml = pre and "ml" in odds and g.get("mla") and g.get("mlh")
+    left  = (f"{g['away']} {g['mla']}" if ml else g["away"]) if pre else f"{g['away']} {g['ascore']}"
+    right = (f"{g['mlh']} {g['home']}" if ml else g["home"]) if pre else f"{g['hscore']} {g['home']}"
     mid1  = short_time(g["detail"]) if pre else g["detail"]
-    mid2  = (g["spread"] or "") if pre else ""
+    mid2  = ""
+    if pre:
+        mid2 = (f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or \
+               (g.get("spread") or "" if "spread" in odds else "")
     for size in range(24, 11, -1):                       # shrink until everything fits
         big, small = font(size), font(max(10, size // 2 + 1))
         mid_w = max(small.getlength(mid1), small.getlength(mid2))
@@ -428,9 +467,21 @@ class Feed:
             time.sleep(1)
 
     def build_strip(self):
-        only = self.ctl.leagues                  # leagues picked on the phone (empty = everything)
+        ctl = self.ctl
+        only = ctl.leagues                       # leagues picked on the phone (empty = everything)
         pl = self.pl if not only or "PL" in only else []
-        self.strip = text_strip(pl + score_segments(self.games, only))
+        segs = pl + score_segments(self.games, only, ctl.show_odds())
+        if ctl.msg_in_scroll and ctl.message.strip():
+            # your message comes around before each league (and before ParlayLabs)
+            note = [(f"   {ctl.message.strip()}   ", hex_rgb(ctl.color)), DOT]
+            headers = {f"  {l}  " for l, _, _ in LEAGUES} | {f"  PARLAYLABS {s}  " for s in PL_SPORTS}
+            mixed = []
+            for seg in segs:
+                if seg[0] in headers:
+                    mixed += note
+                mixed.append(seg)
+            segs = mixed or note
+        self.strip = text_strip(segs)
 
     def hot_leagues(self):
         return {g["league"] for g in self.games
@@ -454,18 +505,19 @@ def demo_parlaylabs():
     except Exception:
         return []
 
-def fake(league, away, home, a, h, state, detail, spread=None, total=None, period=4, clock=180):
+def fake(league, away, home, a, h, state, detail, spread=None, total=None, period=4, clock=180, mla=None, mlh=None):
     return dict(id=f"{league}-{away}{home}", league=league, away=away, home=home, ascore=a, hscore=h,
-                state=state, detail=detail, period=period, clock=clock, ranked=True, spread=spread, total=total)
+                state=state, detail=detail, period=period, clock=clock, ranked=True, spread=spread, total=total,
+                mla=mla, mlh=mlh)
 
 DEMO_GAMES = [
     fake("NFL", "MIN", "DET", 17, 24, "in", "4th 3:12"),
     fake("NFL", "CHI", "GB", 10, 14, "in", "2nd 0:45", period=2),
-    fake("NFL", "KC", "BUF", 0, 0, "pre", "Sun 4:25 PM EST", "BUF -2.5", 51.5),
+    fake("NFL", "KC", "BUF", 0, 0, "pre", "Sun 4:25 PM EST", "BUF -2.5", 51.5, mla="+120", mlh="-142"),
     fake("NFL", "NYJ", "MIA", 20, 23, "post", "Final"),
-    fake("NBA", "DET", "BOS", 0, 0, "pre", "7:30 PM EST", "BOS -6.5", 224.5),
+    fake("NBA", "DET", "BOS", 0, 0, "pre", "7:30 PM EST", "BOS -6.5", 224.5, mla="+225", mlh="-275"),
     fake("CFB", "MSU", "IOWA", 21, 17, "in", "3rd 9:58", period=3),
-    fake("CBB", "MSU", "DUKE", 0, 0, "pre", "Tue 9:00 PM EST", "DUKE -3", 148.5),
+    fake("CBB", "MSU", "DUKE", 0, 0, "pre", "Tue 9:00 PM EST", "DUKE -3", 148.5, mla="+130", mlh="-155"),
 ]
 
 # ------------------------------------------------------------------ control page / API
@@ -576,7 +628,7 @@ def run_display(ctl, feed, matrix):
         picked = [g for g in map(feed.game, ctl.game_ids) if g] if mode == "game" else []
         if picked:                                # one game holds; several take turns
             g = picked[int(time.time() // ctl.rotate) % len(picked)]
-            show(game_frame(g, ctl.rotate if len(picked) > 1 else 0)); time.sleep(0.25)
+            show(game_frame(g, ctl.rotate if len(picked) > 1 else 0, ctl.show_odds())); time.sleep(0.25)
         elif mode == "image" and ctl.frames:
             img, ms = ctl.frames[img_i % len(ctl.frames)]
             show(img); img_i += 1; time.sleep(ms / 1000)

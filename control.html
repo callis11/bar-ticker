@@ -97,7 +97,12 @@
 <div class="card panel" data-panel="scroll">
   <h2>Scroll</h2>
   <div class="chips wrap" id="scrollLeagues"></div>
-  <p class="hint" style="margin:0">Pick any mix to scroll, or <b>Everything</b>. Scores, odds for games that haven't started, and your ParlayLabs results.</p>
+  <p class="hint" style="margin:0 0 12px">Pick any mix to scroll, or <b>Everything</b>.</p>
+  <div class="switch" style="margin:0 0 10px"><span style="font-weight:600">Show odds</span><input type="checkbox" id="oddsOn"></div>
+  <div class="chips wrap" id="oddsPick">
+    <button data-o="ml">Moneyline</button><button data-o="ou">Over/Under</button><button data-o="spread">Spread</button>
+  </div>
+  <p class="hint" style="margin:0">Odds show for games that haven't started, in the scroll and when you hold a game. Switch off for scores only.</p>
 </div>
 
 <div class="card panel" data-panel="game">
@@ -132,8 +137,10 @@
   <h2>Show a message</h2>
   <input type="text" id="msg" maxlength="140" placeholder="GO LIONS!">
   <div class="swatches" id="colors"></div>
-  <button class="btn" id="sendMsg">Show message</button>
-  <p class="hint">Short messages stay still. Long ones scroll.</p>
+  <button class="btn" id="sendMsg">Show message only</button>
+  <button class="btn ghost" id="mixMsg">Mix into the scores scroll</button>
+  <button class="btn ghost" id="unmixMsg">Take it out of the scroll</button>
+  <p class="hint"><b>Message only</b> clears the ticker for your message (short ones stay still, long ones scroll). <b>Mix into the scores</b> keeps the games scrolling and brings your message around before each league.</p>
 </div>
 
 <div class="card demoOnly" id="demoTests">
@@ -194,6 +201,11 @@ function render() {
   if (!$("#msg").dataset.loaded) { $("#msg").value = S.message || ""; $("#msg").dataset.loaded = 1; }
   document.querySelectorAll("#colors button").forEach(b => b.classList.toggle("on", b.dataset.c === S.color));
   $("#showImage").style.display = S.has_image ? "" : "none";
+  $("#unmixMsg").style.display = S.msg_in_scroll ? "" : "none";
+  $("#mixMsg").textContent = S.msg_in_scroll ? "Update message in the scroll" : "Mix into the scores scroll";
+  document.querySelectorAll("#oddsPick button").forEach(b => b.classList.toggle("on", (S.odds || []).includes(b.dataset.o)));
+  $("#oddsOn").checked = S.odds_on !== false;
+  $("#oddsPick").style.opacity = S.odds_on === false ? .35 : 1;
   renderGames(); renderScroll();
 }
 
@@ -257,6 +269,14 @@ $("#scrollLeagues").onclick = e => {
 $("#colors").innerHTML = COLORS.map(c => `<button data-c="${c}" style="background:${c}" aria-label="color ${c}"></button>`).join("");
 $("#colors").onclick = e => { const b = e.target.closest("button"); if (b) { S.color = b.dataset.c; render(); } };
 $("#sendMsg").onclick = () => save({mode:"message", message:$("#msg").value || "GO LIONS!", color:S.color}, "Message is up");
+$("#mixMsg").onclick = () => save({mode:"scroll", msg_in_scroll:true, message:$("#msg").value || "GO LIONS!", color:S.color}, "Message added to the scroll");
+$("#unmixMsg").onclick = () => save({msg_in_scroll:false}, "Message taken out of the scroll");
+$("#oddsOn").onchange = e => save({odds_on:e.target.checked}, e.target.checked ? "Odds on" : "Odds off, scores only");
+$("#oddsPick").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const on = new Set(S.odds || []); on.has(b.dataset.o) ? on.delete(b.dataset.o) : on.add(b.dataset.o);
+  save({odds:[...on], odds_on:true}, on.size ? "Odds updated" : "Scores only, no odds");
+};
 $("#fit").onclick = e => { const b = e.target.closest("button"); if (b) save({fit:b.dataset.fit}); };
 $("#showImage").onclick = () => save({mode:"image"}, "Showing your picture");
 $("#demoTests").onclick = e => { const b = e.target.closest("button"); if (b) Demo.testAlert(b.dataset.test); };
@@ -288,19 +308,30 @@ const Demo = (() => {
                 CBB:"basketball/mens-college-basketball", NHL:"hockey/nhl", MLB:"baseball/mlb"};
   const MY = {"NFL|DET":["LIONS","#0076b6","#bec3c8"], "NBA|DET":["PISTONS","#c8102e","#1d428a"],
               "CFB|MSU":["SPARTANS","#009646","#ffffff"], "CBB|MSU":["SPARTANS","#009646","#ffffff"]};
-  const fake = (league, away, home, a, h, state, detail, spread, total) =>
-    ({id:`${league}-${away}${home}`, league, away, home, ascore:a, hscore:h, state, detail, spread, total});
+  const fake = (league, away, home, a, h, state, detail, spread, total, mla, mlh) =>
+    ({id:`${league}-${away}${home}`, league, away, home, ascore:a, hscore:h, state, detail, spread, total, mla, mlh});
+  const mlFmt = v => v == null || v === "" ? null : (v = parseInt(String(v).replace("+", "")), isNaN(v) ? null : v > 0 ? "+" + v : "" + v);
+  const espnML = (o, side) => mlFmt(((o || {})[side + "TeamOdds"] || {}).moneyLine ??
+                                     ((((o || {}).moneyline || {})[side] || {}).close || {}).odds);
+  const oddsText = x => {
+    const out = [], p = picks();
+    if (p.includes("ml") && x.mla && x.mlh) out.push(`${x.away} ${x.mla} ${x.home} ${x.mlh}`);
+    if (p.includes("ou") && x.total) out.push(`O/U ${x.total}`);
+    if (p.includes("spread") && x.spread) out.push(x.spread);
+    return out.join("  ");
+  };
   const SAMPLE = [
     fake("NFL","MIN","DET",17,24,"in","4th 3:12"), fake("NFL","CHI","GB",10,14,"in","2nd 0:45"),
-    fake("NFL","KC","BUF",0,0,"pre","Sun 4:25 PM EST","BUF -2.5",51.5), fake("NFL","NYJ","MIA",20,23,"post","Final"),
-    fake("NBA","DET","BOS",0,0,"pre","7:30 PM EST","BOS -6.5",224.5), fake("CFB","MSU","IOWA",21,17,"in","3rd 9:58"),
-    fake("CBB","MSU","DUKE",0,0,"pre","Tue 9:00 PM EST","DUKE -3",148.5)];
+    fake("NFL","KC","BUF",0,0,"pre","Sun 4:25 PM EST","BUF -2.5",51.5,"+120","-142"), fake("NFL","NYJ","MIA",20,23,"post","Final"),
+    fake("NBA","DET","BOS",0,0,"pre","7:30 PM EST","BOS -6.5",224.5,"+225","-275"), fake("CFB","MSU","IOWA",21,17,"in","3rd 9:58"),
+    fake("CBB","MSU","DUKE",0,0,"pre","Tue 9:00 PM EST","DUKE -3",148.5,"+130","-155")];
   // ParlayLabs as of Oct 31 (used when the live site can't be reached)
   const PL_SAMPLE = [{sport:"NFL", won:0, lost:9, profit:-90, live:73,
     latest:[["Best Shot at +100",false],["Best Shot at +300",false],["Best 3-Leg",false]]}];
 
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
-           tv_delay:0, alerts:true, fit:"contain", refresh:5};
+           tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false};
+  const picks = () => S.odds_on === false ? [] : (S.odds || []);
   let games = SAMPLE, pl = PL_SAMPLE, live = false, image = null, alerts = [], showing = null;
   const cv = $("#sim"), g = cv.getContext("2d");
   const mine = x => MY[`${x.league}|${x.away}`] ? x.away : MY[`${x.league}|${x.home}`] ? x.home : null;
@@ -317,7 +348,8 @@ const Demo = (() => {
           comp.competitors.forEach(c => t[c.homeAway] = c);
           const ranked = [t.away, t.home].some(c => (c.curatedRank || {}).current <= 25);
           const x = fake(lg, t.away.team.abbreviation, t.home.team.abbreviation, +t.away.score || 0, +t.home.score || 0,
-                         ev.status.type.state, ev.status.type.shortDetail, (comp.odds || [{}])[0].details, (comp.odds || [{}])[0].overUnder);
+                         ev.status.type.state, ev.status.type.shortDetail, (comp.odds || [{}])[0].details, (comp.odds || [{}])[0].overUnder,
+                         espnML((comp.odds || [{}])[0], "away"), espnML((comp.odds || [{}])[0], "home"));
           if ((lg === "CFB" || lg === "CBB") && !ranked && !mine(x)) continue;
           all.push(x);
         }
@@ -363,7 +395,7 @@ const Demo = (() => {
         const gold = !!mine(x);
         if (x.state === "pre") {
           segs.push([`${x.away} @ ${x.home} ${shortTime(x.detail)}`, gold ? C.gold : C.gray]);
-          const line = [x.spread, x.total ? `O/U ${x.total}` : null].filter(Boolean).join("  ");
+          const line = oddsText(x);
           if (line) segs.push([`  ${line}`, C.odds]);
         } else {
           segs.push([`${x.away} ${x.ascore}  ${x.home} ${x.hscore}  ${x.detail}`,
@@ -371,6 +403,12 @@ const Demo = (() => {
         }
         segs.push(["  •  ", C.dot]);
       }
+    }
+    if (S.msg_in_scroll && (S.message || "").trim()) {      // message comes around before each league
+      const heads = new Set([...Object.keys(ESPN).map(l => `  ${l}  `), ...["NFL","NBA","CFB","CBB"].map(s => `  PARLAYLABS ${s}  `)]);
+      const mixed = [];
+      for (const sg of segs) { if (heads.has(sg[0])) mixed.push([`   ${S.message.trim()}   `, S.color], ["  •  ", C.dot]); mixed.push(sg); }
+      return mixed;
     }
     return segs;
   }
@@ -399,8 +437,12 @@ const Demo = (() => {
   function drawGame(x) {
     clear();
     const pre = x.state === "pre";
-    const left = pre ? x.away : `${x.away} ${x.ascore}`, right = pre ? x.home : `${x.hscore} ${x.home}`;
-    const mid1 = pre ? shortTime(x.detail) : x.detail, mid2 = pre ? (x.spread || "") : "";
+    const ml = pre && picks().includes("ml") && x.mla && x.mlh;
+    const left = pre ? (ml ? `${x.away} ${x.mla}` : x.away) : `${x.away} ${x.ascore}`;
+    const right = pre ? (ml ? `${x.mlh} ${x.home}` : x.home) : `${x.hscore} ${x.home}`;
+    const mid1 = pre ? shortTime(x.detail) : x.detail;
+    const mid2 = !pre ? "" : (picks().includes("ou") && x.total ? `O/U ${x.total}` : "") ||
+                             (picks().includes("spread") && x.spread ? x.spread : "");
     let big = 24, small;
     for (; big > 11; big--) {
       small = Math.max(10, (big >> 1) + 1);
@@ -451,7 +493,7 @@ const Demo = (() => {
       if (t < 10) { drawAlert(showing, t); return requestAnimationFrame(tick); }
       showing = null; x = W;
     }
-    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues]);
+    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll]);
     if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); }
     const picked = S.mode === "game" ? (S.game_ids || []).map(id => games.find(z => z.id === id)).filter(Boolean) : [];
     if (picked.length) {
