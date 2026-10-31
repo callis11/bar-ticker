@@ -169,7 +169,7 @@
     <button data-gm="cut">Cut</button><button data-gm="fade">Fade</button><button data-gm="flash">Flash</button>
     <button data-gm="slide">Slide up</button><button data-gm="push">Slide left</button>
   </div>
-  <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>Live games</b> follows every game in progress (just one league if you picked a league above), adds new ones as they start, and keeps each one on for 15 minutes after it ends. <b>Close games</b> follows every close game in every league by itself (late and within one score) and scrolls everything else until one gets tight.</p>
+  <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>My teams</b> follows the Lions, Pistons and MSU (live, today, or just finished; otherwise each team's next game). <b>Live games</b> follows every game in progress (just one league if you picked a league above), adds new ones as they start, and keeps each one on for 15 minutes after it ends. <b>Close games</b> follows every close game in every league by itself (late and within one score) and scrolls everything else until one gets tight.</p>
 </div>
 
 <div class="card panel" data-panel="image">
@@ -306,6 +306,9 @@ try { gamesOpen = localStorage.getItem("gamesOpen") === "1"; } catch {}
 
 function renderGames() {
   const following = S.mode === "game" && (S.game_ids || []).includes("@close");
+  const mineOn = S.mode === "game" && (S.game_ids || []).includes("@mine");
+  $("#pickMine").classList.toggle("on", mineOn);
+  $("#pickMine").textContent = mineOn ? "My teams ✓" : "My teams";
   const liveTok = (S.game_ids || []).find(i => i === "@live" || i.startsWith("@live:"));
   const liveOn = S.mode === "game" && !!liveTok;
   $("#pickLive").classList.toggle("on", liveOn);
@@ -353,7 +356,12 @@ $("#games").onclick = e => {
   setGames([...ids]);
 };
 $("#pickShown").onclick = () => setGames(shownGames().map(g => g.id));
-$("#pickMine").onclick = () => { const ids = (S.games || []).filter(g => g.mine).map(g => g.id); ids.length ? setGames(ids) : toast("No Lions, Pistons or MSU games today"); };
+$("#pickMine").onclick = () => {
+  const ids = new Set(S.mode === "game" ? S.game_ids || [] : []);
+  if (ids.has("@mine")) { ids.delete("@mine"); return setGames([...ids], ids.size ? "Stopped following my teams" : undefined); }
+  ids.add("@mine");
+  setGames([...ids], "Following the Lions, Pistons and MSU");
+};
 $("#pickClose").onclick = () => {
   const ids = new Set(S.mode === "game" ? S.game_ids || [] : []);
   if (ids.has("@close")) { ids.delete("@close"); return setGames([...ids], ids.size ? "Stopped following close games" : undefined); }
@@ -510,6 +518,13 @@ const Demo = (() => {
   const pickedGames = () => { const out = [];
     for (const id of S.game_ids || []) {
       if (id === "@close") games.filter(isClose).forEach(z => { if (!out.includes(z)) out.push(z); });
+      else if (id === "@mine") {
+        const sameDay = d => new Date(d * 1000).toDateString() === new Date().toDateString();
+        let mg = games.filter(z => mine(z) && (z.state === "in" || (z.state === "pre" && sameDay(z.start))));
+        if (!mg.length) { const seen = {}; mg = games.filter(z => mine(z) && z.state === "pre").sort((a, b) => a.start - b.start)
+                                                  .filter(z => !seen[mine(z) + z.league] && (seen[mine(z) + z.league] = 1)); }
+        mg.forEach(z => { if (!out.includes(z)) out.push(z); });
+      }
       else if (id === "@live" || id.startsWith("@live:")) {
         const lg = id.includes(":") ? id.split(":")[1] : null;
         games.filter(z => z.state === "in" && (!lg || z.league === lg)).forEach(z => { if (!out.includes(z)) out.push(z); });

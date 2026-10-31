@@ -55,6 +55,7 @@ CLOSE = {
 }
 CLOSE_GAMES = "@close"     # put in game_ids to follow every close game automatically
 LIVE_GAMES  = "@live"      # follow every game in progress ("@live:NFL" for one league)
+MY_GAMES    = "@mine"      # follow the Lions, Pistons and MSU
 LINGER_SEC  = 15 * 60      # live games stay on this long after they end
 
 def late(g):
@@ -943,9 +944,24 @@ class Feed:
                 lg = gid.split(":", 1)[1] if ":" in gid else None
                 out += [g for g in self.games if g not in out and (not lg or g["league"] == lg)
                         and (g["state"] == "in" or self.linger_left(g))]
+            elif gid == MY_GAMES:
+                out += [g for g in self.my_games() if g not in out]
             elif (g := self.game(gid)) and g not in out:
                 out.append(g)
         return out
+
+    def my_games(self):
+        """My teams' games worth showing now: live, today, or just finished (15 min).
+        If none of those, each team's next game so the ticker still has something to show."""
+        mine_all = [g for g in self.games if mine(g)[0]]
+        now = [g for g in mine_all if g["state"] == "in" or self.linger_left(g)
+               or (g["state"] == "pre" and is_today(g))]
+        if now:
+            return sorted(now, key=lambda g: ({"in": 0, "post": 1, "pre": 2}[g["state"]], g.get("start") or 0))
+        nxt = {}
+        for g in sorted((g for g in mine_all if g["state"] == "pre"), key=lambda g: g.get("start") or 0):
+            nxt.setdefault(mine(g)[0] + g["league"], g)
+        return list(nxt.values())
 
     def game(self, gid):
         return next((g for g in self.games if g["id"] == gid), None)
