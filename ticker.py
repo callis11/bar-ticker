@@ -80,7 +80,8 @@ class Control:
             "refresh": REFRESH_SEC, "odds": ["ou", "ml"], "odds_on": True,
             "msg_in_scroll": False, "effect": "steady",
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
-            "speed": SCROLL_SPEED, "motion": "scroll", "hold": 4}
+            "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
+            "pl_count": 5, "pl_sports": [], "prop_types": []}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -117,6 +118,9 @@ class Control:
         self.speed = max(10, min(120, int(self.speed)))
         self.motion = self.motion if self.motion in MOTIONS else "scroll"
         self.hold = max(2, min(15, int(self.hold)))
+        self.pl_count = max(1, min(10, int(self.pl_count)))
+        self.pl_sports = [x for x in (self.pl_sports or []) if x in PL_SPORTS]      # empty = all sports
+        self.prop_types = [x for x in (self.prop_types or []) if x in PROP_TYPES]  # empty = all types
         if self.effect not in EFFECTS:
             self.effect = "steady"
 
@@ -339,7 +343,11 @@ SHORT_WORDS = [("receiving yds", "rec yds"), ("rushing yds", "rush yds"), ("pass
                ("passing TDs", "pass TDs"), ("receptions", "rec"), ("reception", "rec"), ("anytime TD", "TD")]
 PROP_LABELS = {"Anytime TD": "TD", "Receptions": "rec", "Receiving yards": "rec yds", "Rushing yards": "rush yds",
                "Passing yards": "pass yds", "Passing TDs": "pass TDs", "Points": "pts", "Rebounds": "reb",
-               "Assists": "ast", "Threes": "3PM", "Steals": "stl", "Blocks": "blk"}
+               "Assists": "ast", "Threes": "3PM", "Steals": "stl", "Blocks": "blk",
+               "Rush + rec yards": "rush+rec yds", "Pts + reb + ast": "PRA"}
+# prop types you can pick on the phone (ParlayLabs label names)
+PROP_TYPES = ["Anytime TD", "Receptions", "Receiving yards", "Rushing yards", "Rush + rec yards", "Passing yards",
+              "Passing TDs", "Points", "Rebounds", "Assists", "Threes", "Pts + reb + ast"]
 MY_ABBRS = {"NFL": {"DET"}, "NBA": {"DET"}, "CFB": {"MSU"}, "CBB": {"MSU"}}
 
 def american(dec):
@@ -363,29 +371,28 @@ def short_leg(leg):
         txt = txt.replace(a, b)
     return txt
 
-def top_parlays(slips, limit=8, now=None):
-    """This week's featured parlays from ParlayLabs, still open, as scroll segments."""
+def top_parlays(slips, now=None):
+    """This week's featured parlays from ParlayLabs, still open: one list of scroll segments per parlay."""
     now_ms = (time.time() if now is None else now) * 1000
     picks = [s for s in slips if s.get("status") == "open" and s.get("group") in TOP_GROUPS
              and any(_leg_ts(l) * 1000 > now_ms for l in s.get("legs", []))]
-    segs = []
-    for s in picks[:limit]:
+    out = []
+    for s in picks:
         dec = 1.0
         for l in s["legs"]:
             dec *= leg_dec(l["a"])
-        segs += [(f"{s['name']} {american(dec)}: ", WHITE),
-                 (" · ".join(short_leg(l) for l in s["legs"]), (200, 200, 200)),
-                 (f"  $10 pays ${10 * dec:,.0f}", GREEN), DOT]
-    return segs
+        out.append([(f"{s['name']} {american(dec)}: ", WHITE),
+                    (" · ".join(short_leg(l) for l in s["legs"]), (200, 200, 200)),
+                    (f"  $10 pays ${10 * dec:,.0f}", GREEN), DOT])
+    return out
 
 def _leg_ts(leg):
     return start_time(leg.get("time")) if leg.get("time") else time.time() + 1
 
-def top_overs(data, odds, sport, limit=8, now=None):
-    """Best player overs for games that haven't started: most likely first, priced between -250 and +150,
-    best line per player, with how often he's hit it lately. My teams' players go first (up to 2)."""
+def over_candidates(data, odds, now=None):
+    """Every player over for games that haven't started, priced -250 to +150 (worth showing)."""
     starts = {g["id"]: start_time(g.get("commence_time")) for g in (odds or {}).get("lines", [])}
-    now, best = (time.time() if now is None else now), {}
+    now, out = (time.time() if now is None else now), []
     for pr in data.get("props", []):
         if starts.get(pr.get("event"), now + 1) <= now:
             continue
@@ -394,23 +401,30 @@ def top_overs(data, odds, sport, limit=8, now=None):
             if "p" not in L or not prices:
                 continue
             price = max(prices.values())
-            if not -250 <= price <= 150:
-                continue
-            key = pr["player"]
-            if key not in best or L["p"] > best[key][0]:
-                best[key] = (L["p"], price, pr, L)
-    ranked = sorted(best.values(), key=lambda x: -x[0])
-    mine_first = [x for x in ranked if x[2].get("team") in MY_ABBRS.get(sport, ())][:2]
-    rest = [x for x in ranked if x not in mine_first]
+            if -250 <= price <= 150:
+                out.append({"player": pr["player"], "team": pr.get("team"), "label": pr["label"], "td": pr.get("td"),
+                            "line": L["line"], "price": price, "p": L["p"], "hits": L.get("hits", 0), "n": L.get("n")})
+    return out
+
+def top_overs(cands, sport, types=(), limit=5):
+    """Best over per player (in the prop types picked, all if none), most likely first.
+    My teams' players go first (up to 2), in gold."""
+    best = {}
+    for c in cands:
+        if types and c["label"] not in types:
+            continue
+        if c["player"] not in best or c["p"] > best[c["player"]]["p"]:
+            best[c["player"]] = c
+    ranked = sorted(best.values(), key=lambda c: -c["p"])
+    mine_first = [c for c in ranked if c["team"] in MY_ABBRS.get(sport, ())][:2]
     segs = []
-    for p, price, pr, L in (mine_first + rest)[:limit]:
-        label = PROP_LABELS.get(pr["label"], pr["label"].lower())
-        line = "" if pr.get("td") else f"{math.floor(L['line']) + 1}+ "
-        gold = pr.get("team") in MY_ABBRS.get(sport, ())
-        segs.append((f"{initial(pr['player'])} {line}{label}", GOLD if gold else WHITE))
-        segs.append((f" {'+' if price > 0 else ''}{price}", ODDS_COLOR))
-        if L.get("n"):
-            segs.append((f"  hit {L.get('hits', 0)}/{L['n']}", GRAY))
+    for c in (mine_first + [c for c in ranked if c not in mine_first])[:limit]:
+        label = PROP_LABELS.get(c["label"], c["label"].lower())
+        line = "" if c["td"] else f"{math.floor(c['line']) + 1}+ "
+        segs.append((f"{initial(c['player'])} {line}{label}", GOLD if c["team"] in MY_ABBRS.get(sport, ()) else WHITE))
+        segs.append((f" {'+' if c['price'] > 0 else ''}{c['price']}", ODDS_COLOR))
+        if c["n"]:
+            segs.append((f"  hit {c['hits']}/{c['n']}", GRAY))
         segs.append(DOT)
     return segs
 
@@ -423,7 +437,7 @@ def parlaylabs(loader=None, sports=None, now=None):
             slips = list(loader(f"{PARLAYLABS}{sub}/picks.json")["slips"].values())
         except Exception:
             continue
-        block = {"sport": sport, "record": [], "parlays": [], "props": []}
+        block = {"sport": sport, "record": [], "parlays": [], "overs": []}
         done = [s for s in slips if s.get("status") in ("won", "lost")]
         if done:
             won = [s for s in done if s["status"] == "won"]
@@ -441,23 +455,31 @@ def parlaylabs(loader=None, sports=None, now=None):
             live = [s for s in slips if s.get("status") == "open"]
             if live:
                 rec.append((f"{len(live)} parlays live  ", (0, 180, 255)))
-        tp = top_parlays(slips, now=now)
-        if tp:
-            block["parlays"] = [("TOP PARLAYS  ", (0, 180, 255), "sub")] + tp
+        block["parlays"] = top_parlays(slips, now=now)
         try:
-            ov = top_overs(loader(f"{PARLAYLABS}{sub}/data.json"), loader(f"{PARLAYLABS}{sub}/odds.json"), sport, now=now)
-            if ov:
-                block["props"] = [("TOP OVERS  ", (0, 180, 255), "sub")] + ov
+            block["overs"] = over_candidates(loader(f"{PARLAYLABS}{sub}/data.json"),
+                                             loader(f"{PARLAYLABS}{sub}/odds.json"), now=now)
         except Exception:
-            pass
-        if block["record"] or block["parlays"] or block["props"]:
+            block["overs"] = []
+        if block["record"] or block["parlays"] or block["overs"]:
             out.append(block)
     return out
 
-def pl_segments(blocks, parts):
+def pl_segments(blocks, ctl):
+    """ParlayLabs part of the scroll, using the phone's picks: which parts, how many, which sports, which prop types."""
     segs = []
     for b in blocks:
-        body = [seg for part in ("record", "parlays", "props") if part in parts for seg in b[part]]
+        if ctl.pl_sports and b["sport"] not in ctl.pl_sports:
+            continue
+        body = []
+        if "record" in ctl.pl_parts:
+            body += b["record"]
+        if "parlays" in ctl.pl_parts and b["parlays"]:
+            body += [("TOP PARLAYS  ", (0, 180, 255), "sub")] + [sg for one in b["parlays"][:ctl.pl_count] for sg in one]
+        if "props" in ctl.pl_parts:
+            ov = top_overs(b["overs"], b["sport"], ctl.prop_types, ctl.pl_count)
+            if ov:
+                body += [("TOP OVERS  ", (0, 180, 255), "sub")] + ov
         if body:
             segs += [(f"  PARLAYLABS {b['sport']}  ", GOLD, "hdr")] + body
     return segs
@@ -716,7 +738,7 @@ def card_size(card):
     """Main-line font size that fits, or None if it has to crawl across."""
     txt = "".join(sg[0] for sg in card["segs"]).strip()
     start = 24 if card["label"] is None else 19
-    for size in range(start, 12, -1):
+    for size in range(start, 10, -1):
         if font(size).getlength(txt) <= W - 6:
             return size
     return None
@@ -819,7 +841,7 @@ class Feed:
     def build_strip(self):
         ctl = self.ctl
         only = ctl.leagues                       # leagues picked on the phone (empty = everything)
-        pl = pl_segments(self.pl, ctl.pl_parts) if not only or "PL" in only else []
+        pl = pl_segments(self.pl, ctl) if not only or "PL" in only else []
         build = time_segments if ctl.group == "time" else score_segments
         segs = pl + build(self.games, only, ctl.show_odds(), ctl.days)
         if ctl.msg_in_scroll and ctl.message.strip():

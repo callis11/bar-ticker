@@ -42,7 +42,7 @@ Handy commands on the Pi: `sudo systemctl restart ticker` (restart), `journalctl
 On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap Share → Add to Home Screen so it opens like an app.
 - **Live preview** of what's on the ticker right now
 - **Scroll all**: every game with scores, plus ParlayLabs (pick Record, Top parlays and/or Top overs). Pick any mix of NFL, NBA, college football, college hoops, NHL, MLB and ParlayLabs, or Everything
-- **How it moves**: Scroll (the classic crawl), or one item at a time with **Fade**, **Flash** or **Slide up**, each with a small label on top (league, time slot or ParlayLabs part). A Speed slider (Slow to Very fast) sets the crawl speed, and for one-at-a-time you pick how long each item stays (3, 5 or 8 sec). Long items like parlays crawl across inside their card
+- **How it moves**: Scroll (the classic crawl), or one item at a time with **Fade**, **Flash** or **Slide up**, each with a small label on top (league, time slot or ParlayLabs part). A Speed slider (Slow to Very fast) sets the crawl speed, and for one-at-a-time you pick how long each item stays (3, 5 or 8 sec, 5 to start). Long items like parlays crawl across inside their card
 - **Order**: By league, or **By start time** (LIVE first, then each kickoff/tip-off slot like "SUN 1:00 PM" with every game in it, then FINAL)
 - **Days**: Today only, or This week (NFL and college football list the whole week)
 - **Odds**: a Show odds switch, plus Moneyline, Over/Under and Spread picks (Moneyline and Over/Under on by default). Odds show for games that haven't started, in the scroll and when you hold a game
@@ -61,7 +61,8 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 - Pulls from your ParlayLabs site every 10 minutes, for each sport. On the phone you pick any mix of:
   - **Record**: wins-losses, $10-bet profit, the last 3 graded parlays, how many are still live
   - **Top parlays**: this week's Best of the week and Lions parlays, each with its odds, its legs and what $10 pays
-  - **Top overs**: the 8 best player overs for games that haven't started (most likely first, priced -250 to +150, best line per player), with the best price and how often he's hit it lately. Lions/Pistons/MSU players go first, in gold
+  - **Top overs**: the best player overs for games that haven't started (most likely first, priced -250 to +150, best line per player), with the best price and how often he's hit it lately. Lions/Pistons/MSU players go first, in gold
+  - Also pick **how many** (top 3, 5 or 8), **which sports** (NFL, NBA, College FB, College BB, or all) and **which prop types** (TD, receptions, rec yds, rush yds, rush+rec, pass yds, pass TDs, points, rebounds, assists, threes, PRA, or all)
 - Lions, Pistons and Michigan State games show in gold
 - **Team alerts:** the whole ticker flashes for 10 seconds, then goes back to whatever was showing (scroll, game, picture or message)
   - Touchdown (Lions, MSU football): flashes TOUCHDOWN! / LIONS! in team colors, then the score
