@@ -98,7 +98,7 @@ class Control:
             "msg_in_scroll": False, "effect": "steady",
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
-            "pl_count": 5, "pl_sports": [], "prop_types": []}
+            "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide"}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -135,6 +135,7 @@ class Control:
         self.speed = max(10, min(120, int(self.speed)))
         self.motion = self.motion if self.motion in MOTIONS else "scroll"
         self.hold = max(2, min(15, int(self.hold)))
+        self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push") else "slide"
         self.pl_count = max(1, min(10, int(self.pl_count)))
         self.pl_sports = [x for x in (self.pl_sports or []) if x in PL_SPORTS]      # empty = all sports
         self.prop_types = [x for x in (self.prop_types or []) if x in PROP_TYPES]  # empty = all types
@@ -795,8 +796,18 @@ def card_frame(card, t, ctl):
     return img
 
 def with_motion(img, t, length, motion):
-    """Fade / Flash / Slide-up in and out around a card."""
+    """Fade / Flash / Slide-up / Slide-left in and out around a card or game."""
     tr = 0.3
+    if motion == "push":                                 # comes in from the right, leaves to the left
+        tr = 0.4
+        if t < tr:
+            dx = int(W * (1 - t / tr))
+        elif t > length - tr:
+            dx = -int(W * (t - (length - tr)) / tr)
+        else:
+            return img
+        out = Image.new("RGB", (W, ROWS)); out.paste(img, (dx, 0))
+        return out
     if motion == "fade":
         k = max(0.0, min(1.0, t / tr, (length - t) / tr))
         return ImageEnhance.Brightness(img).enhance(k) if k < 1 else img
@@ -1078,8 +1089,14 @@ def run_display(ctl, feed, matrix):
         mode = ctl.mode
         picked = feed.picked() if mode == "game" else []
         if picked:                                # one game holds; several take turns
-            g = picked[int(time.time() // ctl.rotate) % len(picked)]
-            show(game_frame(g, ctl.rotate if len(picked) > 1 else 0, ctl.show_odds())); time.sleep(0.25)
+            now = time.time()
+            g = picked[int(now // ctl.rotate) % len(picked)]
+            img = game_frame(g, ctl.rotate if len(picked) > 1 else 0, ctl.show_odds())
+            if len(picked) > 1 and ctl.game_motion != "cut":
+                img = with_motion(img, now % ctl.rotate, ctl.rotate, ctl.game_motion)
+                show(img); time.sleep(1 / 40)     # smooth while changing games
+            else:
+                show(img); time.sleep(0.25)
         elif mode == "image" and ctl.frames:
             img, ms = ctl.frames[img_i % len(ctl.frames)]
             show(img); img_i += 1; time.sleep(ms / 1000)

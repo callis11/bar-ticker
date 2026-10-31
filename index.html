@@ -163,6 +163,11 @@
     <span class="segLabel">Switch every</span>
     <button data-r="5">5 sec</button><button data-r="10">10 sec</button><button data-r="20">20 sec</button>
   </div>
+  <h2 style="margin-top:10px">Change style</h2>
+  <div class="chips wrap" id="gameMotion">
+    <button data-gm="cut">Cut</button><button data-gm="fade">Fade</button><button data-gm="flash">Flash</button>
+    <button data-gm="slide">Slide up</button><button data-gm="push">Slide left</button>
+  </div>
   <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>Live games</b> follows every game in progress (just one league if you picked a league above), adds new ones as they start, and keeps each one on for 15 minutes after it ends. <b>Close games</b> follows every close game in every league by itself (late and within one score) and scrolls everything else until one gets tight.</p>
 </div>
 
@@ -255,6 +260,7 @@ function render() {
   $("#unmixMsg").style.display = S.msg_in_scroll ? "" : "none";
   $("#mixMsg").textContent = S.msg_in_scroll ? "Update message in the scroll" : "Mix into the scores scroll";
   document.querySelectorAll("#oddsPick button").forEach(b => b.classList.toggle("on", (S.odds || []).includes(b.dataset.o)));
+  document.querySelectorAll("#gameMotion button").forEach(b => b.classList.toggle("on", b.dataset.gm === (S.game_motion || "slide")));
   document.querySelectorAll("#plCount button").forEach(b => b.classList.toggle("on", +b.dataset.n === (S.pl_count || 5)));
   const ps = S.pl_sports || [], pt = S.prop_types || [];
   $("#plSports").innerHTML = `<button data-s="" class="${ps.length ? "" : "on"}">All sports</button>` +
@@ -388,6 +394,7 @@ const PROP_TYPES = [["Anytime TD","TD"],["Receptions","Receptions"],["Receiving 
   ["Rush + rec yards","Rush+rec"],["Passing yards","Pass yds"],["Passing TDs","Pass TDs"],["Points","Points"],["Rebounds","Rebounds"],
   ["Assists","Assists"],["Threes","Threes"],["Pts + reb + ast","PRA"]];
 function toggleList(list, key) { const on = new Set(list || []); if (!key) on.clear(); else on.has(key) ? on.delete(key) : on.add(key); return [...on]; }
+$("#gameMotion").onclick = e => { const b = e.target.closest("button"); if (b) save({game_motion:b.dataset.gm}, `Games change with ${b.textContent}`); };
 $("#plCount").onclick = e => { const b = e.target.closest("button"); if (b) save({pl_count:+b.dataset.n}, b.textContent); };
 $("#plSports").onclick = e => { const b = e.target.closest("button"); if (b) save({pl_sports:toggleList(S.pl_sports, b.dataset.s)}, "ParlayLabs sports updated"); };
 $("#propTypes").onclick = e => { const b = e.target.closest("button"); if (b) save({prop_types:toggleList(S.prop_types, b.dataset.t)}, "Prop types updated"); };
@@ -527,7 +534,7 @@ const Demo = (() => {
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
            group:"league", days:"week", pl_parts:["record","parlays","props"],
-           speed:40, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[]};
+           speed:40, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide"};
   const picks = () => S.odds_on === false ? [] : (S.odds || []);
   let games = SAMPLE, pl = PL_SAMPLE, live = false, image = null, alerts = [], showing = null;
   const cv = $("#sim"), g = cv.getContext("2d");
@@ -725,6 +732,7 @@ const Demo = (() => {
     if (cardSize(c)) return S.hold;
     g.font = font(20); return Math.max(S.hold, (W + g.measureText(cardText(c)).width) / S.speed);
   }
+  const gameCanvas = document.createElement("canvas"); gameCanvas.width = W; gameCanvas.height = H;
   const cardCanvas = document.createElement("canvas"); cardCanvas.width = W; cardCanvas.height = H;
   function drawCard(c, t) {
     const cc = cardCanvas.getContext("2d"); cc.clearRect(0, 0, W, H);
@@ -742,9 +750,10 @@ const Demo = (() => {
     }
     return cardCanvas;
   }
-  function drawWithMotion(cnv, t, len) {
-    const tr = 0.3, m = S.motion;
+  function drawWithMotion(cnv, t, len, m = S.motion) {
+    const tr = 0.3;
     clear();
+    if (m === "push") { const p = 0.4, dx = t < p ? W * (1 - t / p) : t > len - p ? -W * (t - (len - p)) / p : 0; g.drawImage(cnv, Math.round(dx), 0); return; }
     if (m === "fade") { g.globalAlpha = Math.max(0, Math.min(1, t / tr, (len - t) / tr)); g.drawImage(cnv, 0, 0); g.globalAlpha = 1; return; }
     if (m === "flash") { if (!(t < 0.45 && Math.floor(t / 0.075) % 2)) g.drawImage(cnv, 0, 0); return; }
     if (m === "slide") { const dy = t < tr ? H * (1 - t / tr) : t > len - tr ? -H * (t - (len - tr)) / tr : 0; g.drawImage(cnv, 0, Math.round(dy)); return; }
@@ -831,7 +840,14 @@ const Demo = (() => {
     if (picked.length) {
       const secs = Date.now() / 1000;
       drawGame(picked[Math.floor(secs / S.rotate) % picked.length]);
-      if (picked.length > 1) { g.fillStyle = "#323250"; g.fillRect(0, 0, W * (secs % S.rotate) / S.rotate, 1); }
+      if (picked.length > 1) {
+        g.fillStyle = "#323250"; g.fillRect(0, 0, W * (secs % S.rotate) / S.rotate, 1);
+        const m = S.game_motion || "slide";
+        if (m !== "cut") {                       // copy the game off, then bring it in with the chosen style
+          const gc = gameCanvas.getContext("2d"); gc.clearRect(0, 0, W, H); gc.drawImage(cv, 0, 0);
+          drawWithMotion(gameCanvas, secs % S.rotate, S.rotate, m);
+        }
+      }
     }
     else if (S.mode === "image" && image) {
       clear(); const sc = S.fit === "fill" ? Math.max(W / image.width, H / image.height) : Math.min(W / image.width, H / image.height);
