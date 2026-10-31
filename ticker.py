@@ -209,12 +209,12 @@ def parse_game(label, ev):
     comp = ev["competitions"][0]
     teams = {c["homeAway"]: c for c in comp["competitors"]}
     a, h = teams["away"], teams["home"]
-    st = ev["status"]
+    st = ev.get("status") or comp.get("status") or {}
     odds = (comp.get("odds") or [{}])[0]
     return dict(
         id=f"{label}-{ev['id']}", league=label,
         away=a["team"]["abbreviation"], home=h["team"]["abbreviation"],
-        ascore=int(a.get("score") or 0), hscore=int(h.get("score") or 0),
+        ascore=_score(a), hscore=_score(h),
         state=st["type"]["state"], detail=st["type"]["shortDetail"],
         period=st.get("period", 0), clock=clock_secs(st.get("displayClock")),
         ranked=any(c.get("curatedRank", {}).get("current", 99) <= 25 for c in (a, h)),
@@ -223,6 +223,57 @@ def parse_game(label, ev):
         mla=moneyline(odds, "away"), mlh=moneyline(odds, "home"),
         start=start_time(ev.get("date")),
     )
+
+def _score(c):
+    v = c.get("score")
+    if isinstance(v, dict):                      # team schedules give {"value": 21.0, "displayValue": "21"}
+        v = v.get("value")
+    try:
+        return int(float(v or 0))
+    except (TypeError, ValueError):
+        return 0
+
+# ESPN team ids, for looking up a team's next game when it isn't on today's board
+TEAM_IDS = {("NFL", "DET"): 8, ("NBA", "DET"): 8, ("CFB", "MSU"): 127, ("CBB", "MSU"): 127}
+LEAGUE_PATHS = {l: p for l, p, _ in LEAGUES}
+NEXT_REFRESH = 30 * 60     # look up my teams' next games every 30 minutes
+
+def date_label(ts):
+    """'SUN 11/9 1:00 PM' (just the time for today)."""
+    t = datetime.fromtimestamp(ts)
+    if t.date() == datetime.now().date():
+        return t.strftime("%-I:%M %p")
+    return t.strftime("%a %-m/%-d %-I:%M %p").upper()
+
+def fetch_next_game(league, team_id):
+    """A team's next game that hasn't finished, from its ESPN schedule. Then that day's scoreboard,
+    which has the odds once books post them. Returns a game dict or None."""
+    path = LEAGUE_PATHS[league]
+    sched = get_json(f"{ESPN}/{path}/teams/{team_id}/schedule")
+    now, nxt = time.time(), None
+    for ev in sched.get("events", []):
+        comp = (ev.get("competitions") or [{}])[0]
+        state = ((ev.get("status") or comp.get("status") or {}).get("type") or {}).get("state")
+        if state != "post" and start_time(ev.get("date")) > now - 6 * 3600:
+            nxt = ev
+            break
+    if not nxt:
+        return None
+    game = parse_game(league, nxt)
+    try:                                          # same game from the scoreboard, with odds if posted
+        day = datetime.fromtimestamp(game["start"]).strftime("%Y%m%d")
+        extra = "&groups=50" if league == "CBB" else ""
+        board = get_json(f"{ESPN}/{path}/scoreboard?dates={day}{extra}")
+        for ev in board.get("events", []):
+            if str(ev.get("id")) == str(nxt.get("id")):
+                game = parse_game(league, ev)
+                break
+    except Exception:
+        pass
+    if game["state"] == "pre" and game.get("start"):
+        game["detail"] = date_label(game["start"])
+    game["next"] = True
+    return game
 
 def start_time(iso):
     """ESPN start time ("2026-11-01T18:00Z") as seconds since 1970, or 0."""
@@ -856,6 +907,7 @@ class Feed:
         self.last_ok, self.fails, self.last_error = time.time(), 0, ""
         self.last_state, self.ended = {}, {}       # to know when a game just finished
         self.force = False                         # set by the refresh button
+        self.next_games = {}                       # my teams' next games when they're not on today's board
         self.strip = text_strip([("Loading…", GRAY)])
         self.strip_off = self.strip_mask = None
         self.cards = []
@@ -864,11 +916,11 @@ class Feed:
 
     def loop(self):
         """Hot leagues (my team or the pinned game live) every FAST_SEC, everything else every ctl.refresh."""
-        by_league, last, last_pl = {}, {}, 0
+        by_league, last, last_pl, last_next = {}, {}, 0, 0
         while True:
             now = time.time()
             if self.force:                               # refresh button: skip the waits this time
-                self.force, last, last_pl = False, {}, 0
+                self.force, last, last_pl, last_next = False, {}, 0, 0
             if self.demo:
                 self.games, self.pl = DEMO_GAMES, demo_parlaylabs()
             else:
@@ -888,6 +940,8 @@ class Feed:
                 self.note_finishes()
                 if now - last_pl > PL_REFRESH:    # ParlayLabs files are big (~8 MB) and change slowly
                     self.pl, last_pl = parlaylabs() or self.pl, now
+                if now - last_next > NEXT_REFRESH:
+                    self.update_next_games(); last_next = now
             self.build_strip()
             time.sleep(1)
 
@@ -931,7 +985,10 @@ class Feed:
     def hot_leagues(self):
         ids = self.ctl.game_ids
         follow_all = CLOSE_GAMES in ids or LIVE_GAMES in ids                       # every live league is hot
-        follow = {i.split(":", 1)[1] for i in ids if i.startswith(LIVE_GAMES + ":")}  # just these leagues
+        follow = set()                                                            # or just these leagues
+        for i in ids:
+            if i.startswith((LIVE_GAMES + ":", CLOSE_GAMES + ":")):
+                follow |= set(i.split(":", 1)[1].split(","))
         return {g["league"] for g in self.games
                 if g["state"] == "in" and (mine(g)[0] or g["id"] in ids or follow_all or g["league"] in follow)}
 
@@ -940,11 +997,13 @@ class Feed:
         to every game in progress plus ones that ended in the last 15 minutes."""
         out = []
         for gid in self.ctl.game_ids:
-            if gid == CLOSE_GAMES:
-                out += [g for g in self.games if is_close(g) and g not in out]
-            elif gid == LIVE_GAMES or gid.startswith(LIVE_GAMES + ":"):
-                lg = gid.split(":", 1)[1] if ":" in gid else None
-                out += [g for g in self.games if g not in out and (not lg or g["league"] == lg)
+            base, _, lgs = gid.partition(":")             # "@live:NFL,CFB" -> just those leagues
+            lgs = set(lgs.split(",")) if lgs else None
+            ok = lambda g: not lgs or g["league"] in lgs
+            if base == CLOSE_GAMES:
+                out += [g for g in self.games if is_close(g) and ok(g) and g not in out]
+            elif base == LIVE_GAMES:
+                out += [g for g in self.games if g not in out and ok(g)
                         and (g["state"] == "in" or self.linger_left(g))]
             elif gid == MY_GAMES:
                 out += [g for g in self.my_games() if g not in out]
@@ -953,20 +1012,38 @@ class Feed:
         return out
 
     def my_games(self):
-        """My teams' games worth showing now: live, today, or just finished (15 min).
-        If none of those, each team's next game so the ticker still has something to show."""
-        mine_all = [g for g in self.games if mine(g)[0]]
-        now = [g for g in mine_all if g["state"] == "in" or self.linger_left(g)
-               or (g["state"] == "pre" and is_today(g))]
-        if now:
-            return sorted(now, key=lambda g: ({"in": 0, "post": 1, "pre": 2}[g["state"]], g.get("start") or 0))
-        nxt = {}
-        for g in sorted((g for g in mine_all if g["state"] == "pre"), key=lambda g: g.get("start") or 0):
-            nxt.setdefault(mine(g)[0] + g["league"], g)
-        return list(nxt.values())
+        """One game for every one of my teams, always: the game it's playing now (or today, or that just
+        ended), otherwise its next game with the day, date, time and odds once they're posted."""
+        out = []
+        for (league, abbr) in MY_TEAMS:
+            theirs = [g for g in self.games if g["league"] == league and abbr in (g["away"], g["home"])]
+            now = [g for g in theirs if g["state"] == "in" or self.linger_left(g)
+                   or (g["state"] == "pre" and is_today(g))]
+            upcoming = sorted((g for g in theirs if g["state"] == "pre"), key=lambda g: g.get("start") or 0)
+            g = (now or upcoming or [self.next_games.get((league, abbr))])[0]
+            if g and g not in out:
+                if g["state"] == "pre" and not is_today(g) and g.get("start"):
+                    g = dict(g, detail=date_label(g["start"]))   # show the date for later games
+                out.append(g)
+        order = {"in": 0, "post": 1, "pre": 2}
+        return sorted(out, key=lambda g: (order[g["state"]], g.get("start") or 0))
+
+    def update_next_games(self):
+        """Looks up the next game for any of my teams that isn't on the current board."""
+        for key, tid in TEAM_IDS.items():
+            league, abbr = key
+            if any(g["league"] == league and abbr in (g["away"], g["home"]) and g["state"] != "post"
+                   for g in self.games):
+                continue
+            try:
+                g = fetch_next_game(league, tid)
+                if g:
+                    self.next_games[key] = g
+            except Exception:
+                pass
 
     def game(self, gid):
-        return next((g for g in self.games if g["id"] == gid), None)
+        return next((g for g in self.games + list(self.next_games.values()) if g["id"] == gid), None)
 
     def next_alert(self):
         q = self.watcher.queue
@@ -1039,6 +1116,9 @@ def make_handler(ctl, feed):
             elif path == "/api/state":
                 games = [dict(g, mine=bool(mine(g)[0]), close=is_close(g), linger=feed.linger_left(g))
                          for g in feed.games]
+                ids = {g["id"] for g in games}
+                games += [dict(g, mine=True, close=False, linger=0) for g in feed.my_games()
+                          if g["id"] not in ids]    # my teams' next games further out
                 stale = time.time() - feed.last_ok           # nothing from ESPN for a while = likely blocked
                 feed_ok = feed.demo or stale < max(90, 6 * ctl.refresh)
                 self.send(200, dict(ctl.as_dict(), games=games, has_image=bool(ctl.frames),

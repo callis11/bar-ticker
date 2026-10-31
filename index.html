@@ -173,7 +173,7 @@
     <label class="row" for="gameSpeed"><span>Scroll speed</span><span id="gameSpeedV"></span></label>
     <input type="range" id="gameSpeed" min="10" max="120" step="5">
   </div>
-  <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>My teams</b> follows the Lions, Pistons and MSU (live, today, or just finished; otherwise each team's next game). <b>Live games</b> follows every game in progress (just one league if you picked a league above), adds new ones as they start, and keeps each one on for 15 minutes after it ends. <b>Close games</b> follows every close game in every league by itself (late and within one score) and scrolls everything else until one gets tight.</p>
+  <p class="hint">Pick one game to hold it on the ticker, or several and it takes turns. <b>My teams</b> always shows all four: Lions, Pistons, MSU football and MSU basketball. Each one's game if it's on (or today, or just ended), otherwise its next game with the day, date, time and odds once they're posted. Pick sports above (tap as many as you want) and <b>Live</b>, <b>Close</b> and <b>Select all</b> stick to those sports. <b>Live games</b> adds games as they start and keeps each one on for 15 minutes after it ends. <b>Close games</b> follows close games (late and within one score) and scrolls everything else until one gets tight.</p>
 </div>
 
 <div class="card panel" data-panel="image">
@@ -232,7 +232,11 @@
 <script>
 const $ = s => document.querySelector(s);
 const COLORS = ["#ffbe00","#ffffff","#ff2828","#00e050","#0076b6","#009646","#c8102e","#ff7a00","#b050ff"];
-let S = {}, league = "ALL", online = false;
+let S = {}, online = false;
+let sports = new Set();          // Games tab sport filter: empty = all sports
+const inSports = g => !sports.size || sports.has(g.league);
+const sportsTag = () => [...sports].sort().join(",");          // "CFB,NFL" for the ticker
+const sportsName = () => [...sports].sort().join("+");
 
 let DEMO = false;
 async function api(path, opts) {
@@ -300,8 +304,10 @@ function renderScroll() {
   document.querySelectorAll("#rotate button").forEach(b => b.classList.toggle("on", +b.dataset.r === S.rotate));
 }
 function shownGames() {
-  return (S.games || []).filter(g => league === "ALL" || g.league === league);
+  return (S.games || []).filter(g => inSports(g) && !g.next);
 }
+const isTok = (i, base) => i === base || i.startsWith(base + ":");
+function tokLabel(tok, word) { return tok.includes(":") ? `${word} ${tok.split(":")[1].split(",").join("+")} ✓` : `${word} games ✓`; }
 function setGames(ids, msg) {
   if (!ids.length) return save({mode:"scroll", game_ids:[]}, "Back to scrolling");
   save({mode:"game", game_ids:ids}, msg || (ids.length === 1 ? "Holding that game" : `Taking turns with ${ids.length} games`));
@@ -312,23 +318,24 @@ let gamesOpen = false;
 try { gamesOpen = localStorage.getItem("gamesOpen") === "1"; } catch {}
 
 function renderGames() {
-  const following = S.mode === "game" && (S.game_ids || []).includes("@close");
+  const closeTok = (S.game_ids || []).find(i => isTok(i, "@close"));
+  const following = S.mode === "game" && !!closeTok;
   const mineOn = S.mode === "game" && (S.game_ids || []).includes("@mine");
   $("#pickMine").classList.toggle("on", mineOn);
   $("#pickMine").textContent = mineOn ? "My teams ✓" : "My teams";
-  const liveTok = (S.game_ids || []).find(i => i === "@live" || i.startsWith("@live:"));
+  const liveTok = (S.game_ids || []).find(i => isTok(i, "@live"));
   const liveOn = S.mode === "game" && !!liveTok;
   $("#pickLive").classList.toggle("on", liveOn);
-  $("#pickLive").textContent = liveOn ? (liveTok.includes(":") ? `Live ${liveTok.split(":")[1]} ✓` : "Live games ✓")
-                                      : (league === "ALL" ? "Live games" : `Live ${league}`);
+  $("#pickLive").textContent = liveOn ? tokLabel(liveTok, "Live") : (sports.size ? `Live ${sportsName()}` : "Live games");
   $("#pickClose").classList.toggle("on", following);
-  $("#pickClose").textContent = following ? "Close games ✓" : "Close games";
+  $("#pickClose").textContent = following ? tokLabel(closeTok, "Close") : (sports.size ? `Close ${sportsName()}` : "Close games");
   const games = S.games || [];
-  const leagues = ["ALL", ...new Set(games.map(g => g.league))];
-  $("#leagues").innerHTML = leagues.map(l => `<button data-l="${l}" class="${l === league ? "on" : ""}">${l === "ALL" ? "All" : l}</button>`).join("");
+  const leagues = [...new Set(games.map(g => g.league))];
+  $("#leagues").innerHTML = `<button data-l="" class="${sports.size ? "" : "on"}">All</button>` +
+    leagues.map(l => `<button data-l="${l}" class="${sports.has(l) ? "on" : ""}">${l}</button>`).join("");
   const order = {in:0, pre:1, post:2};
   // top of the list: my teams, then close, live, starting soonest, finals
-  const all = games.filter(g => league === "ALL" || g.league === league)
+  const all = games.filter(inSports)
                    .sort((a, b) => (b.mine - a.mine) || (!!b.close - !!a.close) || (order[a.state] - order[b.state]) ||
                                    ((a.start || 0) - (b.start || 0)));
   const picked = id => S.mode === "game" && (S.game_ids || []).includes(id);
@@ -344,7 +351,7 @@ function renderGames() {
     return `<div class="game ${on ? "on" : ""}" data-id="${g.id}">
       <span class="check">${on ? "✓" : ""}</span>
       <span class="lg">${g.league}</span>
-      <span class="teams ${g.mine ? "mine" : ""}">${score}${g.close ? '<span class="badge">CLOSE</span>' : ""}${g.linger ? `<span class="badge fin">ON ${Math.ceil(g.linger / 60)} MIN</span>` : ""}</span>
+      <span class="teams ${g.mine ? "mine" : ""}">${score}${g.close ? '<span class="badge">CLOSE</span>' : ""}${g.linger ? `<span class="badge fin">ON ${Math.ceil(g.linger / 60)} MIN</span>` : ""}${g.next ? '<span class="badge fin">NEXT</span>' : ""}</span>
       <span class="st ${g.state === "in" ? "live" : ""}">${g.state === "in" ? "● " : ""}${g.detail.replace(/ - .*/, "")}</span></div>`;
   }).join("") : `<div class="empty">No games on right now.</div>`;
 }
@@ -355,7 +362,11 @@ $("#tabs").onclick = e => {
   if (b.dataset.mode === "scroll") save({mode:"scroll"}, "Scrolling everything");
   render();
 };
-$("#leagues").onclick = e => { const b = e.target.closest("button"); if (b) { league = b.dataset.l; renderGames(); } };
+$("#leagues").onclick = e => {               // pick several sports; "All" clears
+  const b = e.target.closest("button"); if (!b) return;
+  if (!b.dataset.l) sports.clear(); else sports.has(b.dataset.l) ? sports.delete(b.dataset.l) : sports.add(b.dataset.l);
+  renderGames();
+};
 $("#games").onclick = e => {
   const g = e.target.closest(".game"); if (!g) return;
   const ids = new Set(S.mode === "game" ? S.game_ids || [] : []);
@@ -367,13 +378,15 @@ $("#pickMine").onclick = () => {
   const ids = new Set(S.mode === "game" ? S.game_ids || [] : []);
   if (ids.has("@mine")) { ids.delete("@mine"); return setGames([...ids], ids.size ? "Stopped following my teams" : undefined); }
   ids.add("@mine");
-  setGames([...ids], "Following the Lions, Pistons and MSU");
+  setGames([...ids], "Following the Lions, Pistons and MSU. Next games show when they're not playing");
 };
 $("#pickClose").onclick = () => {
   const ids = new Set(S.mode === "game" ? S.game_ids || [] : []);
-  if (ids.has("@close")) { ids.delete("@close"); return setGames([...ids], ids.size ? "Stopped following close games" : undefined); }
-  ids.add("@close");
-  const now = (S.games || []).filter(g => g.close).length;
+  const had = [...ids].filter(i => isTok(i, "@close"));
+  had.forEach(i => ids.delete(i));
+  if (had.length) return setGames([...ids], ids.size ? "Stopped following close games" : undefined);
+  ids.add(sports.size ? `@close:${sportsTag()}` : "@close");
+  const now = (S.games || []).filter(g => g.close && inSports(g)).length;
   setGames([...ids], now ? `Following ${now} close game${now > 1 ? "s" : ""}` : "Following close games. Scrolling until one gets tight");
 };
 $("#moreGames").onclick = () => {
@@ -384,13 +397,12 @@ $("#moreGames").onclick = () => {
 };
 $("#pickLive").onclick = () => {
   const ids = new Set(S.mode === "game" ? S.game_ids || [] : []);
-  const had = [...ids].filter(i => i === "@live" || i.startsWith("@live:"));
+  const had = [...ids].filter(i => isTok(i, "@live"));
   had.forEach(i => ids.delete(i));
   if (had.length) return setGames([...ids], ids.size ? "Stopped following live games" : undefined);
-  const tok = league === "ALL" ? "@live" : `@live:${league}`;
-  ids.add(tok);
-  const n = (S.games || []).filter(g => g.state === "in" && (league === "ALL" || g.league === league)).length;
-  const what = league === "ALL" ? "live games" : `live ${league} games`;
+  ids.add(sports.size ? `@live:${sportsTag()}` : "@live");
+  const n = (S.games || []).filter(g => g.state === "in" && inSports(g)).length;
+  const what = sports.size ? `live ${sportsName()} games` : "live games";
   setGames([...ids], n ? `Following ${n} ${what}. New ones join when they start` : `Following ${what}. They'll join when they start`);
 };
 $("#pickNone").onclick = () => setGames([]);
@@ -523,21 +535,33 @@ const Demo = (() => {
   const isClose = x => { const r = CLOSE[x.league]; if (!r || x.state !== "in") return false;
     const late = x.period > r[0] || r[1] == null ? x.period >= r[0] : x.period === r[0] && x.clock <= r[1];
     return late && Math.abs(x.ascore - x.hscore) <= r[2]; };
+  const sameDayTs = d => new Date(d * 1000).toDateString() === new Date().toDateString();
+  const dateLabel = ts => { const d = new Date(ts * 1000), clock = d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
+    return sameDayTs(ts) ? clock : `${d.toLocaleDateString([], {weekday:"short"}).toUpperCase()} ${d.getMonth() + 1}/${d.getDate()} ${clock}`; };
+  function myGames() {                          // every one of my teams: now, or its next game
+    const out = [];
+    for (const key of Object.keys(MY)) {
+      const [lg, abbr] = key.split("|");
+      const theirs = games.filter(z => z.league === lg && (z.away === abbr || z.home === abbr));
+      const now = theirs.filter(z => z.state === "in" || (z.state === "pre" && sameDayTs(z.start)));
+      const up = theirs.filter(z => z.state === "pre").sort((a, b) => a.start - b.start);
+      let z = (now.length ? now : up)[0];
+      if (z && !out.some(o => o.id === z.id)) {
+        if (z.state === "pre" && !sameDayTs(z.start)) z = Object.assign({}, z, {detail: dateLabel(z.start)});
+        out.push(z);
+      }
+    }
+    const order = {in:0, post:1, pre:2};
+    return out.sort((a, b) => order[a.state] - order[b.state] || a.start - b.start);
+  }
   const pickedGames = () => { const out = [];
+    const add = z => { if (!out.some(o => o.id === z.id)) out.push(z); };
     for (const id of S.game_ids || []) {
-      if (id === "@close") games.filter(isClose).forEach(z => { if (!out.includes(z)) out.push(z); });
-      else if (id === "@mine") {
-        const sameDay = d => new Date(d * 1000).toDateString() === new Date().toDateString();
-        let mg = games.filter(z => mine(z) && (z.state === "in" || (z.state === "pre" && sameDay(z.start))));
-        if (!mg.length) { const seen = {}; mg = games.filter(z => mine(z) && z.state === "pre").sort((a, b) => a.start - b.start)
-                                                  .filter(z => !seen[mine(z) + z.league] && (seen[mine(z) + z.league] = 1)); }
-        mg.forEach(z => { if (!out.includes(z)) out.push(z); });
-      }
-      else if (id === "@live" || id.startsWith("@live:")) {
-        const lg = id.includes(":") ? id.split(":")[1] : null;
-        games.filter(z => z.state === "in" && (!lg || z.league === lg)).forEach(z => { if (!out.includes(z)) out.push(z); });
-      }
-      else { const z = games.find(q => q.id === id); if (z && !out.includes(z)) out.push(z); }
+      const [base, lgs] = id.split(":"), ok = z => !lgs || lgs.split(",").includes(z.league);
+      if (base === "@close") games.filter(z => isClose(z) && ok(z)).forEach(add);
+      else if (base === "@mine") myGames().forEach(add);
+      else if (base === "@live") games.filter(z => z.state === "in" && ok(z)).forEach(add);
+      else { const z = games.find(q => q.id === id); if (z) add(z); }
     } return out; };
   const mlFmt = v => v == null || v === "" ? null : (v = parseInt(String(v).replace("+", "")), isNaN(v) ? null : v > 0 ? "+" + v : "" + v);
   const espnML = (o, side) => mlFmt(((o || {})[side + "TeamOdds"] || {}).moneyLine ??
