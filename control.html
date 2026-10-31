@@ -97,7 +97,12 @@
 <div class="card panel" data-panel="scroll">
   <h2>Scroll</h2>
   <div class="chips wrap" id="scrollLeagues"></div>
-  <p class="hint" style="margin:0 0 4px">Pick any mix to scroll, or <b>Everything</b>.</p>
+  <p class="hint" style="margin:0 0 10px">Pick any mix to scroll, or <b>Everything</b>.</p>
+  <h2>ParlayLabs shows</h2>
+  <div class="chips wrap" id="plParts">
+    <button data-p="record">Record</button><button data-p="parlays">Top parlays</button><button data-p="props">Top overs</button>
+  </div>
+  <p class="hint" style="margin:0 0 4px">Pulled from your ParlayLabs site: this week's featured parlays with what $10 pays, and the best player overs with how often each player has hit it lately.</p>
   <div class="seg" id="groupPick"><span class="segLabel">Order</span>
     <button data-g="league">By league</button><button data-g="time">By start time</button></div>
   <div class="seg" id="daysPick" style="margin-bottom:14px"><span class="segLabel">Days</span>
@@ -214,6 +219,7 @@ function render() {
   $("#unmixMsg").style.display = S.msg_in_scroll ? "" : "none";
   $("#mixMsg").textContent = S.msg_in_scroll ? "Update message in the scroll" : "Mix into the scores scroll";
   document.querySelectorAll("#oddsPick button").forEach(b => b.classList.toggle("on", (S.odds || []).includes(b.dataset.o)));
+  document.querySelectorAll("#plParts button").forEach(b => b.classList.toggle("on", (S.pl_parts || []).includes(b.dataset.p)));
   document.querySelectorAll("#groupPick button").forEach(b => b.classList.toggle("on", b.dataset.g === (S.group || "league")));
   document.querySelectorAll("#daysPick button").forEach(b => b.classList.toggle("on", b.dataset.d === (S.days || "week")));
   $("#oddsOn").checked = S.odds_on !== false;
@@ -284,6 +290,11 @@ $("#sendMsg").onclick = () => save({mode:"message", message:$("#msg").value || "
 $("#mixMsg").onclick = () => save({mode:"scroll", msg_in_scroll:true, message:$("#msg").value || "GO LIONS!", color:S.color}, "Message added to the scroll");
 $("#effect").onclick = e => { const b = e.target.closest("button"); if (b) save({effect:b.dataset.e}, b.textContent + " style"); };
 $("#unmixMsg").onclick = () => save({msg_in_scroll:false}, "Message taken out of the scroll");
+$("#plParts").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const on = new Set(S.pl_parts || []); on.has(b.dataset.p) ? on.delete(b.dataset.p) : on.add(b.dataset.p);
+  save({mode:"scroll", pl_parts:[...on]}, on.size ? "ParlayLabs updated" : "No ParlayLabs in the scroll");
+};
 $("#groupPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", group:b.dataset.g}, b.dataset.g === "time" ? "Grouped by start time" : "Grouped by league"); };
 $("#daysPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", days:b.dataset.d}, b.dataset.d === "today" ? "Today's games only" : "This week's games"); };
 $("#oddsOn").onchange = e => save({odds_on:e.target.checked}, e.target.checked ? "Odds on" : "Odds off, scores only");
@@ -311,6 +322,46 @@ async function poll() {
   try { S = await api("/api/state"); online = true; render(); } catch { online = false; }
   $("#dot").classList.toggle("on", online);
 }
+
+/* ParlayLabs top parlays + top overs (same rules as ticker.py) */
+const PL = (() => {
+  const GROUPS = ["Best of the week", "Lions parlays", "Pistons parlays", "Spartans parlays", "Michigan State parlays"];
+  const SHORT = [["receiving yds","rec yds"],["rushing yds","rush yds"],["passing yds","pass yds"],["passing TDs","pass TDs"],["receptions","rec"],["reception","rec"],["anytime TD","TD"]];
+  const LABELS = {"Anytime TD":"TD","Receptions":"rec","Receiving yards":"rec yds","Rushing yards":"rush yds","Passing yards":"pass yds",
+                  "Passing TDs":"pass TDs","Points":"pts","Rebounds":"reb","Assists":"ast","Threes":"3PM","Steals":"stl","Blocks":"blk"};
+  const MINE = {NFL:["DET"], NBA:["DET"], CFB:["MSU"], CBB:["MSU"]};
+  const american = d => d >= 2 ? "+" + Math.round((d - 1) * 100) : d > 1 ? "-" + Math.round(100 / (d - 1)) : "EVEN";
+  const legDec = a => a > 0 ? 1 + a / 100 : 1 + 100 / -a;
+  const initial = n => { const i = n.indexOf(" "); return i > 2 ? n[0] + ". " + n.slice(i + 1) : n; };
+  const shortLeg = l => { let t = l.n || ""; if (l.kind === "p" && l.player && t.startsWith(l.player)) t = initial(l.player) + t.slice(l.player.length);
+                          SHORT.forEach(([a, b]) => t = t.split(a).join(b)); return t; };
+  function topParlays(slips, now = Date.now()) {
+    return slips.filter(s => s.status === "open" && GROUPS.includes(s.group) && (s.legs || []).some(l => !l.time || Date.parse(l.time) > now))
+      .slice(0, 8).flatMap(s => { const d = s.legs.reduce((a, l) => a * legDec(l.a), 1);
+        return [[`${s.name} ${american(d)}: `, "#fff"], [s.legs.map(shortLeg).join(" · "), "#c8c8c8"], [`  $10 pays $${Math.round(10 * d).toLocaleString()}`, "#00e650"], ["  •  ", "#3c3c3c"]]; });
+  }
+  function topOvers(data, odds, sport, now = Date.now()) {
+    const starts = {}; ((odds || {}).lines || []).forEach(g => starts[g.id] = Date.parse(g.commence_time));
+    const best = {};
+    for (const pr of data.props || []) {
+      if ((starts[pr.event] ?? now + 1) <= now) continue;
+      for (const L of pr.ladder || []) {
+        const prices = Object.values(L.prices || {}); if (L.p == null || !prices.length) continue;
+        const price = Math.max(...prices); if (price < -250 || price > 150) continue;
+        if (!best[pr.player] || L.p > best[pr.player][0]) best[pr.player] = [L.p, price, pr, L];
+      }
+    }
+    const ranked = Object.values(best).sort((a, b) => b[0] - a[0]);
+    const mineFirst = ranked.filter(x => (MINE[sport] || []).includes(x[2].team)).slice(0, 2);
+    return [...mineFirst, ...ranked.filter(x => !mineFirst.includes(x))].slice(0, 8).flatMap(([p, price, pr, L]) => {
+      const label = LABELS[pr.label] || pr.label.toLowerCase(), line = pr.td ? "" : `${Math.floor(L.line) + 1}+ `;
+      const out = [[`${initial(pr.player)} ${line}${label}`, (MINE[sport] || []).includes(pr.team) ? "#ffbe00" : "#fff"], [` ${price > 0 ? "+" : ""}${price}`, "#00c8c8"]];
+      if (L.n) out.push([`  hit ${L.hits || 0}/${L.n}`, "#828282"]);
+      out.push(["  •  ", "#3c3c3c"]); return out;
+    });
+  }
+  return {topParlays, topOvers};
+})();
 
 /* ---------------------------------------------------------------- demo mode
    No Pi to talk to (opened from GitHub or a link): run a pretend ticker in the page.
@@ -344,12 +395,11 @@ const Demo = (() => {
     fake("NBA","DET","BOS",0,0,"pre","7:30 PM EST","BOS -6.5",224.5,"+225","-275",4), fake("CFB","MSU","IOWA",21,17,"in","3rd 9:58",0,0,0,0,-2),
     fake("CBB","MSU","DUKE",0,0,"pre","Tue 9:00 PM EST","DUKE -3",148.5,"+130","-155",72)];
   // ParlayLabs as of Oct 31 (used when the live site can't be reached)
-  const PL_SAMPLE = [{sport:"NFL", won:0, lost:9, profit:-90, live:73,
-    latest:[["Best Shot at +100",false],["Best Shot at +300",false],["Best 3-Leg",false]]}];
+  const PL_SAMPLE = [{"sport":"NFL","record":[["0-9  ","#ffffff"],["-$90  ","#ff2828"],["Best Shot at +100 LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["Best Shot at +300 LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["Best 3-Leg LOST","#ff2828"],["  \u2022  ","#3c3c3c"],["73 parlays live  ","#00b4ff"]],"parlays":[["TOP PARLAYS  ","#00b4ff"],["Safe 4 +140: ","#ffffff"],["Bengals ML \u00b7 S. Diggs 25+ rec yds \u00b7 K. Murray 15+ rush yds \u00b7 R. Dowdle 2+ rec","#c8c8c8"],["  $10 pays $24","#00e650"],["  \u2022  ","#3c3c3c"],["Favorites + Floors 5 +184: ","#ffffff"],["Bengals ML \u00b7 Jaguars ML \u00b7 Cowboys ML \u00b7 S. Diggs 25+ rec yds \u00b7 K. Murray 15+ rush yds","#c8c8c8"],["  $10 pays $28","#00e650"],["  \u2022  ","#3c3c3c"],["Value 3 +771: ","#ffffff"],["J. Jennings 20+ rec yds \u00b7 J. Warren 26+ rec yds \u00b7 A. Jeanty 30+ rec yds","#c8c8c8"],["  $10 pays $87","#00e650"],["  \u2022  ","#3c3c3c"],["TDs + Spreads +548: ","#ffffff"],["J. Gibbs TD \u00b7 J. Williams TD \u00b7 Commanders -5.5 \u00b7 Rams -6.5","#c8c8c8"],["  $10 pays $65","#00e650"],["  \u2022  ","#3c3c3c"],["Longshot 5 +5836: ","#ffffff"],["A. Mitchell 3+ rec \u00b7 K. Walker III 100+ rush yds \u00b7 T. Higgins 90+ rec yds \u00b7 Commanders -5.5 \u00b7 Rams -6.5","#c8c8c8"],["  $10 pays $594","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Safe +264: ","#ffffff"],["Lions ML \u00b7 J. Gibbs TD \u00b7 J. Williams 30+ rec yds \u00b7 S. LaPorta 30+ rec yds","#c8c8c8"],["  $10 pays $36","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Shootout +974: ","#ffffff"],["Vikings/Lions over 46.5 \u00b7 S. Vaki 5+ rush yds \u00b7 J. Goff 2+ pass TDs \u00b7 J. Gibbs 25+ rec yds","#c8c8c8"],["  $10 pays $107","#00e650"],["  \u2022  ","#3c3c3c"],["Lions Long Shot +2373: ","#ffffff"],["Lions -3.5 \u00b7 J. Gibbs 100+ rush yds \u00b7 A. St. Brown TD \u00b7 I. TeSlaa 25+ rec yds","#c8c8c8"],["  $10 pays $247","#00e650"],["  \u2022  ","#3c3c3c"]],"props":[["TOP OVERS  ","#00b4ff"],["J. Gibbs 20+ rec yds","#ffbe00"],[" -250","#00c8c8"],["  hit 6/6","#828282"],["  \u2022  ","#3c3c3c"],["J. Williams 40+ rec yds","#ffbe00"],[" -210","#00c8c8"],["  hit 5/6","#828282"],["  \u2022  ","#3c3c3c"],["J. Dobbins 20+ rush yds","#ffffff"],[" -223","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["J. Warren 15+ rec yds","#ffffff"],[" -248","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["A. Jones 25+ rush yds","#ffffff"],[" -160","#00c8c8"],["  hit 6/6","#828282"],["  \u2022  ","#3c3c3c"],["R. Odunze 30+ rec yds","#ffffff"],[" -194","#00c8c8"],["  hit 7/7","#828282"],["  \u2022  ","#3c3c3c"],["A. Jeanty 20+ rec yds","#ffffff"],[" -221","#00c8c8"],["  hit 6/7","#828282"],["  \u2022  ","#3c3c3c"],["R. Rice 4+ rec","#ffffff"],[" -204","#00c8c8"],["  hit 9/10","#828282"],["  \u2022  ","#3c3c3c"]]}];
 
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
-           group:"league", days:"week"};
+           group:"league", days:"week", pl_parts:["record","parlays","props"]};
   const picks = () => S.odds_on === false ? [] : (S.odds || []);
   let games = SAMPLE, pl = PL_SAMPLE, live = false, image = null, alerts = [], showing = null;
   const cv = $("#sim"), g = cv.getContext("2d");
@@ -379,14 +429,30 @@ const Demo = (() => {
     try {
       const out = [];
       for (const [sport, sub] of [["NFL",""],["NBA","/nba"],["CFB","/cfb"],["CBB","/cbb"]]) {
-        const slips = Object.values((await (await fetch(`https://callis11.github.io/parlay-lab${sub}/picks.json`)).json()).slips);
+        const base = `https://callis11.github.io/parlay-lab${sub}`;
+        const slips = Object.values((await (await fetch(`${base}/picks.json`)).json()).slips);
+        const block = {sport, record:[], parlays:[], props:[]};
         const done = slips.filter(s => s.status === "won" || s.status === "lost");
-        if (!done.length) continue;
-        const won = done.filter(s => s.status === "won");
-        out.push({sport, won:won.length, lost:done.length - won.length,
-          profit: won.reduce((a, s) => a + 10 * s.dec - 10, 0) - 10 * (done.length - won.length),
-          live: slips.filter(s => s.status === "open").length,
-          latest: done.sort((a, b) => (a.graded || 0) - (b.graded || 0)).slice(-3).reverse().map(s => [s.name, s.status === "won", 10 * s.dec])});
+        if (done.length) {
+          const won = done.filter(s => s.status === "won");
+          const profit = won.reduce((a, s) => a + 10 * s.dec - 10, 0) - 10 * (done.length - won.length);
+          block.record.push([`${won.length}-${done.length - won.length}  `, C.white], [`${profit >= 0 ? "+" : "-"}$${Math.abs(profit).toFixed(0)}  `, profit >= 0 ? C.green : C.red]);
+          for (const s of done.sort((a, b) => (a.graded || 0) - (b.graded || 0)).slice(-3).reverse()) {
+            block.record.push([`${s.name} ${s.status === "won" ? "WON" : "LOST"}`, s.status === "won" ? C.green : C.red]);
+            if (s.status === "won") block.record.push([` $${(10 * s.dec).toFixed(0)}`, C.green]);
+            block.record.push(["  •  ", C.dot]);
+          }
+          const open = slips.filter(s => s.status === "open").length;
+          if (open) block.record.push([`${open} parlays live  `, C.blue]);
+        }
+        const tp = PL.topParlays(slips);
+        if (tp.length) block.parlays = [["TOP PARLAYS  ", C.blue], ...tp];
+        try {
+          const [data, odds] = await Promise.all([fetch(`${base}/data.json`).then(r => r.json()), fetch(`${base}/odds.json`).then(r => r.json())]);
+          const ov = PL.topOvers(data, odds, sport);
+          if (ov.length) block.props = [["TOP OVERS  ", C.blue], ...ov];
+        } catch {}
+        if (block.record.length || block.parlays.length || block.props.length) out.push(block);
       }
       if (out.length) pl = out;
     } catch {}
@@ -396,15 +462,9 @@ const Demo = (() => {
   function segments() {
     const only = S.leagues || [], want = k => !only.length || only.includes(k);
     const segs = [[`  ${new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}).replace(/ ?[AP]M/, "")}  `, C.blue]];
-    for (const p of want("PL") ? pl : []) {
-      segs.push([`  PARLAYLABS ${p.sport}  `, C.gold], [`${p.won}-${p.lost}  `, C.white],
-                [`${p.profit >= 0 ? "+" : "-"}$${Math.abs(p.profit).toFixed(0)}  `, p.profit >= 0 ? C.green : C.red]);
-      for (const [name, hit, pay] of p.latest) {
-        segs.push([`${name} ${hit ? "WON" : "LOST"}`, hit ? C.green : C.red]);
-        if (hit) segs.push([` $${pay.toFixed(0)}`, C.green]);
-        segs.push(["  •  ", C.dot]);
-      }
-      if (p.live) segs.push([`${p.live} parlays live  `, C.blue]);
+    for (const b of want("PL") ? pl : []) {
+      const body = ["record", "parlays", "props"].filter(k => (S.pl_parts || []).includes(k)).flatMap(k => b[k] || []);
+      if (body.length) segs.push([`  PARLAYLABS ${b.sport}  `, C.gold], ...body);
     }
     const order = {in:0, pre:1, post:2};
     const sameDay = (a, b) => a.toDateString() === b.toDateString();
@@ -583,7 +643,7 @@ const Demo = (() => {
       if (t < 10) { drawAlert(showing, t); return requestAnimationFrame(tick); }
       showing = null; x = W;
     }
-    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days]);
+    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts]);
     if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); }
     const picked = S.mode === "game" ? (S.game_ids || []).map(id => games.find(z => z.id === id)).filter(Boolean) : [];
     if (picked.length) {

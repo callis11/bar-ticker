@@ -53,6 +53,7 @@ CLOSE = {
 }
 
 PARLAYLABS = "https://callis11.github.io/parlay-lab"
+PL_REFRESH = 600           # check ParlayLabs every 10 minutes
 PL_SPORTS  = {"NFL": "", "NBA": "/nba", "CFB": "/cfb", "CBB": "/cbb"}
 
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
@@ -77,7 +78,7 @@ class Control:
             "brightness": 60, "tv_delay": 0, "alerts": True, "fit": "contain",
             "refresh": REFRESH_SEC, "odds": ["ou", "ml"], "odds_on": True,
             "msg_in_scroll": False, "effect": "steady",
-            "group": "league", "days": "week"}
+            "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"]}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -110,6 +111,7 @@ class Control:
         self.odds_on = bool(self.odds_on)
         self.group = "time" if self.group == "time" else "league"
         self.days = "today" if self.days == "today" else "week"
+        self.pl_parts = [x for x in (self.pl_parts or []) if x in ("record", "parlays", "props")]
         if self.effect not in EFFECTS:
             self.effect = "steady"
 
@@ -326,32 +328,133 @@ def score_segments(games, only=None, odds=("ou", "ml"), days="week"):
             segs.append(DOT)
     return segs
 
-def parlaylabs(loader=None, sports=None):
-    """Season record + latest graded slips from ParlayLabs picks.json files."""
-    loader, segs = loader or get_json, []
+# ---- ParlayLabs ----------------------------------------------------------------
+TOP_GROUPS = ("Best of the week", "Lions parlays", "Pistons parlays", "Spartans parlays", "Michigan State parlays")
+SHORT_WORDS = [("receiving yds", "rec yds"), ("rushing yds", "rush yds"), ("passing yds", "pass yds"),
+               ("passing TDs", "pass TDs"), ("receptions", "rec"), ("reception", "rec"), ("anytime TD", "TD")]
+PROP_LABELS = {"Anytime TD": "TD", "Receptions": "rec", "Receiving yards": "rec yds", "Rushing yards": "rush yds",
+               "Passing yards": "pass yds", "Passing TDs": "pass TDs", "Points": "pts", "Rebounds": "reb",
+               "Assists": "ast", "Threes": "3PM", "Steals": "stl", "Blocks": "blk"}
+MY_ABBRS = {"NFL": {"DET"}, "NBA": {"DET"}, "CFB": {"MSU"}, "CBB": {"MSU"}}
+
+def american(dec):
+    if dec >= 2:
+        return f"+{round((dec - 1) * 100)}"
+    return f"-{round(100 / (dec - 1))}" if dec > 1 else "EVEN"
+
+def leg_dec(a):
+    return 1 + a / 100 if a > 0 else 1 + 100 / -a
+
+def initial(name):
+    """'Jahmyr Gibbs' -> 'J. Gibbs' (saves room on the strip)."""
+    parts = name.split(" ", 1)
+    return f"{parts[0][0]}. {parts[1]}" if len(parts) == 2 and len(parts[0]) > 2 else name
+
+def short_leg(leg):
+    txt = leg.get("n", "")
+    if leg.get("kind") == "p" and leg.get("player") and txt.startswith(leg["player"]):
+        txt = initial(leg["player"]) + txt[len(leg["player"]):]
+    for a, b in SHORT_WORDS:
+        txt = txt.replace(a, b)
+    return txt
+
+def top_parlays(slips, limit=8, now=None):
+    """This week's featured parlays from ParlayLabs, still open, as scroll segments."""
+    now_ms = (time.time() if now is None else now) * 1000
+    picks = [s for s in slips if s.get("status") == "open" and s.get("group") in TOP_GROUPS
+             and any(_leg_ts(l) * 1000 > now_ms for l in s.get("legs", []))]
+    segs = []
+    for s in picks[:limit]:
+        dec = 1.0
+        for l in s["legs"]:
+            dec *= leg_dec(l["a"])
+        segs += [(f"{s['name']} {american(dec)}: ", WHITE),
+                 (" · ".join(short_leg(l) for l in s["legs"]), (200, 200, 200)),
+                 (f"  $10 pays ${10 * dec:,.0f}", GREEN), DOT]
+    return segs
+
+def _leg_ts(leg):
+    return start_time(leg.get("time")) if leg.get("time") else time.time() + 1
+
+def top_overs(data, odds, sport, limit=8, now=None):
+    """Best player overs for games that haven't started: most likely first, priced between -250 and +150,
+    best line per player, with how often he's hit it lately. My teams' players go first (up to 2)."""
+    starts = {g["id"]: start_time(g.get("commence_time")) for g in (odds or {}).get("lines", [])}
+    now, best = (time.time() if now is None else now), {}
+    for pr in data.get("props", []):
+        if starts.get(pr.get("event"), now + 1) <= now:
+            continue
+        for L in pr.get("ladder", []):
+            prices = L.get("prices") or {}
+            if "p" not in L or not prices:
+                continue
+            price = max(prices.values())
+            if not -250 <= price <= 150:
+                continue
+            key = pr["player"]
+            if key not in best or L["p"] > best[key][0]:
+                best[key] = (L["p"], price, pr, L)
+    ranked = sorted(best.values(), key=lambda x: -x[0])
+    mine_first = [x for x in ranked if x[2].get("team") in MY_ABBRS.get(sport, ())][:2]
+    rest = [x for x in ranked if x not in mine_first]
+    segs = []
+    for p, price, pr, L in (mine_first + rest)[:limit]:
+        label = PROP_LABELS.get(pr["label"], pr["label"].lower())
+        line = "" if pr.get("td") else f"{math.floor(L['line']) + 1}+ "
+        gold = pr.get("team") in MY_ABBRS.get(sport, ())
+        segs.append((f"{initial(pr['player'])} {line}{label}", GOLD if gold else WHITE))
+        segs.append((f" {'+' if price > 0 else ''}{price}", ODDS_COLOR))
+        if L.get("n"):
+            segs.append((f"  hit {L.get('hits', 0)}/{L['n']}", GRAY))
+        segs.append(DOT)
+    return segs
+
+def parlaylabs(loader=None, sports=None, now=None):
+    """For each sport: {"sport", "record", "parlays", "props"} scroll segments from the ParlayLabs site.
+    The phone picks which parts show."""
+    loader, out = loader or get_json, []
     for sport, sub in (sports or PL_SPORTS).items():
         try:
             slips = list(loader(f"{PARLAYLABS}{sub}/picks.json")["slips"].values())
         except Exception:
             continue
+        block = {"sport": sport, "record": [], "parlays": [], "props": []}
         done = [s for s in slips if s.get("status") in ("won", "lost")]
-        if not done:
-            continue
-        won = [s for s in done if s["status"] == "won"]
-        # every pick is a $10 reference bet: win pays 10*decimal odds, loss is -10
-        profit = sum(10 * s["dec"] - 10 for s in won) - 10 * (len(done) - len(won))
-        segs.append((f"  PARLAYLABS {sport}  ", GOLD))
-        segs.append((f"{len(won)}-{len(done)-len(won)}  ", WHITE))
-        segs.append((f"{'+' if profit >= 0 else '-'}${abs(profit):.0f}  ", GREEN if profit >= 0 else RED))
-        for s in reversed(sorted(done, key=lambda s: s.get("graded", 0))[-3:]):
-            hit = s["status"] == "won"
-            segs.append((f"{s['name']} {'WON' if hit else 'LOST'}", GREEN if hit else RED))
-            if hit:
-                segs.append((f" ${10*s['dec']:.0f}", GREEN))
-            segs.append(DOT)
-        live = [s for s in slips if s.get("status") == "open"]
-        if live:
-            segs.append((f"{len(live)} parlays live  ", (0, 180, 255)))
+        if done:
+            won = [s for s in done if s["status"] == "won"]
+            # every pick is a $10 reference bet: win pays 10*decimal odds, loss is -10
+            profit = sum(10 * s["dec"] - 10 for s in won) - 10 * (len(done) - len(won))
+            rec = block["record"]
+            rec.append((f"{len(won)}-{len(done)-len(won)}  ", WHITE))
+            rec.append((f"{'+' if profit >= 0 else '-'}${abs(profit):.0f}  ", GREEN if profit >= 0 else RED))
+            for s in reversed(sorted(done, key=lambda s: s.get("graded", 0))[-3:]):
+                hit = s["status"] == "won"
+                rec.append((f"{s['name']} {'WON' if hit else 'LOST'}", GREEN if hit else RED))
+                if hit:
+                    rec.append((f" ${10*s['dec']:.0f}", GREEN))
+                rec.append(DOT)
+            live = [s for s in slips if s.get("status") == "open"]
+            if live:
+                rec.append((f"{len(live)} parlays live  ", (0, 180, 255)))
+        tp = top_parlays(slips, now=now)
+        if tp:
+            block["parlays"] = [("TOP PARLAYS  ", (0, 180, 255))] + tp
+        try:
+            ov = top_overs(loader(f"{PARLAYLABS}{sub}/data.json"), loader(f"{PARLAYLABS}{sub}/odds.json"), sport, now=now)
+            if ov:
+                block["props"] = [("TOP OVERS  ", (0, 180, 255))] + ov
+        except Exception:
+            pass
+        if block["record"] or block["parlays"] or block["props"]:
+            out.append(block)
+    return out
+
+def pl_segments(blocks, parts):
+    segs = []
+    for b in blocks:
+        body = [seg for part in ("record", "parlays", "props") if part in parts for seg in b[part]]
+        if body:
+            segs += [(f"  PARLAYLABS {b['sport']}  ", GOLD)] + body
     return segs
 
 # ------------------------------------------------------------------ alerts
@@ -606,7 +709,7 @@ class Feed:
                         last[label] = now
                 self.games = [g for l, _, _ in LEAGUES for g in by_league.get(l, [])]
                 self.watcher.check(self.games)
-                if now - last_pl > 120:           # ParlayLabs only needs a pull every ~2 min
+                if now - last_pl > PL_REFRESH:    # ParlayLabs files are big (~8 MB) and change slowly
                     self.pl, last_pl = parlaylabs() or self.pl, now
             self.build_strip()
             time.sleep(1)
@@ -614,7 +717,7 @@ class Feed:
     def build_strip(self):
         ctl = self.ctl
         only = ctl.leagues                       # leagues picked on the phone (empty = everything)
-        pl = self.pl if not only or "PL" in only else []
+        pl = pl_segments(self.pl, ctl.pl_parts) if not only or "PL" in only else []
         build = time_segments if ctl.group == "time" else score_segments
         segs = pl + build(self.games, only, ctl.show_odds(), ctl.days)
         if ctl.msg_in_scroll and ctl.message.strip():
@@ -654,8 +757,11 @@ class Feed:
         return None
 
 def demo_parlaylabs():
+    """Uses the sample ParlayLabs files in demo/ (a snapshot of the site) when testing without internet."""
+    def load(url):
+        return json.load(open(os.path.join(HERE, "demo", url.rsplit("/", 1)[-1])))
     try:
-        return parlaylabs(loader=lambda url: json.load(open(os.path.join(HERE, "picks.json"))), sports={"NFL": ""})
+        return parlaylabs(loader=load, sports={"NFL": ""}, now=0)   # snapshot: ignore start times
     except Exception:
         return []
 
