@@ -64,6 +64,7 @@ LEAGUES = [  # (label, espn path, color)
     ("NHL", "hockey/nhl",                        (200, 200, 200)),
     ("MLB", "baseball/mlb",                      (255, 40, 40)),
 ]
+SCROLL_CHOICES = ["NFL", "NBA", "CFB", "CBB", "NHL", "MLB", "PL"]   # PL = ParlayLabs results
 CFB_TOP25_ONLY = True      # college slates are huge; scroll only ranked teams + my teams
 
 WHITE, GOLD, GREEN, RED, GRAY = (255,255,255), (255,190,0), (0,230,80), (255,40,40), (130,130,130)
@@ -71,7 +72,7 @@ ODDS_COLOR, DOT = (0, 200, 200), ("  •  ", (60, 60, 60))
 
 # ------------------------------------------------------------------ control state (set from the phone)
 class Control:
-    KEYS = {"mode": "scroll", "game_id": None, "message": "GO LIONS!", "color": "#ffbe00",
+    KEYS = {"mode": "scroll", "leagues": [], "game_ids": [], "rotate": 10, "message": "GO LIONS!", "color": "#ffbe00",
             "brightness": 60, "tv_delay": 0, "alerts": True, "fit": "contain",
             "refresh": REFRESH_SEC}
 
@@ -93,9 +94,14 @@ class Control:
             self.mode = "scroll"
 
     def update(self, d, save=True):
+        if d.get("game_id") and "game_ids" not in d:      # older single-game setting
+            d = dict(d, game_ids=[d["game_id"]])
         for k, v in d.items():
             if k in self.KEYS:
                 setattr(self, k, v)
+        self.game_ids = [str(i) for i in (self.game_ids or [])][:40]
+        self.rotate = max(3, min(60, int(self.rotate)))
+        self.leagues = [l for l in (self.leagues or []) if l in SCROLL_CHOICES]   # empty = everything
         self.brightness = max(5, min(100, int(self.brightness)))
         self.tv_delay = max(0, min(120, int(self.tv_delay)))
         self.refresh = max(5, min(60, int(self.refresh)))
@@ -188,10 +194,12 @@ def fetch_league(label, path):
 def short_time(detail):
     return detail.split(" - ")[-1].replace(" EST", "").replace(" EDT", "")
 
-def score_segments(games):
+def score_segments(games, only=None):
     """Scrolling text for every game: live/final scores, and odds for games not started."""
     segs = []
     for label, _, color in LEAGUES:
+        if only and label not in only:
+            continue
         lg = [g for g in games if g["league"] == label]
         if label in ("CFB", "CBB") and CFB_TOP25_ONLY:
             lg = [g for g in lg if g["ranked"] or mine(g)[0]]
@@ -326,7 +334,7 @@ def alert_frame(al, t, rng=random.Random(1)):
         centered(d, al.score, fit_font(al.score, start=20), amber if al.kind == "close" else GOLD)
     return img
 
-def game_frame(g):
+def game_frame(g, rotate=0):
     """A single game, held on screen: away on the left, home on the right, clock in the middle."""
     img = Image.new("RGB", (W, ROWS))
     d = ImageDraw.Draw(img)
@@ -358,6 +366,8 @@ def game_frame(g):
         for i, p in enumerate(parts):
             cy = ROWS // 2 if len(parts) == 1 else (9 if i == 0 else 23)
             centered(d, p, small, RED if live else GRAY, cy=cy)
+    if rotate:                                           # thin bar along the top = time until the next game
+        d.line([(0, 0), (int(W * (time.time() % rotate) / rotate), 0)], fill=(50, 50, 80))
     return img
 
 def text_strip(segs, stamp=True):
@@ -414,12 +424,17 @@ class Feed:
                 self.watcher.check(self.games)
                 if now - last_pl > 120:           # ParlayLabs only needs a pull every ~2 min
                     self.pl, last_pl = parlaylabs() or self.pl, now
-            self.strip = text_strip(self.pl + score_segments(self.games))
+            self.build_strip()
             time.sleep(1)
+
+    def build_strip(self):
+        only = self.ctl.leagues                  # leagues picked on the phone (empty = everything)
+        pl = self.pl if not only or "PL" in only else []
+        self.strip = text_strip(pl + score_segments(self.games, only))
 
     def hot_leagues(self):
         return {g["league"] for g in self.games
-                if g["state"] == "in" and (mine(g)[0] or g["id"] == self.ctl.game_id)}
+                if g["state"] == "in" and (mine(g)[0] or g["id"] in self.ctl.game_ids)}
 
     def game(self, gid):
         return next((g for g in self.games if g["id"] == gid), None)
@@ -555,10 +570,13 @@ def run_display(ctl, feed, matrix):
             x = W
         if ctl.version != seen:                   # something changed on the phone
             seen, x, img_i, msg = ctl.version, W, 0, None
+            feed.build_strip()                    # league picks may have changed
 
         mode = ctl.mode
-        if mode == "game" and (g := feed.game(ctl.game_id)):
-            show(game_frame(g)); time.sleep(0.25)
+        picked = [g for g in map(feed.game, ctl.game_ids) if g] if mode == "game" else []
+        if picked:                                # one game holds; several take turns
+            g = picked[int(time.time() // ctl.rotate) % len(picked)]
+            show(game_frame(g, ctl.rotate if len(picked) > 1 else 0)); time.sleep(0.25)
         elif mode == "image" and ctl.frames:
             img, ms = ctl.frames[img_i % len(ctl.frames)]
             show(img); img_i += 1; time.sleep(ms / 1000)

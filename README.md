@@ -41,8 +41,8 @@ Handy commands on the Pi: `sudo systemctl restart ticker` (restart), `journalctl
 ## Phone control page
 On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap Share → Add to Home Screen so it opens like an app.
 - **Live preview** of what's on the ticker right now
-- **Scroll all**: every game with scores and odds, plus ParlayLabs
-- **One game**: tap any game and the ticker holds that scoreboard; my teams are listed first
+- **Scroll all**: every game with scores and odds, plus ParlayLabs. Pick any mix of NFL, NBA, college football, college hoops, NHL, MLB and ParlayLabs, or Everything
+- **Games**: tap one game to hold it, or several and the ticker takes turns (switch every 5, 10 or 20 sec). Quick buttons: Select all, My teams, Clear. My teams are listed first
 - **Picture**: send a photo or GIF from your phone (GIFs animate). Pick "Fit whole picture" or "Fill the strip"
 - **Message**: type anything, pick a color
 - **Brightness**, **TV delay** (holds alerts so they line up with your TV), **score update speed** and **team alerts on/off**
@@ -52,7 +52,7 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 **Try it before the Pi arrives:** open the page from GitHub Pages (https://callis11.github.io/bar-ticker/) and it runs in demo mode with a pretend ticker drawn on the page. Every button works, there are test buttons for the touchdown, win and close-game alerts, and it shows today's real games when ESPN allows it. You can also run `python3 ticker.py --sim --demo` on a computer and open http://localhost:8080.
 
 ## What the script does now
-- Scrolls every game today in the NFL, NBA, college football, college hoops (ranked teams + MSU), NHL and MLB, using ESPN's free scoreboard feed. Everything refreshes every 5 seconds by default. The Lions, Pistons, MSU and your pinned game always refresh every 5 seconds while live; the rest can be slowed on the phone page (5–60 sec). If ESPN stops answering for a while, the phone page shows a red warning so you know to slow it down
+- Scrolls every game today in the NFL, NBA, college football, college hoops (ranked teams + MSU), NHL and MLB, using ESPN's free scoreboard feed. Everything refreshes every 5 seconds by default. The Lions, Pistons, MSU and any games you picked always refresh every 5 seconds while live; the rest can be slowed on the phone page (5–60 sec). If ESPN stops answering for a while, the phone page shows a red warning so you know to slow it down
 - Live games come first, then upcoming games with the spread and over/under, then final scores
 - Pulls ParlayLabs `picks.json` for each sport: record, $10-bet profit, the last 3 graded parlays, and how many are still live
 - Lions, Pistons and Michigan State games show in gold
