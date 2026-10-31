@@ -50,7 +50,7 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 - **Games**: the list starts with the **top 5** (my teams, then close games, live, starting soonest, finals). Tap **Show all ▾** to see every game and **Show top 5 ▴** to shrink it back; games you've checked always stay visible. Tap one game to hold it, or several and the ticker takes turns (switch every 5, 10 or 20 sec, with a **Change style** of Cut, Fade, Flash, Slide up (default) or Slide left). Quick buttons: Select all, My teams, **Live games**, **Close games**, Clear. My teams are listed first. **Live games** follows every game in progress (only one league if a league filter is picked, e.g. "Live NFL"), adds new games the moment they start, and keeps each one on for 15 minutes after it ends (the list shows "ON 12 MIN"). **Close games** follows every close game in every league by itself (late and within one score: football 4th qtr under 8:00 within 8, NBA 4th qtr under 5:00 within 6, college hoops 2nd half under 5:00 within 6, NHL 3rd period under 10:00 within 1 goal, MLB 7th inning on within 2 runs). It adds games as they tighten, drops them when they open up or end, and scrolls everything else when nothing's close. Close games get a red CLOSE tag in the list
 - **Picture**: send a photo or GIF from your phone (GIFs animate). Pick "Fit whole picture" or "Fill the strip"
 - **Message**: type anything, pick a color and a style: Steady, Scroll, Blink, Rainbow or Fireworks. Show it on its own, or mix it into the scores scroll so it comes around before each league (the style works both ways)
-- **Brightness**, **TV delay** (holds alerts so they line up with your TV), **score update speed** and **team alerts on/off**
+- **Brightness**, **TV delay** (holds alerts so they line up with your TV), **score update speed**, **team alerts on/off** and **college rankings on/off**
 - Your choices are saved, so the ticker comes back the same way after a power cut
 - It only works on your home network. Reaching it from away would need something like Tailscale on the Pi
 
@@ -65,6 +65,7 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
   - **Top overs**: the best player overs for games that haven't started (most likely first, priced -250 to +150, best line per player), with the best price and how often he's hit it lately. Lions/Pistons/MSU players go first, in gold
   - Also pick **how many** (top 3, 5 or 8), **which sports** (NFL, NBA, College FB, College BB, or all) and **which prop types** (TD, receptions, rec yds, rush yds, rush+rec, pass yds, pass TDs, points, rebounds, assists, threes, PRA, or all)
 - Lions, Pistons and Michigan State games show in gold
+- College football and basketball teams in the AP Top 25 show their rank in front, like **#12 MSU 21  #8 IOWA 17**, in the scroll, held games, one-at-a-time cards and the phone's games list (from ESPN, updates each week)
 - **Team alerts:** the whole ticker flashes for 10 seconds, then goes back to whatever was showing (scroll, game, picture or message)
   - Touchdown (Lions, MSU football): flashes TOUCHDOWN! / LIONS! in team colors, then the score
   - Win (Lions, Pistons, MSU football and basketball): flashes the team name and WIN! with fireworks, then the final score

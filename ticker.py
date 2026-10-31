@@ -98,7 +98,7 @@ class Control:
             "msg_in_scroll": False, "effect": "steady",
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
-            "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide"}
+            "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -135,6 +135,8 @@ class Control:
         self.speed = max(10, min(120, int(self.speed)))
         self.motion = self.motion if self.motion in MOTIONS else "scroll"
         self.hold = max(2, min(15, int(self.hold)))
+        self.ranks = bool(self.ranks)
+        SHOW_RANKS["on"] = self.ranks
         self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push") else "slide"
         self.pl_count = max(1, min(10, int(self.pl_count)))
         self.pl_sports = [x for x in (self.pl_sports or []) if x in PL_SPORTS]      # empty = all sports
@@ -213,6 +215,7 @@ def parse_game(label, ev):
         state=st["type"]["state"], detail=st["type"]["shortDetail"],
         period=st.get("period", 0), clock=clock_secs(st.get("displayClock")),
         ranked=any(c.get("curatedRank", {}).get("current", 99) <= 25 for c in (a, h)),
+        arank=_rank(a), hrank=_rank(h),
         spread=odds.get("details"), total=odds.get("overUnder"),
         mla=moneyline(odds, "away"), mlh=moneyline(odds, "home"),
         start=start_time(ev.get("date")),
@@ -238,6 +241,17 @@ def moneyline(odds, side):
         return f"+{v}" if v > 0 else str(v)
     except (TypeError, ValueError):
         return None
+
+def _rank(c):
+    r = (c.get("curatedRank") or {}).get("current", 99)
+    return r if isinstance(r, int) and 1 <= r <= 25 else None
+
+SHOW_RANKS = {"on": True}  # the phone's "College rankings" switch
+
+def team(g, side):
+    """Team name for the ticker, with its AP Top 25 rank in front for college games: "#12 MSU"."""
+    r = g.get("arank" if side == "away" else "hrank")
+    return f"#{r} {g[side]}" if r and SHOW_RANKS["on"] else g[side]
 
 def mine(g):
     """Returns (abbr, team-info) if one of my teams is in this game."""
@@ -285,13 +299,13 @@ def game_text(g, odds):
     """One game as scroll segments (without the league or time header)."""
     gold = bool(mine(g)[0])
     if g["state"] == "pre":
-        out = [(f"{g['away']} @ {g['home']}", GOLD if gold else GRAY)]
+        out = [(f"{team(g, 'away')} @ {team(g, 'home')}", GOLD if gold else GRAY)]
         line = odds_text(g, odds)
         if line:
             out.append((f"  {line}", ODDS_COLOR))
         return out
     col = GOLD if gold else (WHITE if g["state"] == "in" else (180, 180, 180))
-    return [(f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}  {g['detail']}", col)]
+    return [(f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}", col)]
 
 def visible_games(games, only=None, days="week"):
     out = []
@@ -345,13 +359,13 @@ def score_segments(games, only=None, odds=("ou", "ml"), days="week"):
         for g in lg:
             gold = bool(mine(g)[0])
             if g["state"] == "pre":
-                segs.append((f"{g['away']} @ {g['home']} {short_time(g['detail'])}", GOLD if gold else GRAY))
+                segs.append((f"{team(g, 'away')} @ {team(g, 'home')} {short_time(g['detail'])}", GOLD if gold else GRAY))
                 line = odds_text(g, odds)
                 if line:
                     segs.append((f"  {line}", ODDS_COLOR))
             else:
                 col = GOLD if gold else (WHITE if g["state"] == "in" else (180, 180, 180))
-                segs.append((f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}  {g['detail']}", col))
+                segs.append((f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}", col))
             segs.append(DOT)
     return segs
 
@@ -508,7 +522,7 @@ class Alert:
         self.kind, self.game, self.abbr, self.at = kind, game, abbr, time.time()
         self.name, self.c1, self.c2 = team
         g = game
-        self.score = f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}  {g['detail']}"
+        self.score = f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}"
         self.words = {"td":    ["TOUCHDOWN!", f"{self.name}!"],
                       "win":   [f"{self.name}", "WIN!"],
                       "close": ["CLOSE GAME", self.name]}[kind]
@@ -591,16 +605,18 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     d = ImageDraw.Draw(img)
     pre = g["state"] == "pre"
     ml = pre and "ml" in odds and g.get("mla") and g.get("mlh")
-    left  = (f"{g['away']} {g['mla']}" if ml else g["away"]) if pre else f"{g['away']} {g['ascore']}"
-    right = (f"{g['mlh']} {g['home']}" if ml else g["home"]) if pre else f"{g['hscore']} {g['home']}"
+    away, home = team(g, "away"), team(g, "home")
+    left  = (f"{away} {g['mla']}" if ml else away) if pre else f"{away} {g['ascore']}"
+    right = (f"{g['mlh']} {home}" if ml else home) if pre else f"{g['hscore']} {home}"
     mid1  = short_time(g["detail"]) if pre else g["detail"]
     mid2  = ""
     if pre:
         mid2 = (f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or \
                (g.get("spread") or "" if "spread" in odds else "")
-    for size in range(24, 11, -1):                       # shrink until everything fits
-        big, small = font(size), font(max(10, size // 2 + 1))
-        mid_w = max(small.getlength(mid1), small.getlength(mid2))
+    for size in range(24, 9, -1):                        # shrink until everything fits
+        big, small = font(size), font(max(9, size // 2 + 1))
+        parts = mid1.split(" ", 1) if " " in mid1 and not mid2 else [mid1]
+        mid_w = max([small.getlength(x) for x in parts] + [small.getlength(mid2)])
         if big.getlength(left) + big.getlength(right) + mid_w + 16 <= W:
             break
     my = mine(g)[0]
@@ -613,14 +629,17 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     if lead_a: d.rectangle([4, ROWS - 3, 4 + lw, ROWS - 2], fill=GREEN)
     if lead_h: d.rectangle([W - 4 - big.getlength(right), ROWS - 3, W - 4, ROWS - 2], fill=GREEN)
     live = g["state"] == "in"
+    gap_l, gap_r = 4 + lw, W - 4 - big.getlength(right)
+    mx = int((gap_l + gap_r) / 2)                        # middle of the space between the teams
+    gap = gap_r - gap_l - 6
     if mid2:
-        centered(d, mid1, small, ODDS_COLOR, cy=9)
-        centered(d, mid2, small, ODDS_COLOR, cy=23)
+        centered(d, mid1, small, ODDS_COLOR, cx=mx, cy=9)
+        centered(d, mid2, small, ODDS_COLOR, cx=mx, cy=23)
     else:
-        parts = mid1.split(" ", 1) if small.getlength(mid1) > 70 and " " in mid1 else [mid1]
+        parts = mid1.split(" ", 1) if small.getlength(mid1) > gap and " " in mid1 else [mid1]
         for i, p in enumerate(parts):
             cy = ROWS // 2 if len(parts) == 1 else (9 if i == 0 else 23)
-            centered(d, p, small, RED if live else GRAY, cy=cy)
+            centered(d, p, small, RED if live else GRAY, cx=mx, cy=cy)
     if rotate:                                           # thin bar along the top = time until the next game
         d.line([(0, 0), (int(W * (time.time() % rotate) / rotate), 0)], fill=(50, 50, 80))
     return img
@@ -950,10 +969,10 @@ def demo_parlaylabs():
         return []
 
 def fake(league, away, home, a, h, state, detail, spread=None, total=None, period=4, clock=180, mla=None, mlh=None,
-         hours=0):
+         hours=0, arank=None, hrank=None):
     return dict(id=f"{league}-{away}{home}", league=league, away=away, home=home, ascore=a, hscore=h,
                 state=state, detail=detail, period=period, clock=clock, ranked=True, spread=spread, total=total,
-                mla=mla, mlh=mlh, start=_demo_start(hours))
+                mla=mla, mlh=mlh, start=_demo_start(hours), arank=arank, hrank=hrank)
 
 def _demo_start(hours):
     """Sample start times: on the hour, `hours` from now."""
@@ -967,8 +986,8 @@ DEMO_GAMES = [
     fake("NFL", "PHI", "DAL", 0, 0, "pre", "Sun 4:25 PM EST", "DAL +3", 47.5, mla="-150", mlh="+128", hours=26),
     fake("NFL", "NYJ", "MIA", 20, 23, "post", "Final", hours=-5),
     fake("NBA", "DET", "BOS", 0, 0, "pre", "7:30 PM EST", "BOS -6.5", 224.5, mla="+225", mlh="-275", hours=4),
-    fake("CFB", "MSU", "IOWA", 21, 17, "in", "3rd 9:58", period=3, hours=-2),
-    fake("CBB", "MSU", "DUKE", 0, 0, "pre", "Tue 9:00 PM EST", "DUKE -3", 148.5, mla="+130", mlh="-155", hours=72),
+    fake("CFB", "MSU", "IOWA", 21, 17, "in", "3rd 9:58", period=3, hours=-2, hrank=22),
+    fake("CBB", "MSU", "DUKE", 0, 0, "pre", "Tue 9:00 PM EST", "DUKE -3", 148.5, mla="+130", mlh="-155", hours=72, arank=15, hrank=6),
 ]
 
 # ------------------------------------------------------------------ control page / API
