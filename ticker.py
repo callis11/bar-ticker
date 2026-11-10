@@ -96,6 +96,9 @@ LEAGUES = [  # (label, espn path, color)
     ("NHL", "hockey/nhl",                        (200, 200, 200)),
     ("MLB", "baseball/mlb",                      (255, 40, 40)),
 ]
+PIN_CHOICES = ["off", "mine", "live", "picked"]   # split screen: what stays on the top row
+TOP_H      = ROWS // 2 - 1                       # top row height when split (then a divider line, then the bottom row)
+BOTTOM_H   = ROWS // 2
 MOTIONS = ["scroll", "cut", "fade", "flash", "slide", "push"]   # crawl, or one item at a time
 EFFECTS = ["steady", "scroll", "blink", "rainbow", "fireworks"]          # message styles
 SCROLL_CHOICES = ["NFL", "NBA", "CFB", "CBB", "NHL", "MLB", "PL"]   # PL = ParlayLabs results
@@ -113,7 +116,7 @@ class Control:
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
-            "game_speed": SCROLL_SPEED, "msg_on_image": False}
+            "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off"}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
@@ -154,6 +157,7 @@ class Control:
         self.motion = self.motion if self.motion in MOTIONS else "scroll"
         self.hold = max(2, min(15, int(self.hold)))
         self.ranks = bool(self.ranks)
+        self.pin = self.pin if self.pin in PIN_CHOICES else "off"
         SHOW_RANKS["on"] = self.ranks
         self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push", "scroll") else "slide"
         self.game_speed = max(20, min(200, int(self.game_speed)))
@@ -825,18 +829,93 @@ def game_block(g, odds=("ou", "ml")):
         text_at(d, x_stat, cy, txt, fs, col)
     return img
 
-def hdr_block(text, color):
-    """League / time-slot / ParlayLabs label: black words on a colored box."""
-    f, txt = font(HDR_SIZE), text.strip()
-    tw = f.getlength(txt)
-    img = Image.new("RGB", (int(tw + 44), ROWS))
+HALF_SIZE = 20          # text size on a half-height row (split screen)
+
+def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE):
+    """One game on a single line, for a half-height row: | MIN 17  DET 24  4th 3:12
+    Before kickoff: | KC @ BUF  4:25 PM  KC +120 BUF -142  O/U 51.5"""
+    f, fs = font(size), font(max(10, size - 4))
+    pre, my = g["state"] == "pre", mine(g)[0]
+    parts = []                                            # (text, color, font)
+    def tcol(side, sc, other):
+        if g[side] == my: return GOLD
+        if pre or g[sc] >= other: return WHITE
+        return (150, 150, 150)
+    if pre:
+        parts += [(team(g, "away"), tcol("away", "ascore", 0), f), (" @ ", GRAY, f), (team(g, "home"), tcol("home", "hscore", 0), f),
+                  ("  " + short_time(g["detail"]), (170, 170, 170), fs)]
+        line = odds_text(g, odds)
+        if line:
+            parts.append(("  " + line, ODDS_COLOR, fs))
+    else:
+        parts += [(f"{team(g, 'away')} {g['ascore']}", tcol("away", "ascore", g["hscore"]), f), ("  ", WHITE, f),
+                  (f"{team(g, 'home')} {g['hscore']}", tcol("home", "hscore", g["ascore"]), f),
+                  ("  " + g["detail"], RED if g["state"] == "in" else (150, 150, 150), fs)]
+    width = int(9 + sum(pf.getlength(t) for t, _, pf in parts) + 6)
+    img = Image.new("RGB", (width, h))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([10, 12, 10 + tw + 22, ROWS - 13], radius=6, fill=color)
-    text_at(d, 21, ROWS / 2, txt, f, (0, 0, 0))
+    lg = {l: c for l, _, c in LEAGUES}.get(g["league"], GRAY)
+    d.rectangle([0, 3, 2, h - 4], fill=lg)
+    x = 9
+    for t, c, pf in parts:
+        x += text_at(d, x, h / 2, t, pf, c)
     return img
 
-def sub_block(text, color):
-    """Small label stacked on two lines ("TOP" / "PARLAYS") so it takes little room."""
+def pinned_frame(games, t, ctl):
+    """Top row of the split screen: the held games, as many as fit side by side.
+    More than fit: pages of them, turning every few seconds (the "Each item stays" time)."""
+    img = Image.new("RGB", (W, TOP_H))
+    if not games:
+        return img
+    odds = ctl.show_odds()
+    gap = 28
+    for size in (22, 20, 18, 16):                         # biggest text that fits them all at once, else pages at 20
+        pics = [game_line(g, odds, TOP_H, size) for g in games]
+        if sum(p.width for p in pics) + gap * (len(pics) - 1) <= W:
+            break
+    else:
+        pics = [game_line(g, odds, TOP_H, 20) for g in games]
+    pages, cur, w = [], [], 0
+    for p in pics:
+        if cur and w + gap + p.width > W:
+            pages.append(cur); cur, w = [], 0
+        w += (gap if cur else 0) + p.width
+        cur.append(p)
+    pages.append(cur)
+    page = pages[int(t / max(2, ctl.hold)) % len(pages)]
+    total = sum(p.width for p in page) + gap * (len(page) - 1)
+    x = max(0, (W - total) // 2)
+    d = ImageDraw.Draw(img)
+    for i, p in enumerate(page):
+        if i:
+            d.line([(x - gap // 2, 6), (x - gap // 2, TOP_H - 7)], fill=(60, 60, 60))
+        img.paste(p.crop((0, 0, min(p.width, W - x), TOP_H)), (x, 0))
+        x += p.width + gap
+    if len(pages) > 1:                                    # little dots: which page this is
+        for i in range(len(pages)):
+            d.rectangle([W - 6 - (len(pages) - i) * 5, TOP_H - 3, W - 4 - (len(pages) - i) * 5, TOP_H - 2],
+                        fill=WHITE if pages[i] is page else (70, 70, 70))
+    return img
+
+def hdr_block(text, color, h=ROWS):
+    """League / time-slot / ParlayLabs label: black words on a colored box."""
+    k = h / ROWS
+    f, txt = font(int(HDR_SIZE * k) + (2 if h < ROWS else 0)), text.strip()
+    tw, pad = f.getlength(txt), int(11 * k)
+    img = Image.new("RGB", (int(tw + 4 * pad), h))
+    d = ImageDraw.Draw(img)
+    m = int(12 * k)
+    d.rounded_rectangle([pad, m, pad + tw + 2 * pad, h - m - 1], radius=max(3, int(6 * k)), fill=color)
+    text_at(d, 2 * pad, h / 2, txt, f, (0, 0, 0))
+    return img
+
+def sub_block(text, color, h=ROWS):
+    """Small label stacked on two lines ("TOP" / "PARLAYS") so it takes little room (one line on a half-height row)."""
+    if h < ROWS:
+        f = font(15)
+        img = Image.new("RGB", (int(f.getlength(text.strip()) + 14), h))
+        text_at(ImageDraw.Draw(img), 4, h / 2, text.strip(), f, color)
+        return img
     f, words = font(SUB_SIZE), text.split()
     if len(words) > 1:
         best = min(range(1, len(words)), key=lambda i: max(f.getlength(" ".join(words[:i])), f.getlength(" ".join(words[i:]))))
@@ -864,26 +943,27 @@ def seg_width(sg):
         return sub_block(sg[0], sg[1]).width
     return int(FONT.getlength(sg[0]))
 
-def text_strip(segs, stamp=True, hide_msg=False):
+def text_strip(segs, stamp=True, hide_msg=False, h=ROWS):
     """Draws segments onto one long 64-tall image; we scroll a window across it.
     A segment is (text, color), or tagged: (text, color, "hdr"/"sub"/"msg") or ("", None, "game", game, odds).
     Games are two-line blocks; headers are colored boxes; everything else is one big line.
     Where your message sits is kept in img.info["spans"] so effects can find it while it scrolls by."""
     if stamp:
         segs = [(f"  {datetime.now():%-I:%M}  ", (0, 180, 255))] + (segs or [("No games right now", GRAY)])
+    F = FONT if h == ROWS else font(HALF_SIZE)
     pieces = []
     for sg in segs:
         k = seg_kind(sg)
         if k == "game":
-            pieces.append((sg, game_block(sg[3], sg[4])))
+            pieces.append((sg, game_block(sg[3], sg[4]) if h == ROWS else game_line(sg[3], sg[4], h)))
         elif k == "hdr":
-            pieces.append((sg, hdr_block(sg[0], sg[1])))
+            pieces.append((sg, hdr_block(sg[0], sg[1], h)))
         elif k == "sub":
-            pieces.append((sg, sub_block(sg[0], sg[1])))
+            pieces.append((sg, sub_block(sg[0], sg[1], h)))
         else:
             pieces.append((sg, None))
-    width = sum(p.width if p is not None else int(FONT.getlength(sg[0])) for sg, p in pieces) + 4
-    img = Image.new("RGB", (max(width, 1), ROWS))
+    width = sum(p.width if p is not None else int(F.getlength(sg[0])) for sg, p in pieces) + 4
+    img = Image.new("RGB", (max(width, 1), h))
     d = ImageDraw.Draw(img)
     x, spans = 0, []
     for sg, pic in pieces:
@@ -893,15 +973,15 @@ def text_strip(segs, stamp=True, hide_msg=False):
             continue
         text, color = sg[0], sg[1]
         is_msg = seg_kind(sg) == "msg"
-        w = int(FONT.getlength(text))
+        w = int(F.getlength(text))
         if is_msg:
             spans.append((x, x + w))
         if not (is_msg and hide_msg):
             if color == "rainbow":
-                l, t, r, b = FONT.getbbox("0A")
-                draw_fx_text(d, (x, ROWS / 2 - (b - t) / 2 - t), text, FONT, None, "rainbow", 0, still_rainbow=True)
+                l, t, r, b = F.getbbox("0A")
+                draw_fx_text(d, (x, h / 2 - (b - t) / 2 - t), text, F, None, "rainbow", 0, still_rainbow=True)
             else:
-                text_at(d, x, ROWS / 2, text, FONT, color)
+                text_at(d, x, h / 2, text, F, color)
         x += w
     img.info["spans"] = spans
     return img
@@ -1099,6 +1179,7 @@ class Feed:
         self.next_games = {}                       # my teams' next games when they're not on today's board
         self.strip = text_strip([("Loading…", GRAY)])
         self.strip_off = self.strip_mask = None
+        self.pinned, self.bottom, self.bottom_off = [], None, None   # split screen
         self.cards = []
         self.watcher = AlertWatcher()
         threading.Thread(target=self.loop, daemon=True).start()
@@ -1160,12 +1241,51 @@ class Feed:
                 mixed.append(seg)
             segs = mixed or note
         self.strip = text_strip(segs)
+        self.build_split(pl, build)
         self.cards = self.make_ticker_cards(pl, games, segs)
         # blink: a copy with the message blanked out, swapped in for the "off" moments
         self.strip_off = text_strip(segs, hide_msg=True) if ctl.msg_in_scroll and ctl.effect == "blink" else None
         # fireworks: which pixels are text, so sparks can go behind the words
         self.strip_mask = (self.strip.convert("L").point(lambda v: 255 if v > 0 else 0)
                            if ctl.msg_in_scroll and ctl.effect == "fireworks" else None)
+
+    def pinned_games(self):
+        """Games held on the top row (split screen), or [] for the normal full-height ticker."""
+        ctl, now = self.ctl, []
+        live = lambda g: g["state"] == "in" or self.linger_left(g)
+        if ctl.pin == "mine":
+            now = [g for g in self.my_games() if live(g)]
+        elif ctl.pin == "live":
+            now = [g for g in self.games if live(g) and (not ctl.leagues or g["league"] in ctl.leagues)]
+            now.sort(key=lambda g: (not mine(g)[0], not is_close(g), g["league"]))
+        elif ctl.pin == "picked" and ctl.game_ids:
+            now = self.picked()
+        return now
+
+    def build_split(self, pl, build):
+        """Bottom row of the split screen: everything that isn't held on top, on one line."""
+        ctl = self.ctl
+        self.pinned = self.pinned_games()
+        if not self.pinned:
+            self.bottom = self.bottom_off = None
+            return
+        ids = {g["id"] for g in self.pinned}
+        games, raw = self.shown_games()
+        rest = [g for g in games if g["id"] not in ids]
+        if not rest:                                     # you picked only the held games: show the rest of your sports
+            rest, raw = [g for g in visible_games(self.games, ctl.leagues, ctl.days) if g["id"] not in ids], False
+        segs = build(rest, None, ctl.show_odds(), "week", raw) + pl
+        if ctl.msg_in_scroll and ctl.message.strip():
+            col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
+            note = [(f"   {ctl.message.strip()}   ", col, "msg"), DOT]
+            mixed = []
+            for seg in segs:
+                if len(seg) > 2 and seg[2] == "hdr":
+                    mixed += note
+                mixed.append(seg)
+            segs = mixed or note
+        self.bottom = text_strip(segs, h=BOTTOM_H)
+        self.bottom_off = text_strip(segs, hide_msg=True, h=BOTTOM_H) if ctl.msg_in_scroll and ctl.effect == "blink" else None
 
     def make_ticker_cards(self, pl, games, segs):
         """One-at-a-time cards: clock, your message, ParlayLabs items, then each game as a big scoreboard."""
@@ -1491,6 +1611,21 @@ def run_display(ctl, feed, matrix):
             step = speed_step(ctl.speed)
             if scrolling:
                 x = W if x < -w else x - step
+            time.sleep(step / ctl.speed)
+        elif feed.bottom is not None and feed.pinned:  # split: held scores on top, the rest crawls underneath
+            t = time.time()
+            bottom = feed.bottom
+            if feed.bottom_off is not None and blink_off(t) and feed.bottom_off.width == bottom.width:
+                bottom = feed.bottom_off
+            img = Image.new("RGB", (W, ROWS))
+            img.paste(pinned_frame(feed.pinned, t, ctl), (0, 0))
+            ImageDraw.Draw(img).line([(0, TOP_H), (W, TOP_H)], fill=(35, 35, 50))
+            if x < -bottom.width or x > W:
+                x = W
+            img.paste(bottom, (x, ROWS - BOTTOM_H))
+            show(img)
+            step = speed_step(ctl.speed)
+            x -= step
             time.sleep(step / ctl.speed)
         elif ctl.motion != "scroll" and feed.cards:   # one item at a time
             cards = feed.cards

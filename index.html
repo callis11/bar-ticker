@@ -165,6 +165,12 @@
   <div class="seg" id="holdPick"><span class="segLabel">Each item stays</span>
     <button data-h="3">3 sec</button><button data-h="5">5 sec</button><button data-h="8">8 sec</button><button data-h="15">15 sec</button></div>
   <p class="hint" id="motionHint" style="margin:0"></p>
+
+  <h2 class="sect">Hold on top</h2>
+  <div class="chips wrap" id="pinPick">
+    <button data-pin="off">Off</button><button data-pin="mine">My teams</button><button data-pin="live">Live games</button><button data-pin="picked">Picked games</button>
+  </div>
+  <p class="hint" id="pinHint" style="margin:0"></p>
 </div>
 
 <div class="card panel" data-panel="image">
@@ -279,6 +285,12 @@ function render() {
     : "One item at a time: games as a big scoreboard, ParlayLabs with a small label on top. Speed sets how fast long ones (like parlays) crawl across.";
   document.querySelectorAll("#plParts button").forEach(b => b.classList.toggle("on", (S.pl_parts || []).includes(b.dataset.p)));
   document.querySelectorAll("#groupPick button").forEach(b => b.classList.toggle("on", b.dataset.g === (S.group || "league")));
+  document.querySelectorAll("#pinPick button").forEach(b => b.classList.toggle("on", b.dataset.pin === (S.pin || "off")));
+  $("#pinHint").textContent = {
+    off: "Splits the ticker in two: live scores stay put on the top row while everything else crawls along the bottom.",
+    mine: "Top row: Lions, Pistons and MSU games while they're live (and 15 min after). The rest crawls underneath. Back to full size when none are on.",
+    live: "Top row: every live game in your sports, side by side (they take turns if they don't all fit). The rest crawls underneath.",
+    picked: "Top row: the games you picked above (My teams / Live / Close / tapped games). The rest of your sports crawls underneath."}[S.pin || "off"];
   document.querySelectorAll("#daysPick button").forEach(b => b.classList.toggle("on", b.dataset.d === (S.days || "week")));
   $("#oddsOn").checked = S.odds_on !== false;
   $("#oddsPick").style.opacity = S.odds_on === false ? .35 : 1;
@@ -425,6 +437,8 @@ $("#plParts").onclick = e => {
   const on = new Set(S.pl_parts || []); on.has(b.dataset.p) ? on.delete(b.dataset.p) : on.add(b.dataset.p);
   save({mode:"scroll", pl_parts:[...on]}, on.size ? "ParlayLabs updated" : "No ParlayLabs in the scroll");
 };
+$("#pinPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", pin:b.dataset.pin},
+  {off:"Full-height ticker", mine:"Holding my teams on top", live:"Holding live games on top", picked:"Holding picked games on top"}[b.dataset.pin]); };
 $("#groupPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", group:b.dataset.g}, b.dataset.g === "time" ? "Grouped by start time" : "Grouped by league"); };
 $("#daysPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", days:b.dataset.d}, b.dataset.d === "today" ? "Today's games only" : "This week's games"); };
 $("#oddsOn").onchange = e => save({odds_on:e.target.checked}, e.target.checked ? "Odds on" : "Odds off, scores only");
@@ -572,7 +586,7 @@ const Demo = (() => {
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
            group:"league", days:"week", pl_parts:["record","parlays","props"],
-           speed:80, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide", ranks:true, game_speed:80, msg_on_image:false};
+           speed:80, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide", ranks:true, game_speed:80, msg_on_image:false, pin:"off"};
   const picks = () => S.odds_on === false ? [] : (S.odds || []);
   let games = SAMPLE, pl = PL_SAMPLE, live = false, image = null, alerts = [], showing = null;
   const cv = $("#sim"), g = cv.getContext("2d");
@@ -636,8 +650,8 @@ const Demo = (() => {
   }
 
   let lastPL = [], lastShown = [];
-  function segments() {
-    const picks = (S.game_ids || []).length;
+  function segments(override) {
+    const picks = override ? 0 : (S.game_ids || []).length;
     const only = picks ? [] : (S.leagues || []), want = k => !only.length || only.includes(k);
     const segs = [[`  ${new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}).replace(/ ?[AP]M/, "")}  `, C.blue]];
     const plSegs = [];
@@ -653,9 +667,9 @@ const Demo = (() => {
     const order = {in:0, pre:1, post:2};
     const sameDay = (a, b) => a.toDateString() === b.toDateString();
     // games: what you picked, or every game in the chosen sports
-    const shown = picks ? pickedGames() : games.filter(x => want(x.league) &&
-      (S.days !== "today" || x.state === "in" || (x.start && sameDay(new Date(x.start * 1000), new Date()))));
-    lastShown = shown;
+    const shown = override || (picks ? pickedGames() : games.filter(x => want(x.league) &&
+      (S.days !== "today" || x.state === "in" || (x.start && sameDay(new Date(x.start * 1000), new Date())))));
+    if (!override) lastShown = shown;
     const gameSeg = x => ["", null, "game", x];          // drawn as a two-line block (gameBlock)
     if (S.group === "time") {                     // LIVE, then each start time, then FINAL
       const slot = ts => { const d = new Date(ts * 1000), clock = d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
@@ -760,13 +774,51 @@ const Demo = (() => {
     status.forEach(([t, col], i) => textAt(c, xStat, ys[i], t, STATUS_PX, col));
     return cnv;
   }
-  function hdrBlock(text, color) {
-    const t = text.trim(), tw = measure(t, HDR_PX), cnv = newCanvas(tw + 44), c = cnv.getContext("2d");
-    c.fillStyle = color; c.beginPath(); (c.roundRect ? c.roundRect(10, 12, tw + 22, H - 24, 6) : c.rect(10, 12, tw + 22, H - 24)); c.fill();
-    textAt(c, 21, H / 2, t, HDR_PX, "#000");
+  const newCanvasH = (w, h) => { const c = newCanvas(w); c.height = h; return c; };
+  function hdrBlock(text, color, h = H) {
+    const k = h / H, px = Math.floor(HDR_PX * k) + (h < H ? 2 : 0), pad = Math.floor(11 * k), m = Math.floor(12 * k);
+    const t = text.trim(), tw = measure(t, px), cnv = newCanvasH(tw + 4 * pad, h), c = cnv.getContext("2d");
+    c.fillStyle = color; c.beginPath(); (c.roundRect ? c.roundRect(pad, m, tw + 2 * pad, h - 2 * m, Math.max(3, 6 * k)) : c.rect(pad, m, tw + 2 * pad, h - 2 * m)); c.fill();
+    textAt(c, 2 * pad, h / 2, t, px, "#000");
     return cnv;
   }
-  function subBlock(text, color) {
+  const HALF_PX = 20, TOP_H = H / 2 - 1, BOTTOM_H = H / 2;
+  function gameLine(x, h = BOTTOM_H, size = HALF_PX) {      // one game on one line, for a half-height row
+    const pre = x.state === "pre", my = mine(x), small = Math.max(10, size - 4);
+    const tcol = (side, sc, other) => x[side] === my ? C.gold : pre || x[sc] >= other ? C.white : "#969696";
+    const parts = pre
+      ? [[team(x, "away"), tcol("away", "ascore", 0), size], [" @ ", C.gray, size], [team(x, "home"), tcol("home", "hscore", 0), size],
+         ["  " + shortTime(x.detail), "#aaa", small], ...(oddsText(x) ? [["  " + oddsText(x), C.odds, small]] : [])]
+      : [[`${team(x, "away")} ${x.ascore}`, tcol("away", "ascore", x.hscore), size], ["  ", C.white, size],
+         [`${team(x, "home")} ${x.hscore}`, tcol("home", "hscore", x.ascore), size], ["  " + x.detail, x.state === "in" ? C.red : "#969696", small]];
+    const cnv = newCanvasH(9 + parts.reduce((a, [t, , n]) => a + measure(t, n), 0) + 6, h), c = cnv.getContext("2d");
+    c.fillStyle = LEAGUE_COLORS[x.league] || C.gray; c.fillRect(0, 3, 3, h - 6);
+    let px = 9; for (const [t, col, n] of parts) px += textAt(c, px, h / 2, t, n, col);
+    return cnv;
+  }
+  function pinnedGames() {                        // games held on the top row (split screen), or none
+    const pin = S.pin || "off";
+    if (pin === "mine") return myGames().filter(z => z.state === "in");
+    if (pin === "live") return games.filter(z => z.state === "in" && (!(S.leagues || []).length || S.leagues.includes(z.league)))
+      .sort((a, b) => !!mine(b) - !!mine(a) || isClose(b) - isClose(a) || a.league.localeCompare(b.league));
+    if (pin === "picked" && (S.game_ids || []).length) return pickedGames();
+    return [];
+  }
+  function drawPinned(list, t) {                  // top row: as many as fit side by side, else pages that take turns
+    const gap = 28;
+    let pics;
+    for (const n of [22, 20, 18, 16]) { pics = list.map(z => gameLine(z, TOP_H, n)); if (pics.reduce((a, p) => a + p.width, 0) + gap * (pics.length - 1) <= W) break; pics = null; }
+    pics = pics || list.map(z => gameLine(z, TOP_H, 20));
+    const pages = [[]]; let w = 0;
+    for (const p of pics) { const cur = pages[pages.length - 1]; if (cur.length && w + gap + p.width > W) { pages.push([p]); w = p.width; } else { w += (cur.length ? gap : 0) + p.width; cur.push(p); } }
+    const pi = Math.floor(t / Math.max(2, S.hold || 5)) % pages.length, page = pages[pi];
+    let px = Math.max(0, (W - page.reduce((a, p) => a + p.width, 0) - gap * (page.length - 1)) / 2);
+    page.forEach((p, i) => { if (i) { g.fillStyle = "#3c3c3c"; g.fillRect(px - gap / 2, 6, 1, TOP_H - 12); } g.drawImage(p, Math.round(px), 0); px += p.width + gap; });
+    if (pages.length > 1) pages.forEach((_, i) => { g.fillStyle = i === pi ? "#fff" : "#464646"; g.fillRect(W - 6 - (pages.length - i) * 5, TOP_H - 3, 2, 2); });
+    g.fillStyle = "#232332"; g.fillRect(0, TOP_H, W, 1);
+  }
+  function subBlock(text, color, h = H) {
+    if (h < H) { const cnv = newCanvasH(measure(text.trim(), 15) + 14, h); textAt(cnv.getContext("2d"), 4, h / 2, text.trim(), 15, color); return cnv; }
     const words = text.trim().split(/\s+/);
     let lines = [words.join(" ")];
     if (words.length > 1) {
@@ -780,19 +832,20 @@ const Demo = (() => {
     return cnv;
   }
   // the scroll is drawn on a see-through canvas, so sparks can sit behind the words
-  function makeStrip(segs, hideMsg = false) {
-    const pieces = segs.map(sg => [sg, sg[2] === "game" ? gameBlock(sg[3]) : sg[2] === "hdr" ? hdrBlock(sg[0], sg[1]) : sg[2] === "sub" ? subBlock(sg[0], sg[1]) : null]);
-    const w = pieces.reduce((a, [sg, pic]) => a + (pic ? pic.width : measure(sg[0], FONT_PX)), 0) + 4;
-    const cnv = newCanvas(w); cnv.spans = [];
+  function makeStrip(segs, hideMsg = false, h = H) {
+    const F = h === H ? FONT_PX : HALF_PX;
+    const pieces = segs.map(sg => [sg, sg[2] === "game" ? (h === H ? gameBlock(sg[3]) : gameLine(sg[3], h)) : sg[2] === "hdr" ? hdrBlock(sg[0], sg[1], h) : sg[2] === "sub" ? subBlock(sg[0], sg[1], h) : null]);
+    const w = pieces.reduce((a, [sg, pic]) => a + (pic ? pic.width : measure(sg[0], F)), 0) + 4;
+    const cnv = newCanvasH(w, h); cnv.spans = [];
     const s = cnv.getContext("2d");
     let px = 0;
     for (const [[t, c, tag], pic] of pieces) {
       if (pic) { s.drawImage(pic, px, 0); px += pic.width; continue; }
-      s.font = font(FONT_PX); const tw = s.measureText(t).width;
+      s.font = font(F); const tw = s.measureText(t).width;
       if (tag === "msg") cnv.spans.push([px, px + tw]);
       if (!(tag === "msg" && hideMsg)) {
-        if (c === "rainbow") fxText(s, t, px, H / 2 + 1, FONT_PX, null, "rainbow", 0, true);
-        else textAt(s, px, H / 2, t, FONT_PX, c);
+        if (c === "rainbow") fxText(s, t, px, h / 2 + 1, F, null, "rainbow", 0, true);
+        else textAt(s, px, h / 2, t, F, c);
       }
       px += tw;
     }
@@ -896,7 +949,18 @@ const Demo = (() => {
     cards.push(...sorted.map(z => ({label:null, segs:[], msg:false, game:z})), ...plCards.slice(1));
     strip = makeStrip(segs);
     stripOff = S.msg_in_scroll && S.effect === "blink" ? makeStrip(segs, true) : null;
+    // split screen: held games on top, everything else on one line underneath
+    pinned = pinnedGames(); bottom = bottomOff = null;
+    if (pinned.length) {
+      const ids = new Set(pinned.map(z => z.id));
+      let rest = lastShown.filter(z => !ids.has(z.id));
+      if (!rest.length) rest = games.filter(z => !ids.has(z.id) && (!(S.leagues || []).length || S.leagues.includes(z.league)));
+      const keepShown = lastShown, bsegs = segments(rest); lastShown = keepShown;
+      bottom = makeStrip(bsegs, false, BOTTOM_H);
+      bottomOff = S.msg_in_scroll && S.effect === "blink" ? makeStrip(bsegs, true, BOTTOM_H) : null;
+    }
   }
+  let pinned = [], bottom = null, bottomOff = null, pinT = 0;
 
   function fit(text, max = W - 8, start = 28 * K) {
     for (let n = start; n > 9; n--) { g.font = font(n); if (g.measureText(text).width <= max) return n; }
@@ -996,7 +1060,7 @@ const Demo = (() => {
       if (t < 10) { drawAlert(showing, t); return requestAnimationFrame(tick); }
       showing = null; x = W;
     }
-    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold]);
+    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin]);
     if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; }
     if (S.mode === "image" && image) {
       clear(); const sc = S.fit === "fill" ? Math.max(W / image.width, H / image.height) : Math.min(W / image.width, H / image.height);
@@ -1009,6 +1073,13 @@ const Demo = (() => {
       clear();
       const tw = drawMessage((S.message || " ").trim() || " ", now / 1000, false);
       if (tw) { x -= S.speed * dt; if (x < -tw) x = W; }
+    } else if (bottom && pinned.length) {           // split: held scores on top, the rest crawls underneath
+      const t = now / 1000, b = bottomOff && blinkOff(t) ? bottomOff : bottom;
+      if (++pinT % 60 === 0) { pinned = pinnedGames(); if (!pinned.length) buildStrip(); }
+      clear(); drawPinned(pinned, t);
+      if (x < -bottom.width || x > W) x = W;
+      g.drawImage(b, Math.round(x), H - BOTTOM_H); x -= S.speed * dt;
+      if (x < -bottom.width) { x = W; buildStrip(); }
     } else if ((S.motion || "scroll") !== "scroll" && cards.length) {
       let c = cards[cardI % cards.length], len = cardLength(c), t = (now - cardT0) / 1000;
       if (t >= len) { cardI = (cardI + 1) % cards.length; cardT0 = now; if (cardI === 0) buildStrip(); c = cards[cardI % cards.length]; len = cardLength(c); t = 0; }
