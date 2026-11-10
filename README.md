@@ -10,7 +10,7 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 |---|---|---|---|
 | P2.5 128x64 HUB75 panel, 320 x 160 mm, 1/32 scan, **ICN2037** chip (AliExpress) | 5 | ~$68 + shipping | **Ordered.** 5 x 320 mm = 1600 mm (5.25 ft). All 5 from the same batch |
 | Raspberry Pi 4 Model B, **1 GB** | 1 | ~$35 | The 1 GB and 2 GB Pi 4 kept their old price through the 2026 RAM price hikes; the ticker doesn't need more. A Pi 3B+ (~$35) also works (set `gpio_slowdown = 2`). Skip the Pi 5 (the LED library doesn't support it properly) and the Zero 2 W (too slow for 5 big panels) |
-| Adafruit RGB Matrix Bonnet (#3211) | 1 | ~$15–20 | Plugs onto the Pi and drives the panels. **Solder the "E" jumper** (needed for 64-tall panels) |
+| Adafruit **Triple** LED Matrix Bonnet (#6358) | 1 | ~$10 | Plugs onto the Pi and drives the panels; has level shifters, no soldering. Works with the Pi 4 (code is set for it: `BONNET = "triple"`). The single RGB Matrix Bonnet (#3211) also works (`BONNET = "single"`, solder its E jumper) |
 | 5 V 30 A power supply (150 W, e.g. Mean Well LRS-150-5) + 3-prong cord | 1 | ~$25 | Powers the panels (up to ~4 A each on full white; far less for a ticker). Make sure it's **5 V** out and 110 V in |
 | Official Pi USB-C power supply | 1 | ~$10 | The Pi gets its own supply |
 | 32 GB microSD card | 1 | ~$8 | |
@@ -18,11 +18,13 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 | 1x4 board or aluminum flat bar to mount on | 1 | ~$10 | |
 | Smoked or black acrylic front (optional) | 1 | ~$15 | Makes it look like a real sports ticker. The frame you can cut on the CNC |
 
+The Triple Bonnet's other two outputs can later split the 5 panels into shorter chains for an even smoother (faster-refreshing) picture; that's a small code change.
+
 Backup plan if a panel batch ever comes with a chip the Pi can't drive (ICN2053, ICN2153, FM6363, FM6373, DP3246): a Colorlight 5A-75B receiving card, fed by the Pi over Ethernet.
 
 ## Wiring
-1. Solder the Bonnet's **E jumper** (the small pad marked for 64-row panels) so the 5th address line reaches the panels.
-2. Chain the panels with the ribbon cables: Bonnet → panel 1 IN, panel 1 OUT → panel 2 IN, and so on (arrows on the back point from IN to OUT).
+1. Check the Triple Bonnet's **Address E** jumper is set to the **8th pin** (where HUB75E panels like ours have E). With the single Bonnet, solder its E jumper instead.
+2. Chain the panels with the ribbon cables: Bonnet output 1 → panel 1 IN, panel 1 OUT → panel 2 IN, and so on (arrows on the back point from IN to OUT).
 3. Run 5 V and GND from the 30 A supply to **every** panel's power pigtail, not through the chain.
 4. Power the Pi from its own USB-C supply.
 

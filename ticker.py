@@ -32,6 +32,7 @@ REFRESH_SEC   = 5          # default refresh for the whole board (changeable on 
 FAST_SEC      = 5          # leagues where my team (or the game you picked) is live: always this fast
 ALERT_SECONDS = 10         # how long an alert takes over the ticker
 WEB_PORT      = 80         # control page: http://ticker.local (set hostname "ticker" in Pi Imager)
+BONNET        = "triple"   # "triple" = Adafruit Triple LED Matrix Bonnet #6358, "single" = RGB Matrix Bonnet #3211
 FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_SIZE     = 36         # one-line text (headers, ParlayLabs, messages)
 LINE_SIZE     = 25         # each line of a two-line game (away team on top, home underneath)
@@ -1378,7 +1379,9 @@ def open_matrix(ctl):
     from rgbmatrix import RGBMatrix, RGBMatrixOptions
     o = RGBMatrixOptions()
     o.rows, o.cols, o.chain_length = ROWS, COLS, PANELS
-    o.hardware_mapping = "adafruit-hat"   # Adafruit RGB Matrix Bonnet (solder its "E" jumper for 64-tall panels)
+    # Triple Bonnet: output 1 uses the library's standard pinout. All 5 panels chain off output 1.
+    # Single Bonnet: "adafruit-hat" pinout (solder its "E" jumper for 64-tall panels).
+    o.hardware_mapping = "regular" if BONNET == "triple" else "adafruit-hat"
     o.brightness = ctl.brightness
     o.gpio_slowdown = 4                   # Pi 4 needs this (use 2 on a Pi 3); stops glitches
     o.pwm_bits = 9                        # a bit fewer color steps = faster refresh on 5 big panels (less flicker)
