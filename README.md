@@ -9,7 +9,7 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 | Part | Qty | ~Price | Notes |
 |---|---|---|---|
 | P2.5 128x64 HUB75 panel, 320 x 160 mm, 1/32 scan, **ICN2037** chip (AliExpress) | 5 | ~$68 + shipping | **Ordered.** 5 x 320 mm = 1600 mm (5.25 ft). All 5 from the same batch |
-| Raspberry Pi 4 Model B, **1 GB** | 1 | ~$35 | The 1 GB and 2 GB Pi 4 kept their old price through the 2026 RAM price hikes; the ticker doesn't need more. A Pi 3B+ (~$35) also works (set `gpio_slowdown = 2`). Skip the Pi 5 (the LED library doesn't support it properly) and the Zero 2 W (too slow for 5 big panels) |
+| Raspberry Pi 4 Model B, **1 GB** | 1 | ~$35 | **Bought.** The 1 GB and 2 GB Pi 4 kept their old price through the 2026 RAM price hikes; the ticker doesn't need more. A Pi 3B+ (~$35) also works (set `gpio_slowdown = 2`). Skip the Pi 5 (the LED library doesn't support it properly) and the Zero 2 W (too slow for 5 big panels) |
 | Adafruit **Triple** LED Matrix Bonnet (#6358) | 1 | ~$10 | **Bought.** Plugs onto the Pi and drives the panels; has level shifters, no soldering. Works with the Pi 4 (code is set for it: `BONNET = "triple"`). The single RGB Matrix Bonnet (#3211) also works (`BONNET = "single"`, solder its E jumper) |
 | 5 V 30 A power supply (150 W, e.g. Mean Well LRS-150-5) + 3-prong cord | 1 | ~$25 | **Bought** (cord: have it). Powers the panels (up to ~4 A each on full white; far less for a ticker). Make sure it's **5 V** out and 110 V in |
 | USB-C pigtail cable (USB-C male to bare red/black wire, 3 A) | 1 | ~$6–8 | **Bought.** Powers the Pi from the same 5 V supply as the panels, so no separate Pi adapter |
