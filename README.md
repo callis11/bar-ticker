@@ -15,7 +15,7 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 | Official Pi USB-C power supply | 1 | ~$10 | The Pi gets its own supply |
 | 32 GB microSD card | 1 | ~$8 | |
 | 18 AWG red/black wire + Wago lever nuts | 1 | ~$10 | Each panel comes with its own ribbon cable and power pigtail |
-| Longer HUB75 ribbon cables (16-pin, ~2–3 ft / 60–100 cm) | 2 | ~$6–10 | From the Bonnet (behind the middle) out to panels 1 and 5. The short cables that come with the panels cover the rest |
+| Longer HUB75 ribbon cables (16-pin, 1 m) | 3 | ~$6–10 | **Ordered.** From the Bonnet (behind the middle) out to panels 1, 3 and 5. The short cables that come with the panels link 1→2 and 3→4 |
 | 1x4 board or aluminum flat bar to mount on | 1 | ~$10 | |
 | Smoked or black acrylic front (optional) | 1 | ~$15 | Makes it look like a real sports ticker. The frame you can cut on the CNC |
 
