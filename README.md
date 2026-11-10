@@ -15,7 +15,7 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 | USB-C pigtail cable (USB-C male to bare red/black wire, 3 A) | 1 | ~$6–8 | **Bought.** Powers the Pi from the same 5 V supply as the panels, so no separate Pi adapter |
 | Multimeter | 1 | — | **Have it.** To set the supply to 5.1–5.2 V and check the wiring |
 | 32 GB microSD card | 1 | ~$8 | **Bought.** |
-| 18 AWG red/black wire + Wago lever nuts | 1 | ~$10 | Each panel comes with its own ribbon cable and power pigtail |
+| 18 AWG red/black wire + Wago lever nuts | 1 | — | **Have it.** Each panel comes with its own ribbon cable and power pigtail |
 | Longer HUB75 ribbon cables (16-pin, 1 m) | 3 | ~$6–10 | **Ordered.** From the Bonnet (behind the middle) out to panels 1, 3 and 5. The short cables that come with the panels link 1→2 and 3→4 |
 | 1x4 board or aluminum flat bar to mount on | 1 | ~$10 | |
 | Smoked or black acrylic front (optional) | 1 | ~$15 | Makes it look like a real sports ticker. The frame you can cut on the CNC |
