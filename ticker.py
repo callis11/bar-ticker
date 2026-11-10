@@ -23,16 +23,18 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageSequence
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ------------------------------------------------------------------ settings
-PANELS        = 4          # 64x32 panels chained left-to-right (4 x P5 = ~4.2 ft)
-ROWS, COLS    = 32, 64
-W             = COLS * PANELS
-SCROLL_SPEED  = 40         # pixels per second
+PANELS        = 5          # 128x64 P2.5 panels chained left-to-right (5 x 320 mm = ~5.25 ft)
+ROWS, COLS    = 64, 128
+W             = COLS * PANELS   # 640 x 64 pixels
+K             = ROWS // 32      # drawing scale (sizes below were first worked out for a 32-tall strip)
+SCROLL_SPEED  = 80         # pixels per second (P2.5 pixels are small: 80 px/s is a relaxed crawl)
 REFRESH_SEC   = 5          # default refresh for the whole board (changeable on the phone page, 5-60 s)
 FAST_SEC      = 5          # leagues where my team (or the game you picked) is live: always this fast
 ALERT_SECONDS = 10         # how long an alert takes over the ticker
 WEB_PORT      = 80         # control page: http://ticker.local (set hostname "ticker" in Pi Imager)
 FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-FONT_SIZE     = 20
+FONT_SIZE     = 36         # one-line text (headers, ParlayLabs, messages)
+LINE_SIZE     = 25         # each line of a two-line game (away team on top, home underneath)
 SETTINGS_FILE = os.path.join(HERE, "settings.json")
 IMAGE_FILE    = os.path.join(HERE, "custom_image")
 
@@ -137,28 +139,28 @@ class Control:
         self.group = "time" if self.group == "time" else "league"
         self.days = "today" if self.days == "today" else "week"
         self.pl_parts = [x for x in (self.pl_parts or []) if x in ("record", "parlays", "props")]
-        self.speed = max(10, min(120, int(self.speed)))
+        self.speed = max(20, min(200, int(self.speed)))
         self.motion = self.motion if self.motion in MOTIONS else "scroll"
         self.hold = max(2, min(15, int(self.hold)))
         self.ranks = bool(self.ranks)
         SHOW_RANKS["on"] = self.ranks
         self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push", "scroll") else "slide"
-        self.game_speed = max(10, min(120, int(self.game_speed)))
+        self.game_speed = max(20, min(200, int(self.game_speed)))
         self.pl_count = max(1, min(10, int(self.pl_count)))
         self.pl_sports = [x for x in (self.pl_sports or []) if x in PL_SPORTS]      # empty = all sports
         self.prop_types = [x for x in (self.prop_types or []) if x in PROP_TYPES]  # empty = all types
         if self.effect not in EFFECTS:
             self.effect = "steady"
-
-    def show_odds(self):
-        """The odds to show right now: the picks, unless the master switch is off."""
-        return self.odds if self.odds_on else []
         self.brightness = max(5, min(100, int(self.brightness)))
         self.tv_delay = max(0, min(120, int(self.tv_delay)))
         self.refresh = max(5, min(60, int(self.refresh)))
         self.version += 1
         if save:
             json.dump({k: getattr(self, k) for k in self.KEYS}, open(SETTINGS_FILE, "w"))
+
+    def show_odds(self):
+        """The odds to show right now: the picks, unless the master switch is off."""
+        return self.odds if self.odds_on else []
 
     def set_image(self, data, fit=None, save=True):
         fit = fit or self.fit
@@ -352,17 +354,9 @@ def slot_label(ts):
     clock = t.strftime("%-I:%M %p")
     return clock if t.date() == datetime.now().date() else f"{t:%a} {clock}".upper()
 
-def game_text(g, odds):
-    """One game as scroll segments (without the league or time header)."""
-    gold = bool(mine(g)[0])
-    if g["state"] == "pre":
-        out = [(f"{team(g, 'away')} @ {team(g, 'home')}", GOLD if gold else GRAY)]
-        line = odds_text(g, odds)
-        if line:
-            out.append((f"  {line}", ODDS_COLOR))
-        return out
-    col = GOLD if gold else (WHITE if g["state"] == "in" else (180, 180, 180))
-    return [(f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}", col)]
+def game_seg(g, odds):
+    """One game in the scroll: drawn as a two-line block (see game_block)."""
+    return ("", None, "game", g, tuple(odds))
 
 def visible_games(games, only=None, days="week", raw=False):
     if raw:                                       # games you picked on the phone: show them as they are
@@ -400,7 +394,7 @@ def time_segments(games, only=None, odds=("ou", "ml"), days="week", raw=False):
         segs.append((f"  {label}  ", color, "hdr"))
         for g in gs:
             segs.append((f"{g['league']} ", lg_color[g["league"]]))
-            segs += game_text(g, odds)
+            segs.append(game_seg(g, odds))
             segs.append(DOT)
     return segs
 
@@ -416,15 +410,7 @@ def score_segments(games, only=None, odds=("ou", "ml"), days="week", raw=False):
             continue
         segs.append((f"  {label}  ", color, "hdr"))
         for g in lg:
-            gold = bool(mine(g)[0])
-            if g["state"] == "pre":
-                segs.append((f"{team(g, 'away')} @ {team(g, 'home')} {short_time(g['detail'])}", GOLD if gold else GRAY))
-                line = odds_text(g, odds)
-                if line:
-                    segs.append((f"  {line}", ODDS_COLOR))
-            else:
-                col = GOLD if gold else (WHITE if g["state"] == "in" else (180, 180, 180))
-                segs.append((f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}", col))
+            segs.append(game_seg(g, odds))
             segs.append(DOT)
     return segs
 
@@ -577,9 +563,9 @@ def pl_segments(blocks, ctl):
 
 # ------------------------------------------------------------------ alerts
 class Alert:
-    def __init__(self, kind, game, abbr, team):
+    def __init__(self, kind, game, abbr, info):
         self.kind, self.game, self.abbr, self.at = kind, game, abbr, time.time()
-        self.name, self.c1, self.c2 = team
+        self.name, self.c1, self.c2 = info
         g = game
         self.score = f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}"
         self.words = {"td":    ["TOUCHDOWN!", f"{self.name}!"],
@@ -626,7 +612,7 @@ def font(size):
         _fonts[size] = ImageFont.truetype(FONT_PATH, size)
     return _fonts[size]
 
-def fit_font(text, max_w=W - 8, start=28):
+def fit_font(text, max_w=W - 8, start=28 * K):
     for size in range(start, 9, -1):
         if font(size).getlength(text) <= max_w:
             return font(size)
@@ -651,10 +637,11 @@ def alert_frame(al, t, rng=random.Random(1)):
         if al.kind == "win":                             # fireworks behind the words
             fireworks(d, t)
         centered(d, word, fit_font(word), fg)
-    else:
-        pulse = int(t * 2) % 2 == 0                      # slow border pulse
-        d.rectangle([0, 0, W - 1, ROWS - 1], outline=al.c1 if pulse else al.c2, width=2)
-        centered(d, al.score, fit_font(al.score, start=20), amber if al.kind == "close" else GOLD)
+    else:                                                # the score, big, with a pulsing team-color border
+        img = game_frame(al.game)
+        d = ImageDraw.Draw(img)
+        pulse = int(t * 2) % 2 == 0
+        d.rectangle([0, 0, W - 1, ROWS - 1], outline=al.c1 if pulse else al.c2, width=2 * K)
     return img
 
 def game_frame(g, rotate=0, odds=("ou", "ml")):
@@ -672,11 +659,11 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     if pre:
         mid2 = (f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or \
                (g.get("spread") or "" if "spread" in odds else "")
-    for size in range(24, 9, -1):                        # shrink until everything fits
+    for size in range(24 * K, 9, -1):                    # shrink until everything fits
         big, small = font(size), font(max(9, size // 2 + 1))
         parts = mid1.split(" ", 1) if " " in mid1 and not mid2 else [mid1]
         mid_w = max([small.getlength(x) for x in parts] + [small.getlength(mid2)])
-        if big.getlength(left) + big.getlength(right) + mid_w + 16 <= W:
+        if big.getlength(left) + big.getlength(right) + mid_w + 20 * K <= W:
             break
     my = mine(g)[0]
     col = lambda team: GOLD if team == my else WHITE
@@ -685,22 +672,23 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     lw = big.getlength(left)
     centered(d, left,  big, col(g["away"]), cx=4 + lw // 2)
     centered(d, right, big, col(g["home"]), cx=W - 4 - big.getlength(right) // 2)
-    if lead_a: d.rectangle([4, ROWS - 3, 4 + lw, ROWS - 2], fill=GREEN)
-    if lead_h: d.rectangle([W - 4 - big.getlength(right), ROWS - 3, W - 4, ROWS - 2], fill=GREEN)
+    if lead_a: d.rectangle([4, ROWS - 3 * K, 4 + lw, ROWS - K - 1], fill=GREEN)
+    if lead_h: d.rectangle([W - 4 - big.getlength(right), ROWS - 3 * K, W - 4, ROWS - K - 1], fill=GREEN)
     live = g["state"] == "in"
     gap_l, gap_r = 4 + lw, W - 4 - big.getlength(right)
     mx = int((gap_l + gap_r) / 2)                        # middle of the space between the teams
     gap = gap_r - gap_l - 6
+    top, bot = int(ROWS * 0.29), int(ROWS * 0.71)
     if mid2:
-        centered(d, mid1, small, ODDS_COLOR, cx=mx, cy=9)
-        centered(d, mid2, small, ODDS_COLOR, cx=mx, cy=23)
+        centered(d, mid1, small, ODDS_COLOR, cx=mx, cy=top)
+        centered(d, mid2, small, ODDS_COLOR, cx=mx, cy=bot)
     else:
         parts = mid1.split(" ", 1) if small.getlength(mid1) > gap and " " in mid1 else [mid1]
         for i, p in enumerate(parts):
-            cy = ROWS // 2 if len(parts) == 1 else (9 if i == 0 else 23)
+            cy = ROWS // 2 if len(parts) == 1 else (top if i == 0 else bot)
             centered(d, p, small, RED if live else GRAY, cx=mx, cy=cy)
     if rotate:                                           # thin bar along the top = time until the next game
-        d.line([(0, 0), (int(W * (time.time() % rotate) / rotate), 0)], fill=(50, 50, 80))
+        d.rectangle([0, 0, int(W * (time.time() % rotate) / rotate), K - 1], fill=(50, 50, 80))
     return img
 
 # ---- message effects -----------------------------------------------------------
@@ -717,26 +705,26 @@ def fireworks(d, t, x0=0, x1=W):
     """Bursts of sparks between x0 and x1. Each burst is worked out from the clock, so nothing to keep track of."""
     period, life = 0.2, 1.2
     x0, x1 = max(0, x0), min(W, x1)
-    if x1 - x0 < 20:
+    if x1 - x0 < 20 * K:
         return
     for n in range(int((t - life) / period), int(t / period) + 1):
         age = t - n * period
         if not 0 <= age <= life:
             continue
         r = random.Random(n * 7919)
-        cx, cy = r.uniform(x0 + 6, x1 - 6), r.uniform(4, ROWS - 6)
+        cx, cy = r.uniform(x0 + 6 * K, x1 - 6 * K), r.uniform(4 * K, ROWS - 6 * K)
         base = r.choice(FIREWORK_COLORS)
         fade = 1 - (age / life) ** 2                        # stays bright, then drops off
         col = tuple(int(c * fade) for c in base)
         if age < 0.1:                                       # the pop
-            d.ellipse([cx - 3, cy - 3, cx + 3, cy + 3], fill=(255, 255, 255))
+            d.ellipse([cx - 3 * K, cy - 3 * K, cx + 3 * K, cy + 3 * K], fill=(255, 255, 255))
             continue
-        size = 2 if age < 0.7 else 1
+        size = (2 if age < 0.7 else 1) * K
         for k in range(22):
             a = 2 * math.pi * k / 22 + n
-            dist = 34 * age * (0.7 + 0.3 * ((k * 37 + n) % 5) / 4)
+            dist = 34 * K * age * (0.7 + 0.3 * ((k * 37 + n) % 5) / 4)
             px = cx + math.cos(a) * dist
-            py = cy + math.sin(a) * dist * 0.6 + 9 * age * age   # flatter for the short strip, then fall
+            py = cy + math.sin(a) * dist * 0.6 + 9 * K * age * age   # flatter for the short strip, then fall
             if -1 <= px < W and -1 <= py < ROWS:
                 px, py = int(px), int(py)
                 d.rectangle([px, py, px + size - 1, py + size - 1], fill=col)
@@ -757,46 +745,195 @@ def draw_fx_text(d, xy, text, f, color, effect, t, still_rainbow=False, outline_
         d.text(xy, text, font=f, fill=color, **outline)
     return w
 
+STATUS_SIZE = 21          # clock / odds column of a two-line game
+HDR_SIZE    = 28          # league / time-slot labels (black text on a colored box)
+SUB_SIZE    = 21          # "TOP PARLAYS" style labels, stacked on two lines
+
+def text_at(d, x, cy, text, f, color, **kw):
+    """Draws text with its middle at height cy (caps and digits line up from one line to the next)."""
+    l, t, r, b = f.getbbox("0A")
+    d.text((x, cy - (b - t) / 2 - t), text, font=f, fill=color, **kw)
+    return f.getlength(text)
+
+def game_status(g, odds):
+    """Right-hand column of a two-line game: [(text, color), ...] (one or two lines)."""
+    if g["state"] == "pre":
+        line2 = ((f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or
+                 (g.get("spread") or "" if "spread" in odds else ""))
+        first = short_time(g["detail"])
+        if not line2 and " " in first and len(first) > 8:          # "Sun 4:25 PM" -> "Sun" / "4:25 PM"
+            day, rest = first.split(" ", 1)
+            return [(day.upper(), (170, 170, 170)), (rest, (170, 170, 170))]
+        return [(first, (170, 170, 170))] + ([(line2, ODDS_COLOR)] if line2 else [])
+    if g["state"] == "in":
+        d = g["detail"]
+        parts = d.split(" ", 1) if " " in d else [d]                # "4th 3:12" -> "4th" / "3:12"
+        return [(p, RED) for p in parts]
+    return [(g["detail"], (150, 150, 150))]
+
+def game_block(g, odds=("ou", "ml")):
+    """One game as a two-line block for the 64-tall strip:
+         | DET  24 |  4th
+         | MIN  17 |  3:12
+    League-colored edge on the left. Before kickoff: moneylines where the scores go, start time and O/U on the right."""
+    f, fs = font(LINE_SIZE), font(STATUS_SIZE)
+    pre, my = g["state"] == "pre", mine(g)[0]
+    show_ml = pre and "ml" in odds and g.get("mla") and g.get("mlh")
+    rows = []
+    for side, sc, ml in (("away", "ascore", "mla"), ("home", "hscore", "mlh")):
+        other = g["hscore"] if side == "away" else g["ascore"]
+        if g[side] == my:
+            col = GOLD
+        elif pre or g[sc] >= other:
+            col = WHITE
+        else:
+            col = (150, 150, 150)                                   # trailing / lost: dimmer
+        right = (g[ml] if show_ml else "") if pre else str(g[sc])
+        rows.append((team(g, side), right, col, ODDS_COLOR if pre else col))
+    status = game_status(g, odds)
+    nw = max(f.getlength(r[0]) for r in rows)
+    sw = max(f.getlength(r[1]) for r in rows)
+    stw = max(fs.getlength(t) for t, _ in status)
+    x_name = 10
+    x_score_r = x_name + nw + (14 + sw if sw else 0)
+    x_div = x_score_r + 12
+    x_stat = x_div + 12
+    width = int(x_stat + stw + 8)
+    img = Image.new("RGB", (width, ROWS))
+    d = ImageDraw.Draw(img)
+    lg = {l: c for l, _, c in LEAGUES}.get(g["league"], GRAY)
+    d.rectangle([0, 4, 3, ROWS - 5], fill=lg)
+    cys = (ROWS * 0.25, ROWS * 0.75)
+    for (name, right, col, rcol), cy in zip(rows, cys):
+        text_at(d, x_name, cy, name, f, col)
+        if right:
+            text_at(d, x_score_r - f.getlength(right), cy, right, f, rcol)
+    d.line([(x_div, 8), (x_div, ROWS - 9)], fill=(55, 55, 55))
+    ys = [ROWS / 2] if len(status) == 1 else cys
+    for (txt, col), cy in zip(status, ys):
+        text_at(d, x_stat, cy, txt, fs, col)
+    return img
+
+def hdr_block(text, color):
+    """League / time-slot / ParlayLabs label: black words on a colored box."""
+    f, txt = font(HDR_SIZE), text.strip()
+    tw = f.getlength(txt)
+    img = Image.new("RGB", (int(tw + 44), ROWS))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([10, 12, 10 + tw + 22, ROWS - 13], radius=6, fill=color)
+    text_at(d, 21, ROWS / 2, txt, f, (0, 0, 0))
+    return img
+
+def sub_block(text, color):
+    """Small label stacked on two lines ("TOP" / "PARLAYS") so it takes little room."""
+    f, words = font(SUB_SIZE), text.split()
+    if len(words) > 1:
+        best = min(range(1, len(words)), key=lambda i: max(f.getlength(" ".join(words[:i])), f.getlength(" ".join(words[i:]))))
+        lines = [" ".join(words[:best]), " ".join(words[best:])]
+    else:
+        lines = words or [""]
+    w = max(f.getlength(x) for x in lines)
+    img = Image.new("RGB", (int(w + 18), ROWS))
+    d = ImageDraw.Draw(img)
+    ys = [ROWS / 2] if len(lines) == 1 else (ROWS * 0.3, ROWS * 0.7)
+    for ln, cy in zip(lines, ys):
+        text_at(d, 4, cy, ln, f, color)
+    return img
+
+def seg_kind(sg):
+    return sg[2] if len(sg) > 2 else None
+
+def seg_width(sg):
+    k = seg_kind(sg)
+    if k == "game":
+        return game_block(sg[3], sg[4]).width
+    if k == "hdr":
+        return hdr_block(sg[0], sg[1]).width
+    if k == "sub":
+        return sub_block(sg[0], sg[1]).width
+    return int(FONT.getlength(sg[0]))
+
 def text_strip(segs, stamp=True, hide_msg=False):
-    """Draws segments onto one long image; we scroll a window across it.
-    A segment can be (text, color) or (text, color, "msg") for your message. Where the message
-    sits is kept in img.info["spans"] so effects can find it while it scrolls by."""
+    """Draws segments onto one long 64-tall image; we scroll a window across it.
+    A segment is (text, color), or tagged: (text, color, "hdr"/"sub"/"msg") or ("", None, "game", game, odds).
+    Games are two-line blocks; headers are colored boxes; everything else is one big line.
+    Where your message sits is kept in img.info["spans"] so effects can find it while it scrolls by."""
     if stamp:
         segs = [(f"  {datetime.now():%-I:%M}  ", (0, 180, 255))] + (segs or [("No games right now", GRAY)])
-    width = sum(int(FONT.getlength(sg[0])) for sg in segs) + 4
+    pieces = []
+    for sg in segs:
+        k = seg_kind(sg)
+        if k == "game":
+            pieces.append((sg, game_block(sg[3], sg[4])))
+        elif k == "hdr":
+            pieces.append((sg, hdr_block(sg[0], sg[1])))
+        elif k == "sub":
+            pieces.append((sg, sub_block(sg[0], sg[1])))
+        else:
+            pieces.append((sg, None))
+    width = sum(p.width if p is not None else int(FONT.getlength(sg[0])) for sg, p in pieces) + 4
     img = Image.new("RGB", (max(width, 1), ROWS))
     d = ImageDraw.Draw(img)
-    x, y, spans = 0, (ROWS - FONT_SIZE) // 2 - 2, []
-    for sg in segs:
+    x, spans = 0, []
+    for sg, pic in pieces:
+        if pic is not None:
+            img.paste(pic, (x, 0))
+            x += pic.width
+            continue
         text, color = sg[0], sg[1]
-        is_msg = len(sg) > 2 and sg[2] == "msg"
+        is_msg = seg_kind(sg) == "msg"
         w = int(FONT.getlength(text))
         if is_msg:
             spans.append((x, x + w))
         if not (is_msg and hide_msg):
             if color == "rainbow":
-                draw_fx_text(d, (x, y), text, FONT, None, "rainbow", 0, still_rainbow=True)
+                l, t, r, b = FONT.getbbox("0A")
+                draw_fx_text(d, (x, ROWS / 2 - (b - t) / 2 - t), text, FONT, None, "rainbow", 0, still_rainbow=True)
             else:
-                d.text((x, y), text, font=FONT, fill=color)
+                text_at(d, x, ROWS / 2, text, FONT, color)
         x += w
     img.info["spans"] = spans
     return img
+
+def split_two(words, measure):
+    """Best place to break a list of words into two lines (the longer line as short as possible)."""
+    if len(words) < 2:
+        return None
+    return min(range(1, len(words)), key=lambda i: max(measure(words[:i]), measure(words[i:])))
+
+def message_layout(txt):
+    """How your message fits: (font, [lines]) when it sits still, or None when it has to scroll.
+    Short messages get one big line; longer ones wrap onto two lines before falling back to scrolling."""
+    f = fit_font(txt, start=26 * K)
+    if f.size >= 15 * K:
+        return f, [txt]
+    words = txt.split()
+    i = split_two(words, lambda ws: font(28).getlength(" ".join(ws)))
+    if i:
+        lines = [" ".join(words[:i]), " ".join(words[i:])]
+        for size in range(14 * K, 9 * K - 1, -1):
+            if all(font(size).getlength(ln) <= W - 8 for ln in lines):
+                return font(size), lines
+    return None
 
 def message_frame(ctl, t, x, background=None):
     """Your message in its style, on black or over a picture. Returns (frame, scrolling?, width)."""
     txt, col, fx = (ctl.message or " ").strip() or " ", hex_rgb(ctl.color), ctl.effect
     img = background.copy() if background is not None else Image.new("RGB", (W, ROWS))
     d = ImageDraw.Draw(img)
-    f = fit_font(txt, start=26)
-    scrolling = fx == "scroll" or f.size < 16
-    if scrolling:
-        f = FONT
+    lay = None if fx == "scroll" else message_layout(txt)
+    scrolling = lay is None
+    f, lines = (FONT, [txt]) if scrolling else lay
     if fx == "fireworks":
         fireworks(d, t)
-    l, top, r, b = d.textbbox((0, 0), txt, font=f)
-    y = (ROWS - (b - top)) // 2 - top
-    px = x if scrolling else (W - (r - l)) // 2 - l
-    w = draw_fx_text(d, (px, y), txt, f, col, fx, t, outline_px=2 if background is not None else 0)
+    outline = 2 * K if background is not None else 0
+    ys = [ROWS / 2] if len(lines) == 1 else (ROWS * 0.27, ROWS * 0.73)
+    l, top, r, b = f.getbbox("0A")
+    w = 0
+    for ln, cy in zip(lines, ys):
+        lw = f.getlength(ln)
+        px = x if scrolling else (W - lw) / 2
+        w = max(w, draw_fx_text(d, (px, cy - (b - top) / 2 - top), ln, f, col, fx, t, outline_px=outline))
     return img, scrolling, w
 
 # ---- one-at-a-time cards (Fade / Flash / Slide up) --------------------------------
@@ -827,25 +964,56 @@ def make_cards(segs):
     flush()
     return cards
 
-LABEL_FONT = 10
+LABEL_FONT = 8 * K
+LABEL_H    = LABEL_FONT + 2
+
+def card_tokens(card):
+    """The card's words with their colors, so long cards can wrap onto two lines."""
+    import re
+    toks = [(w, col) for txt, col, *_ in card["segs"] for w in re.findall(r"\S+\s*|\s+", txt)]
+    while toks and not toks[0][0].strip():
+        toks.pop(0)
+    if toks:
+        toks[0] = (toks[0][0].lstrip(), toks[0][1])
+        toks[-1] = (toks[-1][0].rstrip(), toks[-1][1])
+    return toks
+
+def _line_w(toks, f):
+    return sum(f.getlength(w) for w, _ in toks)
+
+def card_layout(card):
+    """(font size, lines) for a card that fits on screen (one big line, or two lines), or (None, [all]) to crawl."""
+    toks = card_tokens(card)
+    h = ROWS - (LABEL_H if card["label"] else 0)
+    for size in range((24 if card["label"] is None else 19) * K, 11 * K - 1, -1):
+        if _line_w(toks, font(size)) <= W - 6:
+            return size, [toks]
+    if sum(1 for w, _ in toks if w.strip()) > 1:
+        # prefer breaking between parlay legs ("·") or where the color changes, then anywhere
+        nice = [i for i in range(1, len(toks)) if toks[i - 1][0].rstrip().endswith(("·", ":")) or toks[i - 1][1] != toks[i][1]]
+        for cuts in (nice, range(1, len(toks))):
+            if not cuts:
+                continue
+            cut = min(cuts, key=lambda i: max(_line_w(toks[:i], font(20)), _line_w(toks[i:], font(20))))
+            lines = [toks[:cut], toks[cut:]]
+            lines[0][-1:] = [(lines[0][-1][0].rstrip().rstrip("·").rstrip(), lines[0][-1][1])]
+            lines[1][:1] = [(lines[1][0][0].lstrip(), lines[1][0][1])]
+            for size in range(h // 2 - 2, 15, -1):
+                if all(_line_w(ln, font(size)) <= W - 6 for ln in lines):
+                    return size, lines
+    return None, [toks]
 
 def card_size(card):
-    """Main-line font size that fits, or None if it has to crawl across."""
-    txt = "".join(sg[0] for sg in card["segs"]).strip()
-    start = 24 if card["label"] is None else 19
-    for size in range(start, 10, -1):
-        if font(size).getlength(txt) <= W - 6:
-            return size
-    return None
+    """Font size that fits (one or two lines), or None if it has to crawl across."""
+    return card_layout(card)[0]
 
 def card_length(card, ctl):
     if card.get("game"):
         return ctl.hold
-    size = card_size(card)
+    size, lines = card_layout(card)
     if size:
         return ctl.hold
-    txt = "".join(sg[0] for sg in card["segs"]).strip()
-    return max(ctl.hold, (W + FONT.getlength(txt)) / ctl.speed)
+    return max(ctl.hold, (W + _line_w(lines[0], FONT)) / ctl.speed)
 
 def card_frame(card, t, ctl):
     """Draws one card, t seconds after it came up."""
@@ -853,29 +1021,29 @@ def card_frame(card, t, ctl):
         return game_frame(card["game"], 0, ctl.show_odds())
     img = Image.new("RGB", (W, ROWS))
     d = ImageDraw.Draw(img)
-    size = card_size(card)
+    size, lines = card_layout(card)
     f = font(size) if size else FONT
-    texts = [(sg[0], sg[1]) for sg in card["segs"]]
-    texts[0] = (texts[0][0].lstrip(), texts[0][1]); texts[-1] = (texts[-1][0].rstrip(), texts[-1][1])
-    width = sum(f.getlength(tx) for tx, _ in texts)
     if card["label"]:
         lt, lc = card["label"]
-        d.text((3, 0), lt.upper(), font=font(LABEL_FONT), fill=lc)
-        top, h = 11, ROWS - 11
+        d.text((3 * K, 0), lt.upper(), font=font(LABEL_FONT), fill=lc)
+        top = LABEL_H
     else:
-        top, h = 0, ROWS
+        top = 0
+    h = ROWS - top
     fx = ctl.effect if card["msg"] else "steady"
     if fx == "fireworks":
         fireworks(d, t)
-    x = (W - width) / 2 if size else W - t * ctl.speed
-    l, tt, r, b = d.textbbox((0, 0), "Ag", font=f)
-    y = top + (h - (b - tt)) // 2 - tt
-    for tx, col in texts:
-        if col == "rainbow":
-            draw_fx_text(d, (x, y), tx, f, None, "rainbow", t)
-        else:
-            draw_fx_text(d, (x, y), tx, f, col, fx, t)
-        x += f.getlength(tx)
+    ys = [top + h / 2] if len(lines) == 1 else (top + h * 0.27, top + h * 0.73)
+    l, tt, r, b = f.getbbox("0A")
+    for toks, cy in zip(lines, ys):
+        x = (W - _line_w(toks, f)) / 2 if size else W - t * ctl.speed
+        y = cy - (b - tt) / 2 - tt
+        for tx, col in toks:
+            if col == "rainbow":
+                draw_fx_text(d, (x, y), tx, f, None, "rainbow", t)
+            else:
+                draw_fx_text(d, (x, y), tx, f, col, fx, t)
+            x += f.getlength(tx)
     return img
 
 def with_motion(img, t, length, motion):
@@ -1194,6 +1362,10 @@ def start_web(ctl, feed, port):
     print(f"control page on port {port}")
 
 # ------------------------------------------------------------------ display loop
+def speed_step(speed):
+    """Pixels to move per frame: 1 at slow speeds (smoothest), more when fast so the Pi keeps up."""
+    return 1 if speed <= 60 else 2 if speed <= 130 else 3
+
 class SimMatrix:
     """Stands in for the LED panels when testing on a computer."""
     brightness = 60
@@ -1206,9 +1378,11 @@ def open_matrix(ctl):
     from rgbmatrix import RGBMatrix, RGBMatrixOptions
     o = RGBMatrixOptions()
     o.rows, o.cols, o.chain_length = ROWS, COLS, PANELS
-    o.hardware_mapping = "adafruit-hat"   # Adafruit RGB Matrix Bonnet
+    o.hardware_mapping = "adafruit-hat"   # Adafruit RGB Matrix Bonnet (solder its "E" jumper for 64-tall panels)
     o.brightness = ctl.brightness
-    o.gpio_slowdown = 4                   # Pi 4 needs this; stops flicker
+    o.gpio_slowdown = 4                   # Pi 4 needs this (use 2 on a Pi 3); stops glitches
+    o.pwm_bits = 9                        # a bit fewer color steps = faster refresh on 5 big panels (less flicker)
+    o.pwm_lsb_nanoseconds = 130
     o.drop_privileges = False
     return RGBMatrix(options=o)
 
@@ -1252,7 +1426,7 @@ def run_display(ctl, feed, matrix):
                 pos -= ms
             if ctl.msg_on_image and (ctl.message or "").strip():   # message over the picture
                 img, scrolling, w = message_frame(ctl, time.time(), x, background=img)
-                step = 1 if ctl.speed <= 50 else 2
+                step = speed_step(ctl.speed)
                 if scrolling:
                     x = W if x < -w else x - step
                 show(img); time.sleep(step / ctl.speed)
@@ -1261,7 +1435,7 @@ def run_display(ctl, feed, matrix):
         elif mode == "message":
             img, scrolling, w = message_frame(ctl, time.time(), x)
             show(img)
-            step = 1 if ctl.speed <= 50 else 2
+            step = speed_step(ctl.speed)
             if scrolling:
                 x = W if x < -w else x - step
             time.sleep(step / ctl.speed)
@@ -1289,7 +1463,7 @@ def run_display(ctl, feed, matrix):
                 show(layer)
             else:
                 show(strip, x)
-            step = 1 if ctl.speed <= 50 else 2
+            step = speed_step(ctl.speed)
             x -= step
             if x < -strip.width:
                 x = W
@@ -1297,16 +1471,16 @@ def run_display(ctl, feed, matrix):
 
 # ------------------------------------------------------------------ test helpers
 def save_gif(frames, name, ms):
-    big = [f.resize((W * 3, ROWS * 3), Image.NEAREST) for f in frames]
+    big = [f.resize((W * 2, ROWS * 2), Image.NEAREST) for f in frames]
     big[0].save(name, save_all=True, append_images=big[1:], duration=ms, loop=0)
     print("wrote", name)
 
 def run_preview(feed, seconds=45):
     time.sleep(1)
     strip, frames = feed.strip, []
-    for x in range(W, W - SCROLL_SPEED * seconds, -2):
+    for x in range(W, W - SCROLL_SPEED * seconds, -4):
         f = Image.new("RGB", (W, ROWS)); f.paste(strip, (x, 0)); frames.append(f)
-    save_gif(frames, "preview.gif", 50)
+    save_gif(frames, "preview.gif", 50)          # 4 px every 50 ms = 80 px/s
 
 def run_test_alert(kind):
     games = {"td":    fake("NFL", "MIN", "DET", 17, 24, "in", "4th 3:12"),

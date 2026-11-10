@@ -1,25 +1,30 @@
 # ParlayLabs Bar Ticker — Build Plan
 
-A ~4.2 ft x 6.3 in full-color LED ticker (256 x 32 pixels) for above the bar.
+A ~5.25 ft x 6.3 in full-color LED ticker (640 x 64 pixels, five P2.5 panels) for above the bar.
 It scrolls live scores, odds and ParlayLabs results, flashes alerts for the Lions, Pistons and MSU, and is controlled from your phone.
+With 64 pixels of height, games show as **two lines** (away team on top, home underneath, clock and odds on the right), and long messages and parlays wrap onto two lines instead of crawling.
 
-## Shopping list (~$230–250)
+## Shopping list (~$190–200)
 
 | Part | Qty | ~Price | Notes |
 |---|---|---|---|
-| Waveshare RGB-Matrix-P5-64x32 (HUB75) | 4 | $88–110 | 320 x 160 mm each, so 4 = 1280 mm (4.2 ft). 3 panels = 3.1 ft if you want it cheaper |
-| Raspberry Pi 4 Model B (2 GB) | 1 | ~$55–65 | Pi 4 is the safest pick for the LED library. A Pi 5 works with Adafruit's newer library |
-| Adafruit RGB Matrix Bonnet (#3211) | 1 | ~$20 | Plugs onto the Pi and drives the panels |
-| 5 V 20 A power supply (100 W, e.g. Mean Well LRS-100-5) | 1 | ~$20–25 | Powers the panels. Each panel can draw up to 4 A on full white |
+| P2.5 128x64 HUB75 panel, 320 x 160 mm, 1/32 scan, **ICN2037** chip (AliExpress) | 5 | ~$68 + shipping | **Ordered.** 5 x 320 mm = 1600 mm (5.25 ft). All 5 from the same batch |
+| Raspberry Pi 4 Model B, **1 GB** | 1 | ~$35 | The 1 GB and 2 GB Pi 4 kept their old price through the 2026 RAM price hikes; the ticker doesn't need more. A Pi 3B+ (~$35) also works (set `gpio_slowdown = 2`). Skip the Pi 5 (the LED library doesn't support it properly) and the Zero 2 W (too slow for 5 big panels) |
+| Adafruit RGB Matrix Bonnet (#3211) | 1 | ~$15–20 | Plugs onto the Pi and drives the panels. **Solder the "E" jumper** (needed for 64-tall panels) |
+| 5 V 30 A power supply (150 W, e.g. Mean Well LRS-150-5) + 3-prong cord | 1 | ~$25 | Powers the panels (up to ~4 A each on full white; far less for a ticker). Make sure it's **5 V** out and 110 V in |
 | Official Pi USB-C power supply | 1 | ~$10 | The Pi gets its own supply |
-| 32 GB microSD card | 1 | ~$10 | |
+| 32 GB microSD card | 1 | ~$8 | |
 | 18 AWG red/black wire + Wago lever nuts | 1 | ~$10 | Each panel comes with its own ribbon cable and power pigtail |
+| 1x4 board or aluminum flat bar to mount on | 1 | ~$10 | |
 | Smoked or black acrylic front (optional) | 1 | ~$15 | Makes it look like a real sports ticker. The frame you can cut on the CNC |
 
+Backup plan if a panel batch ever comes with a chip the Pi can't drive (ICN2053, ICN2153, FM6363, FM6373, DP3246): a Colorlight 5A-75B receiving card, fed by the Pi over Ethernet.
+
 ## Wiring
-1. Chain the panels with the ribbon cables: Bonnet → panel 1 IN, panel 1 OUT → panel 2 IN, and so on.
-2. Run 5 V and GND from the 20 A supply to **every** panel's power pigtail, not through the chain.
-3. Power the Pi from its own USB-C supply.
+1. Solder the Bonnet's **E jumper** (the small pad marked for 64-row panels) so the 5th address line reaches the panels.
+2. Chain the panels with the ribbon cables: Bonnet → panel 1 IN, panel 1 OUT → panel 2 IN, and so on (arrows on the back point from IN to OUT).
+3. Run 5 V and GND from the 30 A supply to **every** panel's power pigtail, not through the chain.
+4. Power the Pi from its own USB-C supply.
 
 ## Software setup (on the Pi)
 ```bash
@@ -62,6 +67,7 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 
 ## What the script does now
 - Scrolls every game today in the NFL, NBA, college football, college hoops (ranked teams + MSU), NHL and MLB, using ESPN's free scoreboard feed. Everything refreshes every 5 seconds by default. The Lions, Pistons, MSU and any games you picked always refresh every 5 seconds while live; the rest can be slowed on the phone page (5–60 sec). If ESPN stops answering for a while, the phone page shows a red warning so you know to slow it down
+- Each game is a two-line block with a league-colored edge: away team and score on top, home underneath (leader bright, trailing team dimmer), and the clock (live, red), start time and O/U or spread (upcoming), or Final on the right. Before kickoff the moneylines sit where the scores go. Leagues and time slots show as colored labels
 - Live games come first, then upcoming games with the odds you picked, then final scores
 - Pulls from your ParlayLabs site every 10 minutes, for each sport. On the phone you pick any mix of:
   - **Record**: wins-losses, $10-bet profit, the last 3 graded parlays, how many are still live
@@ -78,5 +84,6 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 
 ## Ideas for next scripts
 - Leg tracker: show each live parlay leg turning green or red as games go final
-- Team logo animations and short GIF clips between rotations (on a 256 x 32 strip, full videos get cropped to a thin band, so loops built for this shape look better)
+- Team logo animations and short GIF clips between rotations (on a 640 x 64 strip, videos get cropped to a 10:1 band, so loops built for this shape look better)
+- Two-line ParlayLabs in the scroll: parlay name and payout on top, legs underneath
 - Night mode: dim or turn off at closing time
