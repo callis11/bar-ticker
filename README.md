@@ -12,7 +12,8 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 | Raspberry Pi 4 Model B, **1 GB** | 1 | ~$35 | The 1 GB and 2 GB Pi 4 kept their old price through the 2026 RAM price hikes; the ticker doesn't need more. A Pi 3B+ (~$35) also works (set `gpio_slowdown = 2`). Skip the Pi 5 (the LED library doesn't support it properly) and the Zero 2 W (too slow for 5 big panels) |
 | Adafruit **Triple** LED Matrix Bonnet (#6358) | 1 | ~$10 | **Bought.** Plugs onto the Pi and drives the panels; has level shifters, no soldering. Works with the Pi 4 (code is set for it: `BONNET = "triple"`). The single RGB Matrix Bonnet (#3211) also works (`BONNET = "single"`, solder its E jumper) |
 | 5 V 30 A power supply (150 W, e.g. Mean Well LRS-150-5) + 3-prong cord | 1 | ~$25 | **Bought.** Powers the panels (up to ~4 A each on full white; far less for a ticker). Make sure it's **5 V** out and 110 V in |
-| Official Pi USB-C power supply | 1 | ~$10 | The Pi gets its own supply |
+| USB-C pigtail cable (USB-C male to bare red/black wire, 3 A) | 1 | ~$6–8 | **Bought.** Powers the Pi from the same 5 V supply as the panels, so no separate Pi adapter |
+| Multimeter (if you don't have one) | 1 | ~$15 | To set the supply to 5.1–5.2 V and check the wiring |
 | 32 GB microSD card | 1 | ~$8 | |
 | 18 AWG red/black wire + Wago lever nuts | 1 | ~$10 | Each panel comes with its own ribbon cable and power pigtail |
 | Longer HUB75 ribbon cables (16-pin, 1 m) | 3 | ~$6–10 | **Ordered.** From the Bonnet (behind the middle) out to panels 1, 3 and 5. The short cables that come with the panels link 1→2 and 3→4 |
@@ -29,7 +30,7 @@ Backup plan if a panel batch ever comes with a chip the Pi can't drive (ICN2053,
    - **Output 3** → panel 5 IN (long cable)
    - Then stop the ticker (`sudo systemctl stop ticker`) and run `sudo python3 ticker.py --test-panels`: each panel should show its number 1–5, upright, corner mark at top left. If any are out of order or upside down, send Claude a photo and it fixes `PANEL_MAP` in ticker.py (no rewiring needed)
 3. Run 5 V and GND from the 30 A supply to **every** panel's power pigtail, not through the chain.
-4. Power the Pi from its own USB-C supply.
+4. Power the Pi from the same supply with the USB-C pigtail: red to **+V**, black to **−V/COM**, a short wire straight from the supply's terminals. Turn the supply's **V-ADJ** screw so a multimeter reads **5.1–5.2 V** (the Pi 4 complains of low voltage at a plain 5.0 V; the panels are fine at 5.2 V). Never power the Pi through its GPIO pins. One wall plug runs everything, and the Pi boots straight into the ticker when it's switched on.
 
 ## Software setup (on the Pi)
 ```bash
