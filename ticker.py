@@ -33,6 +33,16 @@ FAST_SEC      = 5          # leagues where my team (or the game you picked) is l
 ALERT_SECONDS = 10         # how long an alert takes over the ticker
 WEB_PORT      = 80         # control page: http://ticker.local (set hostname "ticker" in Pi Imager)
 BONNET        = "triple"   # "triple" = Adafruit Triple LED Matrix Bonnet #6358, "single" = RGB Matrix Bonnet #3211
+# Which Bonnet output drives each panel, left to right as you face the ticker:
+#   (output 1-3, place in that output's chain starting at 0, mounted upside down?)
+# Split over the Triple Bonnet's 3 outputs, each output only feeds 1-2 panels, so the picture refreshes
+# ~2.5x faster than one long chain of 5 (smoother, no flicker on phone cameras).
+# Run `sudo python3 ticker.py --test-panels` once it's built: each panel shows its number, so a mix-up is easy to fix here.
+PANEL_MAP     = [(1, 0, False), (1, 1, False),      # output 1 -> panels 1 and 2
+                 (2, 0, False), (2, 1, False),      # output 2 -> panels 3 and 4
+                 (3, 0, False)]                     # output 3 -> panel 5
+if BONNET == "single":                              # one output: all 5 in a row
+    PANEL_MAP = [(1, i, False) for i in range(PANELS)]
 FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_SIZE     = 36         # one-line text (headers, ParlayLabs, messages)
 LINE_SIZE     = 25         # each line of a two-line game (away team on top, home underneath)
@@ -1378,16 +1388,56 @@ class SimMatrix:
 def open_matrix(ctl):
     from rgbmatrix import RGBMatrix, RGBMatrixOptions
     o = RGBMatrixOptions()
-    o.rows, o.cols, o.chain_length = ROWS, COLS, PANELS
+    o.rows, o.cols = ROWS, COLS
+    o.chain_length = max(spot for _, spot, _ in PANEL_MAP) + 1
+    o.parallel = max(out for out, _, _ in PANEL_MAP)
     # Triple Bonnet: output 1 uses the library's standard pinout. All 5 panels chain off output 1.
     # Single Bonnet: "adafruit-hat" pinout (solder its "E" jumper for 64-tall panels).
     o.hardware_mapping = "regular" if BONNET == "triple" else "adafruit-hat"
     o.brightness = ctl.brightness
     o.gpio_slowdown = 4                   # Pi 4 needs this (use 2 on a Pi 3); stops glitches
-    o.pwm_bits = 9                        # a bit fewer color steps = faster refresh on 5 big panels (less flicker)
-    o.pwm_lsb_nanoseconds = 130
+    if o.chain_length > 3:                # one long chain: trade a few color steps for refresh speed
+        o.pwm_bits = 9
     o.drop_privileges = False
     return RGBMatrix(options=o)
+
+def to_panels(frame):
+    """The 640x64 picture cut up for the LED library: each output's chain is one 64-row band,
+    stacked top to bottom (output 1, 2, 3), with each panel's slice placed where PANEL_MAP says."""
+    chain = max(spot for _, spot, _ in PANEL_MAP) + 1
+    outs = max(out for out, _, _ in PANEL_MAP)
+    if outs == 1 and chain == PANELS and not any(f for _, _, f in PANEL_MAP) and \
+            [spot for _, spot, _ in PANEL_MAP] == list(range(PANELS)):
+        return frame                                         # simple single chain: nothing to move
+    out = Image.new("RGB", (COLS * chain, ROWS * outs))
+    for i, (o, spot, flip) in enumerate(PANEL_MAP):
+        piece = frame.crop((i * COLS, 0, (i + 1) * COLS, ROWS))
+        if flip:
+            piece = piece.rotate(180)
+        out.paste(piece, (spot * COLS, (o - 1) * ROWS))
+    return out
+
+def test_panels_frame():
+    """Big number on each panel (1 = far left) in its own color, with a frame around it."""
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    cols = [(255, 40, 40), (255, 190, 0), (0, 230, 80), (0, 180, 255), (200, 80, 255)]
+    for i in range(PANELS):
+        c = cols[i % len(cols)]
+        d.rectangle([i * COLS, 0, (i + 1) * COLS - 1, ROWS - 1], outline=c, width=2)
+        d.polygon([(i * COLS + 4, 4), (i * COLS + 20, 4), (i * COLS + 4, 20)], fill=c)   # top-left corner mark
+        centered(d, str(i + 1), font(52), c, cx=i * COLS + COLS // 2, cy=ROWS // 2)
+    return img
+
+def run_test_panels(ctl):
+    """Shows the panel numbers until Ctrl-C (stop the ticker service first)."""
+    matrix = open_matrix(ctl)
+    canvas = matrix.CreateFrameCanvas()
+    canvas.SetImage(to_panels(test_panels_frame()))
+    matrix.SwapOnVSync(canvas)
+    print("Each panel should show 1-5 from left to right, upright, with the corner mark at top left. Ctrl-C to stop.")
+    while True:
+        time.sleep(1)
 
 def run_display(ctl, feed, matrix):
     canvas = matrix.CreateFrameCanvas()
@@ -1399,7 +1449,7 @@ def run_display(ctl, feed, matrix):
             matrix.brightness = ctl.brightness
         frame.paste((0, 0, 0), (0, 0, W, ROWS))
         frame.paste(img, (x, 0))
-        canvas.SetImage(frame)
+        canvas.SetImage(to_panels(frame))
         canvas = matrix.SwapOnVSync(canvas)
         ctl.last_frame = frame.copy() if int(time.time() * 4) % 2 == 0 else ctl.last_frame
 
@@ -1500,8 +1550,11 @@ if __name__ == "__main__":
     ap.add_argument("--port", type=int, help="control page port (default 80, or 8080 with --sim)")
     ap.add_argument("--preview", action="store_true", help="write preview.gif")
     ap.add_argument("--test-alert", choices=["td", "win", "close"], help="write an alert GIF")
+    ap.add_argument("--test-panels", action="store_true", help="number each panel 1-5 to check the wiring")
     args = ap.parse_args()
-    if args.test_alert:
+    if args.test_panels:
+        run_test_panels(Control())
+    elif args.test_alert:
         run_test_alert(args.test_alert)
     else:
         ctl = Control()

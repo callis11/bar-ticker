@@ -15,16 +15,19 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 | Official Pi USB-C power supply | 1 | ~$10 | The Pi gets its own supply |
 | 32 GB microSD card | 1 | ~$8 | |
 | 18 AWG red/black wire + Wago lever nuts | 1 | ~$10 | Each panel comes with its own ribbon cable and power pigtail |
+| Longer HUB75 ribbon cables (16-pin, ~2–3 ft / 60–100 cm) | 2 | ~$6–10 | From the Bonnet (behind the middle) out to panels 1 and 5. The short cables that come with the panels cover the rest |
 | 1x4 board or aluminum flat bar to mount on | 1 | ~$10 | |
 | Smoked or black acrylic front (optional) | 1 | ~$15 | Makes it look like a real sports ticker. The frame you can cut on the CNC |
-
-The Triple Bonnet's other two outputs can later split the 5 panels into shorter chains for an even smoother (faster-refreshing) picture; that's a small code change.
 
 Backup plan if a panel batch ever comes with a chip the Pi can't drive (ICN2053, ICN2153, FM6363, FM6373, DP3246): a Colorlight 5A-75B receiving card, fed by the Pi over Ethernet.
 
 ## Wiring
 1. Check the Triple Bonnet's **Address E** jumper is set to the **8th pin** (where HUB75E panels like ours have E). With the single Bonnet, solder its E jumper instead.
-2. Chain the panels with the ribbon cables: Bonnet output 1 → panel 1 IN, panel 1 OUT → panel 2 IN, and so on (arrows on the back point from IN to OUT).
+2. Ribbon cables, split over the Triple Bonnet's 3 outputs so each output only feeds 1–2 panels (about 2.5x faster refresh than one long chain = smoother, no flicker on phone cameras). Panels are numbered 1–5 left to right as you face the ticker; mount the Pi behind panel 3, and mount every panel the same way up (arrows on the back point from IN to OUT):
+   - **Output 1** → panel 1 IN (long cable), panel 1 OUT → panel 2 IN
+   - **Output 2** → panel 3 IN, panel 3 OUT → panel 4 IN
+   - **Output 3** → panel 5 IN (long cable)
+   - Then stop the ticker (`sudo systemctl stop ticker`) and run `sudo python3 ticker.py --test-panels`: each panel should show its number 1–5, upright, corner mark at top left. If any are out of order or upside down, send Claude a photo and it fixes `PANEL_MAP` in ticker.py (no rewiring needed)
 3. Run 5 V and GND from the 30 A supply to **every** panel's power pigtail, not through the chain.
 4. Power the Pi from its own USB-C supply.
 
