@@ -40,12 +40,14 @@ def cover_size(w, h, W, H):
 
 
 MAX_ZOOM = 4.0
+MIN_ZOOM = 0.02                                    # below 1 backs out; render() stops at the whole picture
 
 def render(img, fit, view, W, H, do_boost=True):
     """One frame of a picture fitted to the W x H strip.
     contain: whole picture, black bars.
-    fill: covers the strip. view = (zoom, x, y): zoom 1 just fills the strip, up to 4x closer;
-          x and y (0-1) slide which part shows, left..right and top..bottom."""
+    fill: view = (zoom, x, y). zoom 1 just fills the strip; up to 4x closer, or below 1 to back out
+          (down to the whole picture, with black around it). x and y (0-1) slide which part shows,
+          left..right and top..bottom; when the picture is smaller than the strip they move it around inside it."""
     img = img.convert("RGB")
     out = Image.new("RGB", (W, H))
     if fit == "contain":
@@ -54,14 +56,19 @@ def render(img, fit, view, W, H, do_boost=True):
         out.paste(r, ((W - r.width) // 2, (H - r.height) // 2))
     else:
         zoom, fx, fy = view
-        s = max(W / img.width, H / img.height) * zoom        # picture pixels -> strip pixels
+        cover, contain = max(W / img.width, H / img.height), min(W / img.width, H / img.height)
+        s = max(contain, cover * zoom)                        # picture pixels -> strip pixels
         cw, ch = img.width * s, img.height * s
-        ox, oy = max(0.0, cw - W) * fx, max(0.0, ch - H) * fy
-        box = (ox / s, oy / s, (ox + W) / s, (oy + H) / s)   # the part of the picture that shows
+        x0, y0 = (W - cw) * fx, (H - ch) * fy                # where the picture's corner lands on the strip
+        dx0, dy0 = max(0.0, x0), max(0.0, y0)
+        dx1, dy1 = min(float(W), x0 + cw), min(float(H), y0 + ch)
+        dw, dh = max(1, round(dx1 - dx0)), max(1, round(dy1 - dy0))
+        box = ((dx0 - x0) / s, (dy0 - y0) / s, (dx1 - x0) / s, (dy1 - y0) / s)   # the part of the picture that shows
         if s > 1.4 and img.height <= 128:                     # pixel art: crisp blocks
-            out = img.resize((W, H), Image.NEAREST, box=box)
+            part = img.resize((dw, dh), Image.NEAREST, box=box)
         else:
-            out = img.resize((W, H), Image.LANCZOS, box=box, reducing_gap=3.0)
+            part = img.resize((dw, dh), Image.LANCZOS, box=box, reducing_gap=3.0)
+        out.paste(part, (round(dx0), round(dy0)))
     return boost(out) if do_boost else out
 
 
@@ -251,12 +258,12 @@ class Library:
                 wide = it.get("w") and it.get("h") and it["w"] / it["h"] > 10
                 fx, fy = (f, fy) if wide else (fx, f)
             if "zoom" in d:
-                zoom = max(1.0, min(MAX_ZOOM, float(d["zoom"])))
+                zoom = max(MIN_ZOOM, min(MAX_ZOOM, float(d["zoom"])))
             if "fx" in d:
                 fx = max(0.0, min(1.0, float(d["fx"])))
             if "fy" in d:
                 fy = max(0.0, min(1.0, float(d["fy"])))
-            it.update(zoom=round(zoom, 3), fx=round(fx, 3), fy=round(fy, 3))
+            it.update(zoom=round(zoom, 4), fx=round(fx, 3), fy=round(fy, 3))
             it.pop("focus", None)
             if "name" in d and str(d["name"]).strip():
                 it["name"] = str(d["name"]).strip()[:60]
@@ -292,7 +299,7 @@ class Library:
         if not it or it.get("status") != "ready":
             return None
         fit = fit if fit in FITS else it["fit"]
-        view = view_of(it) if view is None else (max(1.0, min(MAX_ZOOM, float(view[0]))),
+        view = view_of(it) if view is None else (max(MIN_ZOOM, min(MAX_ZOOM, float(view[0]))),
                                                  max(0.0, min(1.0, float(view[1]))), max(0.0, min(1.0, float(view[2]))))
         if it["kind"] != "image" and fit == "pan":
             fit = "fill"                                   # moving pictures don't also pan

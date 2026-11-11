@@ -53,7 +53,7 @@ Handy commands on the Pi: `sudo systemctl restart ticker` (restart), `journalctl
 On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap Share → **Add to Home Screen**: it saves as **Bar Ticker** with its own LED-scoreboard icon and opens like an app.
 - **Refresh button** (↻, top right): the ticker pulls every score and ParlayLabs right away instead of waiting for its next check, and the page updates
 - **Live preview** of what's on the ticker right now
-- Three tabs: **Ticker**, **Picture**, **Message**
+- Four tabs: **Ticker**, **Picture**, **Message**, **Alerts**
 - **Ticker** (games + ParlayLabs in one place):
   - **Games**: sport chips (tap any mix, or All sports). With nothing picked, the ticker shows **every game** in those sports. Narrow it with **My teams**, **Live games**, **Close games** (on/off toggles you can combine), **Select all**, or by tapping individual games; **Clear** goes back to every game. The list shows the **top 5** (my teams, close, live, soonest, finals) with **Show all ▾** to see the rest; checked games always stay visible
     - **My teams** always shows all four (Lions, Pistons, MSU football, MSU basketball): each one's game if it's on, today or just ended (kept 15 min), otherwise its **next game** with opponent, day, date, time and odds once books post them (looked up from each team's ESPN schedule every 30 min; tagged NEXT)
@@ -66,11 +66,15 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
   - **Hold on top** (split screen): **Off**, **My teams**, **Live games** or **Picked games**. Those games stay put on the top row (one line each: teams, scores, clock; several side by side, taking turns if they don't all fit) while everything else crawls along the bottom row on one line. When none of them are live it goes back to the full-height ticker by itself. My teams and Live games keep a game on 15 min after it ends
 - **Picture**: your own picture library, saved on the Pi
   - **Add** photos, GIFs and phone videos (several at once). Videos (MP4/MOV, up to 250 MB) are shrunk once on the Pi with ffmpeg (first 20 seconds, no sound), which takes about a minute, then play as a loop
-  - **Edit** each one: **Whole picture** (black bars), **Fill** (edge to edge, with **Zoom** up to 4×, **Left ↔ Right** and **Up ↕ Down** sliders and a live preview; **Reset** puts it back) or **Slow pan** (fills the strip and glides across the whole photo and back). Tall phone photos start on Slow pan; little pixel-art GIFs stay crisp and blocky. **Show this now** plays just that one; **Delete** removes it
+  - **Edit** each one: **Whole picture** (black bars), **Fill** (with **Zoom** from the whole picture up to 4×, **Left ↔ Right** and **Up ↕ Down** sliders and a live preview; **Reset** puts it back) or **Slow pan** (fills the strip and glides across the whole photo and back). Tall phone photos start on Slow pan; little pixel-art GIFs stay crisp and blocky. **Show this now** plays just that one; **Delete** removes it
   - **Slideshow**: check the ones you want (none unchecked = all, and new ones join automatically), then **Play slideshow**. Each stays 5 s, 10 s, 20 s or 1 min (GIFs and videos play all the way through), in order or shuffled, changing with a fade, slide or cut
   - **In the ticker**: a checked picture pops up **after each lap** of the ticker, or every 2, 5 or 10 minutes, for the slideshow time, then the scores pick up where they left off
   - **LED color boost**: a little more color, contrast and sharpness so photos pop on LEDs (on by default)
 - **Message**: type anything, pick a color and a style (Steady, Scroll, Blink, Rainbow, Fireworks), then where it shows, in any mix: **on its own**, **with the ticker** (comes around between leagues) and/or **over the picture** (on top of your photo or GIF with a black outline). Typing a new message updates it everywhere it's showing
+- **Alerts** tab: your favorite teams and their alerts
+  - **Your teams**: starts with the Lions, Pistons, MSU football and MSU basketball. **+ Add a team** picks any NFL, NBA, college, NHL or MLB team from ESPN's list (name and colors fill in by themselves; type the team code if ESPN can't be reached). Favorite teams show in gold, are always in **My teams** (with their next game), and get alerts. **Remove** takes one off
+  - Each team's alerts: **Touchdown** and **Red zone** (football), **Win** and **Close game** (every sport), each with its own look: on/off, **pictures and GIFs** (pick as many as you like, or add several new ones at once right there; they take turns in the order you tap them), a **style** (**GIF ↔ words** switches back and forth between your GIF and the flashing words; **Words on the GIF**; **GIF only**; **Words only**), your own **words** (up to 3) and **two colors**, **switch every** 1–3 s, **alert lasts** 6–20 s, and **end on the score**
+  - **Test it on the ticker** plays that alert right away (no TV delay); **Classic look** puts it back
 - **Brightness**, **TV delay** (holds alerts so they line up with your TV), **score update speed**, **team alerts on/off** and **college rankings on/off**
 - Your choices are saved, so the ticker comes back the same way after a power cut
 - It only works on your home network. Reaching it from away would need something like Tailscale on the Pi
@@ -89,14 +93,15 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 - **Football downs**: live NFL and college games show the down and distance and where the ball is (**3rd & 7 · DET 35**) under the clock, with a little football next to the team that has it, everywhere a game shows (the scroll, the big one-at-a-time scoreboard, Hold on top and the phone's games list). Red zone turns it orange-red. It updates with the score (every 5 seconds for the Lions and MSU)
 - Lions, Pistons and Michigan State games show in gold
 - College football and basketball teams in the AP Top 25 show their rank in front, like **#12 MSU 21  #8 IOWA 17**, in the scroll, held games, one-at-a-time cards and the phone's games list (from ESPN, updates each week)
-- **Team alerts:** the whole ticker flashes for 10 seconds, then goes back to whatever was showing (scroll, game, picture or message)
-  - Touchdown (Lions, MSU football): flashes TOUCHDOWN! / LIONS! in team colors, then the score
-  - Win (Lions, Pistons, MSU football and basketball): flashes the team name and WIN! with fireworks, then the final score
+- **Team alerts** (for every favorite team, in the look you set on the Alerts tab): the whole ticker takes over for 10 seconds (or your length), then goes back to whatever was showing (scroll, game, picture or message). Your GIFs are made ready ahead of time so an alert never waits on them
+  - Touchdown (football): flashes TOUCHDOWN! / LIONS! in team colors, or your GIFs and words, then the score
+  - Red zone (football): when your team gets the ball inside the 20; once per trip (not again for 2 minutes even if ESPN flickers)
+  - Win (every sport): flashes the team name and WIN! with fireworks, then the final score
   - Close game: flashes CLOSE GAME in amber once a game gets tight late. Football: 4th quarter, under 8:00, within 8 points. NBA: 4th quarter, under 5:00, within 6. College hoops: 2nd half, under 5:00, within 6
 - Test without LEDs: `python3 ticker.py --preview` (scroll) or `python3 ticker.py --test-alert td` (also `win`, `close`). Sample GIFs are in `previews/`
 
 ## Ideas for next scripts
 - Leg tracker: show each live parlay leg turning green or red as games go final
-- Team logo animations and celebration GIFs on touchdown and win alerts
+- Goal / home run alerts for hockey and baseball teams
 - Two-line ParlayLabs in the scroll: parlay name and payout on top, legs underneath
 - Night mode: dim or turn off at closing time
