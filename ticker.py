@@ -208,9 +208,11 @@ class Control:
 
     def warm_themes(self):
         """Get the alert GIFs ready ahead of time, so a touchdown never waits on them."""
-        for th in self.themes.values():
+        for key, th in self.themes.items():
+            full = self.theme(key)
+            size = (side_width(full), ROWS) if full["style"] == "side" else None
             for pid in th.get("pics", []):
-                self.lib.rendered_async(pid, self.pic_boost)
+                self.lib.rendered_async(pid, self.pic_boost, size)
 
     def playlist(self):
         """Pictures to show: the one you're playing on its own, else the ones you checked (none checked = all)."""
@@ -640,7 +642,11 @@ def apply_favorites(favs):
     for f in clean[:16]:
         MY_TEAMS[(f["league"], f["abbr"])] = (f["name"], hex_rgb(f["c1"]), hex_rgb(f["c2"]))
     return clean[:16]
-THEME_STYLES = ["switch", "over", "pics", "words"]
+THEME_STYLES = ["switch", "over", "side", "pics", "words"]   # GIF <-> words / words on the GIF / side by side / GIF / words
+WORD_FX = ["flash", "scroll", "slide", "pop", "blink", "rainbow", "fade"]   # how the words come in
+WORD_BG = ["color", "black", "gif"]                 # behind the words: team color / black / the GIF still playing
+SIDE_W = [0.3, 0.4, 0.5]                            # side by side: share of the strip the picture gets
+SCROLL_PX = 260                                     # pixels a second for words scrolling across
 ANY_CLOSE = "ANY|ALL|close"                         # the close-game alert for every other game
 ANY_INFO = ("CLOSE GAME", (255, 170, 0), (255, 255, 255))   # GIF <-> words back and forth / words on the GIF / GIF only / classic
 
@@ -654,10 +660,12 @@ def default_words(name, kind):
 def default_theme(league, abbr, kind):
     if league == "ANY":                              # every game: flash, the score, back to the ticker
         return {"on": True, "style": "words", "pics": [], "words": ["CLOSE GAME", "{score}"], "every": 1.5,
-                "secs": 8, "score": True, "c1": "#ffaa00", "c2": "#ffffff"}
+                "secs": 8, "score": True, "c1": "#ffaa00", "c2": "#ffffff",
+                "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4}
     name, c1, c2 = MY_TEAMS[(league, abbr)]
     return {"on": True, "style": "switch", "pics": [], "words": default_words(name, kind), "every": 1.5,
-            "secs": ALERT_SECONDS, "score": True, "c1": rgb_hex(c1), "c2": rgb_hex(c2)}
+            "secs": ALERT_SECONDS, "score": True, "c1": rgb_hex(c1), "c2": rgb_hex(c2),
+            "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4}
 
 def clean_themes(themes):
     out = {}
@@ -679,6 +687,11 @@ def clean_themes(themes):
         if "every" in th: t["every"] = max(0.5, min(5.0, float(th["every"])))
         if "secs" in th: t["secs"] = max(4, min(30, int(th["secs"])))
         if "score" in th: t["score"] = bool(th["score"])
+        if th.get("word_fx") in WORD_FX: t["word_fx"] = th["word_fx"]
+        if th.get("word_bg") in WORD_BG: t["word_bg"] = th["word_bg"]
+        if th.get("side") in ("left", "right"): t["side"] = th["side"]
+        if "side_w" in th:
+            t["side_w"] = min(SIDE_W, key=lambda v: abs(v - float(th["side_w"])))
         for c in ("c1", "c2"):
             if isinstance(th.get(c), str) and len(th[c]) == 7 and th[c].startswith("#"): t[c] = th[c]
         out[key] = t
@@ -762,24 +775,6 @@ def centered(d, text, f, color, cx=W // 2, cy=ROWS // 2):
     l, t, r, b = d.textbbox((0, 0), text, font=f)
     d.text((cx - (r - l) // 2 - l, cy - (b - t) // 2 - t), text, font=f, fill=color)
 
-def words_frame(kind, word, c1, c2, t):
-    """Classic flashing alert words: team color / black, 4 flashes a second (fireworks behind a win)."""
-    img = Image.new("RGB", (W, ROWS))
-    d = ImageDraw.Draw(img)
-    flash = int(t * 4) % 2 == 0
-    if kind == "close":
-        hot = (255, 170, 0)
-    elif kind == "redzone":
-        hot = (255, 30, 30)
-    else:
-        hot = c1
-    bg, fg = (hot, (0, 0, 0) if kind == "close" else WHITE) if flash else ((0, 0, 0), hot)
-    d.rectangle([0, 0, W, ROWS], fill=bg)
-    if kind == "win":
-        fireworks(d, t)
-    centered(d, word, fit_font(word), fg)
-    return img
-
 def score_frame(al, t, c1, c2):
     """End of an alert: the score, big, with a pulsing team-color border."""
     img = game_frame(al.game)
@@ -787,49 +782,138 @@ def score_frame(al, t, c1, c2):
     ImageDraw.Draw(img).rectangle([0, 0, W - 1, ROWS - 1], outline=c1 if pulse else c2, width=2 * K)
     return img
 
+def side_width(th):
+    return int(round(W * th.get("side_w", 0.4)))
+
+def word_phase_len(th, word, region_w):
+    """How long one word gets: the switch time, or long enough to scroll all the way across."""
+    if th.get("word_fx") == "scroll":
+        return max(th["every"], (region_w + fit_font(word, region_w - 8).getlength(word)) / SCROLL_PX)
+    return th["every"]
+
+def phase_at(th, t, words, region_w):
+    """Which part of the alert is on at time t: ("pic" | "words" | "over" | "side", word #, pic #, start, length)."""
+    style, start, i = th["style"], 0.0, 0
+    while True:
+        if style == "switch":
+            kind, wi, pi = ("pic" if i % 2 == 0 else "words"), i // 2, i // 2
+        else:
+            kind, wi, pi = {"pics": "pic", "words": "words", "over": "over", "side": "side"}[style], i, i
+        length = th["every"] if kind == "pic" else word_phase_len(th, words[wi % len(words)], region_w)
+        if t < start + length or i > 500:
+            return kind, wi, pi, start, length
+        start += length
+        i += 1
+
+def draw_words(img, x0, x1, word, th, kind, u, length, t, c1):
+    """Draws one word into the strip between x0 and x1, the way the theme says it comes in.
+    u = seconds into this word's turn, length = how long the turn lasts."""
+    w, fx, bg = x1 - x0, th.get("word_fx", "flash"), th.get("word_bg", "color")
+    hot = (255, 170, 0) if kind == "close" else (255, 30, 30) if kind == "redzone" else c1
+    on = int(t * 4) % 2 == 0                               # 4 flashes a second
+    d = ImageDraw.Draw(img)
+    if bg == "color":
+        d.rectangle([x0, 0, x1 - 1, ROWS - 1], fill=hot if (fx != "flash" or on) else (0, 0, 0))
+    elif bg == "black":
+        d.rectangle([x0, 0, x1 - 1, ROWS - 1], fill=(0, 0, 0))
+    if kind == "win" and bg != "gif":
+        fireworks(d, t, x0, x1)
+    if fx == "blink" and blink_off(u):
+        return img
+    dark = (0, 0, 0) if kind == "close" else WHITE
+    if fx == "flash":
+        col = (dark if on else hot) if bg == "color" else (hot if on else WHITE)
+    else:
+        col = dark if bg == "color" else (hot if bg == "black" else WHITE)
+    f = fit_font(word, w - 8)
+    if fx == "pop":                                        # grows in with a little bounce
+        p = min(1.0, u / 0.35)
+        k = 0.3 + 0.7 * p + 0.12 * math.sin(math.pi * p)
+        f = font(max(10, int(f.size * min(1.12, k))))
+    tw = f.getlength(word)
+    layer = Image.new("RGBA", (w, ROWS), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+    x = (w - tw) / 2
+    if fx == "scroll":                                     # right edge to off the left
+        x = w - (w + tw) * min(1.0, u / length)
+    elif fx == "slide":                                    # slides in, holds, slides out
+        p = u / length
+        if p < 0.25:
+            x += (w + tw) / 2 * (1 - p / 0.25) ** 3           # eases to a stop in the middle
+        elif p > 0.85:
+            x -= (w + tw) / 2 * ((p - 0.85) / 0.15) ** 2
+    l, tp, r, b = ld.textbbox((0, 0), word, font=f)
+    y = (ROWS - (b - tp)) / 2 - tp
+    stroke = 3 if bg == "gif" else 0
+    if fx == "rainbow":                                    # letter by letter
+        cx = x
+        for n, ch in enumerate(word):
+            ld.text((cx, y), ch, font=f, fill=rainbow(n, t) + (255,), stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
+            cx += f.getlength(ch)
+    else:
+        ld.text((x, y), word, font=f, fill=tuple(col) + (255,), stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
+    if fx == "fade":
+        a = min(1.0, u / 0.3, (length - u) / 0.3)
+        layer.putalpha(layer.getchannel("A").point(lambda v: int(v * max(0.0, a))))
+    region = img.crop((x0, 0, x1, ROWS)).convert("RGBA")
+    region.alpha_composite(layer)
+    img.paste(region.convert("RGB"), (x0, 0))
+    return img
+
 def alert_frame(al, t, th=None, lib=None, boost=True):
     """One frame of an alert, t seconds in, in its theme's style:
-       switch: your GIF, then the flashing words, back and forth   over: the words on top of your GIF
-       pics: just your GIFs                                         words: the classic flashing words
+       switch: your GIF, then the words, back and forth     over: the words coming across your GIF
+       side:   your picture on one side, the words on the other
+       pics:   just your GIFs                                words: just the words
+    How the words come in (flash, scroll, slide, pop, blink, rainbow, fade) and what's behind them
+    (team color, black, or the GIF still playing) are part of the theme too.
     The last few seconds show the score (unless the theme turns that off)."""
-    th = th or default_theme("ANY", "ALL", "close") if al.key == ANY_CLOSE else \
-        th or default_theme(al.game["league"], al.abbr, al.kind) if (al.game["league"], al.abbr) in MY_TEAMS else \
-        th or {"style": "words", "pics": [], "words": al.words, "every": 1.5, "secs": ALERT_SECONDS, "score": True,
-               "c1": rgb_hex(al.c1), "c2": rgb_hex(al.c2)}
+    if th is None:
+        lg = al.game["league"]
+        th = default_theme("ANY", "ALL", "close") if al.key == ANY_CLOSE else \
+            default_theme(lg, al.abbr, al.kind) if (lg, al.abbr) in MY_TEAMS else \
+            dict(default_theme("ANY", "ALL", "close"), words=al.words, c1=rgb_hex(al.c1), c2=rgb_hex(al.c2), secs=ALERT_SECONDS)
+    th = dict(default_theme("ANY", "ALL", "close"), **th)  # older saved themes: fill in the new settings
     c1, c2 = hex_rgb(th["c1"]), hex_rgb(th["c2"])
     g = al.game                                          # {score} / {clock} / {league} fill in from the game
     short = f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}"
     words = [w.replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"])
-             for w in (th["words"] or al.words)]
+             for w in (th["words"] or al.words)] or ["!"]
     secs = th["secs"]
     tail = (4 if secs >= 8 else 2) if th["score"] else 0
     if t >= secs - tail:
         return score_frame(al, t, c1, c2)
     ready = set(lib.ready_ids()) if lib else set()
     pics = [p for p in th["pics"] if p in ready]
-    style = th["style"] if pics else "words"
-    if style == "words":
-        return words_frame(al.kind, words[int(t) % len(words)], c1, c2, t)
-    seg = int(t / th["every"])
-    if style == "switch":
-        if seg % 2:                                      # words turn
-            return words_frame(al.kind, words[(seg // 2) % len(words)], c1, c2, t)
-        pid = pics[(seg // 2) % len(pics)]
-    else:
-        pid = pics[seg % len(pics)]
-    r = lib.rendered_async(pid, boost)
-    if r is None:                                        # GIF still getting ready: words meanwhile
-        return words_frame(al.kind, words[seg % len(words)], c1, c2, t)
-    img = r.frame(t, W, ROWS, period=6).copy()
-    if style == "over":                                  # words on top of the GIF, black outline
-        d = ImageDraw.Draw(img)
-        word = words[int(t) % len(words)]
-        f = fit_font(word)
-        l, tp, rr, bt = d.textbbox((0, 0), word, font=f)
-        col = WHITE if int(t * 4) % 2 == 0 else c1
-        d.text(((W - (rr - l)) // 2 - l, (ROWS - (bt - tp)) // 2 - tp), word, font=f, fill=col,
-               stroke_width=3, stroke_fill=(0, 0, 0))
-    return img
+    if not pics:                                         # no picture (yet): just the words, on the team color
+        th = dict(th, style="words", word_bg="black" if th["word_bg"] == "black" else "color")
+    side = th["style"] == "side"
+    pw = side_width(th) if side else 0
+    words_x0, words_x1 = (pw, W) if side and th["side"] == "left" else (0, W - pw) if side else (0, W)
+    kind, wi, pi, start, length = phase_at(th, t, words, words_x1 - words_x0)
+    word = words[wi % len(words)]
+
+    def picture(size=None):
+        r = lib.rendered_async(pics[pi % len(pics)], boost, size) if pics else None
+        if r is None:
+            return None
+        return r.frame(t, *(size or (W, ROWS)), period=6).copy()
+
+    img = Image.new("RGB", (W, ROWS))
+    if kind == "pic":
+        return picture() or draw_words(img, 0, W, word, dict(th, word_bg="color"), al.kind, t - start, length, t, c1)
+    if kind == "side":
+        pic = picture((pw, ROWS))
+        if pic is not None:
+            img.paste(pic, (0 if th["side"] == "left" else W - pw, 0))
+        bg = th["word_bg"] if th["word_bg"] != "gif" else "color"
+        return draw_words(img, words_x0, words_x1, word, dict(th, word_bg=bg), al.kind, t - start, length, t, c1)
+    if kind == "over" or th["word_bg"] == "gif":           # words coming across the GIF, which keeps playing
+        base = picture()
+        if base is not None:
+            return draw_words(base, 0, W, word, dict(th, word_bg="gif"), al.kind, t - start, length, t, c1)
+        th = dict(th, word_bg="color")
+    return draw_words(img, 0, W, word, th, al.kind, t - start, length, t, c1)
 
 def game_frame(g, rotate=0, odds=("ou", "ml")):
     """A single game, held on screen: away on the left, home on the right, clock in the middle.

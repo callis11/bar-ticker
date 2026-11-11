@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261111171138">
+<meta name="build" content="20261111172345">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -511,9 +511,13 @@ $("#oddsPick").onclick = e => {
 // ---------- team alerts: your favorite teams and each one's own touchdown / red zone / win / close-game look
 const KIND_LABEL = {td:"Touchdown", redzone:"Red zone", win:"Win", close:"Close game"};
 const SPORT_LABEL = {NFL:"NFL", CFB:"College FB", NBA:"NBA", CBB:"College BB", NHL:"NHL", MLB:"MLB"};
-const STYLE_LABEL = [["switch", "GIF ↔ words"], ["over", "Words on the GIF"], ["pics", "GIF only"], ["words", "Words only"]];
-const STYLE_HINT = {switch:"Your GIF, then the flashing words, back and forth.", over:"Your GIF with the words flashing on top.",
-                    pics:"Just your GIFs (they take turns if you pick more than one).", words:"The classic flashing words in your colors."};
+const STYLE_LABEL = [["switch", "GIF ↔ words"], ["over", "Words on the GIF"], ["side", "Side by side"], ["pics", "GIF only"], ["words", "Words only"]];
+const STYLE_HINT = {switch:"Your GIF plays, then the words, back and forth for the whole alert.",
+                    over:"Your GIF keeps playing with the words coming across it.",
+                    side:"Your picture or GIF on one side, the words on the other.",
+                    pics:"Just your GIFs (they take turns if you pick more than one).", words:"Just the words, in your colors."};
+const FX_LABEL = [["flash", "Flash"], ["scroll", "Scroll across"], ["slide", "Slide in"], ["pop", "Pop"], ["blink", "Blink"], ["rainbow", "Rainbow"], ["fade", "Fade"]];
+const BG_LABEL = [["color", "Team color"], ["black", "Black"], ["gif", "The GIF"]];
 let alSel = {team: null, kind: "td"}, alEditPic = null;
 const teamLabel = t => t.league === "ANY" ? "Every game" : `${t.name.charAt(0) + t.name.slice(1).toLowerCase()} · ${SPORT_LABEL[t.league]}`;
 function renderAlerts() {
@@ -553,6 +557,15 @@ function renderAlerts() {
     <h2 class="sect">Style</h2>
     <div class="chips wrap alStyle">${STYLE_LABEL.map(([k, n]) => `<button data-s="${k}" class="${th.style === k ? "on" : ""}">${n}</button>`).join("")}</div>
     <p class="hint" style="margin-top:0">${sel.length || th.style === "words" ? STYLE_HINT[th.style] : "Pick a GIF above for this style; until then it shows the flashing words."}</p>
+    ${th.style === "side" ? `<div class="seg alSide"><span class="segLabel">Picture on</span>${[["left", "Left"], ["right", "Right"]].map(([k, n]) =>
+        `<button data-v="${k}" class="${th.side === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      <div class="seg alSideW"><span class="segLabel">Picture size</span>${[[0.3, "Small"], [0.4, "Medium"], [0.5, "Half"]].map(([k, n]) =>
+        `<button data-v="${k}" class="${th.side_w === k ? "on" : ""}">${n}</button>`).join("")}</div>` : ""}
+    ${th.style !== "pics" ? `<h2 class="sect">How the words come in</h2>
+      <div class="chips wrap alFx">${FX_LABEL.map(([k, n]) => `<button data-v="${k}" class="${th.word_fx === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      ${th.style === "over" ? "" : `<div class="seg alBg"><span class="segLabel">Behind them</span>${BG_LABEL.filter(([k]) => k !== "gif" || th.style === "switch")
+        .map(([k, n]) => `<button data-v="${k}" class="${(th.word_bg === "gif" && th.style !== "switch" ? "color" : th.word_bg) === k ? "on" : ""}">${n}</button>`).join("")}</div>`}
+      <p class="hint" style="margin-top:0">${th.style === "switch" && th.word_bg === "gif" ? "The GIF plays, then the words come across it while it keeps going, then the GIF again, over and over for the whole alert." : th.word_fx === "scroll" ? "Each word scrolls all the way across before the next part." : "Each word gets the switch time below."}</p>` : ""}
     <h2 class="sect">Words</h2>
     ${[0, 1, 2].map(i => `<input type="text" class="alW" data-i="${i}" maxlength="24" value="${esc(w[i] || "")}" placeholder="${i < 2 ? "" : "Third word (optional)"}">`).join("")}
     <p class="hint" style="margin:0">Use <b>{score}</b> for the game's score, <b>{clock}</b> for the time left, <b>{league}</b> for the sport.</p>
@@ -599,6 +612,10 @@ $("#alEdit").onclick = async e => {
     return themeSave(patch);
   }
   const st = e.target.closest(".alStyle button"); if (st) return themeSave({style: st.dataset.s});
+  const sd = e.target.closest(".alSide button"); if (sd) return themeSave({side: sd.dataset.v});
+  const sw = e.target.closest(".alSideW button"); if (sw) return themeSave({side_w: +sw.dataset.v});
+  const wf = e.target.closest(".alFx button"); if (wf) return themeSave({word_fx: wf.dataset.v});
+  const wb = e.target.closest(".alBg button"); if (wb) return themeSave({word_bg: wb.dataset.v});
   const ev = e.target.closest(".alEvery button"); if (ev) return themeSave({every: +ev.dataset.v});
   const sc = e.target.closest(".alSecs button"); if (sc) return themeSave({secs: +sc.dataset.v});
   if (e.target.closest("#alTest")) {
@@ -904,11 +921,12 @@ const Demo = (() => {
   }
   const defaultWords = (name, kind) => ({td:["TOUCHDOWN!", name + "!"], redzone:["RED ZONE", name + "!"], win:[name, "WIN!"], close:["CLOSE GAME", name]})[kind];
   function themeOf(key) {
+    const extra = {word_fx:"flash", word_bg:"color", side:"left", side_w:0.4};
     if (key === "ANY|ALL|close") return Object.assign({on:true, style:"words", pics:[], words:["CLOSE GAME", "{score}"], every:1.5, secs:8,
-                                                      score:true, c1:"#ffaa00", c2:"#ffffff"}, (S.themes || {})[key] || {});
+                                                      score:true, c1:"#ffaa00", c2:"#ffffff"}, extra, (S.themes || {})[key] || {});
     const [lg, ab, kind] = key.split("|"), [name, c1, c2] = MY[`${lg}|${ab}`] || ["TEAM", "#ffbe00", "#ffffff"];
     return Object.assign({on:true, style:"switch", pics:[], words:defaultWords(name, kind), every:1.5, secs:10, score:true, c1, c2},
-                         (S.themes || {})[key] || {});
+                         extra, (S.themes || {})[key] || {});
   }
   const fake = (league, away, home, a, h, state, detail, spread, total, mla, mlh, hours = 0, arank = null, hrank = null) => {
     const m = /(\d+)(?:st|nd|rd|th)\s+(\d+):(\d+)/.exec(detail || "");
@@ -1421,13 +1439,51 @@ const Demo = (() => {
     }
   }
 
-  function wordsFrame(kind, word, c1, t) {        // classic flashing words (fireworks behind a win)
-    const flash = Math.floor(t * 4) % 2 === 0, hot = kind === "close" ? "#ffaa00" : kind === "redzone" ? "#ff1e1e" : c1;
-    clear(flash ? hot : "#000"); if (kind === "win") fireworks(g, t);
-    center(word, fit(word), flash ? (kind === "close" ? "#000" : "#fff") : hot);
+  // ---- alerts, same as ticker.py: phases (GIF / words), how the words come in, what's behind them, side by side
+  const SCROLL_PX = 260;
+  function phaseAt(th, t, words, regionW) {
+    let start = 0;
+    for (let i = 0; i < 500; i++) {
+      let kind, wi = i, pi = i;
+      if (th.style === "switch") { kind = i % 2 ? "words" : "pic"; wi = pi = Math.floor(i / 2); }
+      else kind = {pics:"pic", words:"words", over:"over", side:"side"}[th.style];
+      const word = words[wi % words.length];
+      const len = kind === "pic" ? th.every : th.word_fx === "scroll" ? Math.max(th.every, (regionW + measure(word, fit(word, regionW - 8))) / SCROLL_PX) : th.every;
+      if (t < start + len) return [kind, wi, pi, start, len];
+      start += len;
+    }
+    return ["words", 0, 0, 0, 1];
   }
-  function drawAlert(al, t) {                      // same styles as ticker.py: switch / over / pics / words
-    const th = themeOf(al.key), gm = al.game, short = `${gm.away} ${gm.ascore}  ${gm.home} ${gm.hscore}`;
+  function drawWords(x0, x1, word, th, kind, u, len, t) {
+    const w = x1 - x0, fx = th.word_fx || "flash", bg = th.word_bg || "color";
+    const hot = kind === "close" ? "#ffaa00" : kind === "redzone" ? "#ff1e1e" : th.c1, on = Math.floor(t * 4) % 2 === 0;
+    g.save(); g.beginPath(); g.rect(x0, 0, w, H); g.clip();
+    if (bg === "color") { g.fillStyle = fx !== "flash" || on ? hot : "#000"; g.fillRect(x0, 0, w, H); }
+    else if (bg === "black") { g.fillStyle = "#000"; g.fillRect(x0, 0, w, H); }
+    if (kind === "win" && bg !== "gif") fireworks(g, t, x0, x1);
+    if (fx === "blink" && blinkOff(u)) { g.restore(); return; }
+    const dark = kind === "close" ? "#000" : "#fff";
+    const col = fx === "flash" ? (bg === "color" ? (on ? dark : hot) : (on ? hot : "#fff")) : bg === "color" ? dark : bg === "black" ? hot : "#fff";
+    let n = fit(word, w - 8);
+    if (fx === "pop") { const p = Math.min(1, u / 0.35); n = Math.max(10, Math.floor(n * Math.min(1.12, 0.3 + 0.7 * p + 0.12 * Math.sin(Math.PI * p)))); }
+    g.font = font(n); const tw = g.measureText(word).width;
+    let x = x0 + (w - tw) / 2;
+    if (fx === "scroll") x = x0 + w - (w + tw) * Math.min(1, u / len);
+    else if (fx === "slide") { const p = u / len; if (p < 0.25) x += (w + tw) / 2 * (1 - p / 0.25) ** 3; else if (p > 0.85) x -= (w + tw) / 2 * ((p - 0.85) / 0.15) ** 2; }
+    if (fx === "fade") g.globalAlpha = Math.max(0, Math.min(1, u / 0.3, (len - u) / 0.3));
+    g.textBaseline = "middle"; g.lineJoin = "round";
+    let cx = x;
+    for (const [i, ch] of [...(fx === "rainbow" ? word : [word])].entries()) {
+      if (bg === "gif") { g.lineWidth = 6; g.strokeStyle = "#000"; g.strokeText(ch, cx, H / 2 + 1); }
+      g.fillStyle = fx === "rainbow" ? `hsl(${(i * 25 + t * 140) % 360},100%,50%)` : col;
+      g.fillText(ch, cx, H / 2 + 1); cx += g.measureText(ch).width;
+    }
+    g.globalAlpha = 1; g.restore();
+  }
+  const sideCanvas = document.createElement("canvas"); sideCanvas.height = H;
+  function drawAlert(al, t) {
+    let th = themeOf(al.key);
+    const gm = al.game, short = `${gm.away} ${gm.ascore}  ${gm.home} ${gm.hscore}`;
     const words = (th.words.length ? th.words : al.words).map(w => w.replace("{score}", short).replace("{clock}", gm.detail).replace("{league}", gm.league));
     const tail = th.score ? (th.secs >= 8 ? 4 : 2) : 0;
     if (t >= th.secs - tail) {
@@ -1436,21 +1492,24 @@ const Demo = (() => {
       return;
     }
     const pics = th.pics.map(id => lib.find(p => p.id === id)).filter(Boolean);
-    const style = pics.length ? th.style : "words";
-    if (style === "words") return wordsFrame(al.kind, words[Math.floor(t) % words.length], th.c1, t);
-    const seg = Math.floor(t / th.every);
-    let p;
-    if (style === "switch") {
-      if (seg % 2) return wordsFrame(al.kind, words[Math.floor(seg / 2) % words.length], th.c1, t);
-      p = pics[Math.floor(seg / 2) % pics.length];
-    } else p = pics[seg % pics.length];
-    renderPic(p, nextCanvas.getContext("2d"), t); clear(); g.drawImage(nextCanvas, 0, 0);
-    if (style === "over") {
-      const word = words[Math.floor(t) % words.length], n = fit(word);
-      g.font = font(n); g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
-      g.lineWidth = 6; g.strokeStyle = "#000"; g.strokeText(word, W / 2, H / 2 + 1);
-      g.fillStyle = Math.floor(t * 4) % 2 ? th.c1 : "#fff"; g.fillText(word, W / 2, H / 2 + 1); g.textAlign = "left";
+    if (!pics.length) th = Object.assign({}, th, {style: "words", word_bg: th.word_bg === "black" ? "black" : "color"});
+    const side = th.style === "side", pw = side ? Math.round(W * (th.side_w || 0.4)) : 0;
+    const [wx0, wx1] = side ? (th.side === "left" ? [pw, W] : [0, W - pw]) : [0, W];
+    const [kind, wi, pi, start, len] = phaseAt(th, t, words, wx1 - wx0), word = words[wi % words.length], u = t - start;
+    const pic = pics.length ? pics[pi % pics.length] : null;
+    clear();
+    if (kind === "pic") { renderPic(pic, nextCanvas.getContext("2d"), t); g.drawImage(nextCanvas, 0, 0); return; }
+    if (kind === "side") {
+      if (sideCanvas.width !== pw) sideCanvas.width = pw;
+      renderPic(pic, sideCanvas.getContext("2d"), t, pic.fit, [pic.zoom, pic.fx, pic.fy], false, pw);
+      g.drawImage(sideCanvas, th.side === "left" ? 0 : W - pw, 0);
+      return drawWords(wx0, wx1, word, Object.assign({}, th, {word_bg: th.word_bg === "gif" ? "color" : th.word_bg}), al.kind, u, len, t);
     }
+    if (kind === "over" || th.word_bg === "gif") {      // words coming across the GIF, which keeps playing
+      renderPic(pic, nextCanvas.getContext("2d"), t); g.drawImage(nextCanvas, 0, 0);
+      return drawWords(0, W, word, Object.assign({}, th, {word_bg: "gif"}), al.kind, u, len, t);
+    }
+    drawWords(0, W, word, th, al.kind, u, len, t);
   }
 
   // your message: one big line, two lines if it's long, or scrolling if it still won't fit (same as ticker.py)
@@ -1582,7 +1641,7 @@ const Demo = (() => {
     return it;
   }
   const meta = p => { const {el, buf, ...m} = p; return m; };
-  const cover = (w, h) => { const s = Math.max(W / w, H / h); return [Math.max(W, w * s), Math.max(H, h * s)]; };
+  const cover = (w, h, RW = W) => { const s = Math.max(RW / w, H / h); return [Math.max(RW, w * s), Math.max(H, h * s)]; };
   const newC = (w, h) => { const c = document.createElement("canvas"); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; };
   // Pictures are fitted (and color-boosted) once and kept, instead of redrawing a big photo through filters 60 times a second
   const baked = new Map();
@@ -1592,51 +1651,51 @@ const Demo = (() => {
     while (baked.size > 24) baked.delete(baked.keys().next().value);
     return v;
   }
-  function fitInto(c, src, w, h, fit, view) {         // same fitting as pictures.py; view = [zoom, x, y]
-    c.fillStyle = "#000"; c.fillRect(0, 0, W, H);
-    c.imageSmoothingEnabled = !(h <= 128 && Math.min(W / w, H / h) > 1.4);   // pixel art stays crisp
+  function fitInto(c, src, w, h, fit, view, RW = W) { // same fitting as pictures.py; view = [zoom, x, y]; RW = width to fill
+    c.fillStyle = "#000"; c.fillRect(0, 0, RW, H);
+    c.imageSmoothingEnabled = !(h <= 128 && Math.min(RW / w, H / h) > 1.4);   // pixel art stays crisp
     if (S.pic_boost !== false) c.filter = "saturate(1.35) contrast(1.12)";
-    if (fit === "contain") { const sc = Math.min(W / w, H / h); c.drawImage(src, (W - w * sc) / 2, (H - h * sc) / 2, w * sc, h * sc); }
+    if (fit === "contain") { const sc = Math.min(RW / w, H / h); c.drawImage(src, (RW - w * sc) / 2, (H - h * sc) / 2, w * sc, h * sc); }
     else {
-      const [zoom, fx, fy] = view, sc = Math.max(Math.min(W / w, H / h), Math.max(W / w, H / h) * zoom), cw = w * sc, ch = h * sc;
+      const [zoom, fx, fy] = view, sc = Math.max(Math.min(RW / w, H / h), Math.max(RW / w, H / h) * zoom), cw = w * sc, ch = h * sc;
       c.imageSmoothingEnabled = !(h <= 128 && sc > 1.4);
-      c.drawImage(src, (W - cw) * fx, (H - ch) * fy, cw, ch);
+      c.drawImage(src, (RW - cw) * fx, (H - ch) * fy, cw, ch);
     }
     c.filter = "none"; c.imageSmoothingEnabled = true;
   }
-  function gifFrames(p, fit, view, firstOnly = false) {
-    return keep(`${p.id}|${fit}|${view}|${S.pic_boost !== false}|${firstOnly}`, () => {
+  function gifFrames(p, fit, view, firstOnly = false, RW = W) {
+    return keep(`${p.id}|${fit}|${view}|${S.pic_boost !== false}|${firstOnly}|${RW}`, () => {
       const frames = [];
-      decodeGIF(p.buf, (work, ms, w, h) => { const cv = newC(W, H); fitInto(cv.getContext("2d"), work, w, h, fit, view); frames.push({cv, ms}); },
+      decodeGIF(p.buf, (work, ms, w, h) => { const cv = newC(RW, H); fitInto(cv.getContext("2d"), work, w, h, fit, view, RW); frames.push({cv, ms}); },
                 firstOnly ? 1 : 400);
       frames.total = frames.reduce((a, f) => a + f.ms, 0) || 1;
       return frames;
     });
   }
-  function renderPic(p, c, t, fit = p.fit, view = [p.zoom, p.fx, p.fy], firstOnly = false) {
+  function renderPic(p, c, t, fit = p.fit, view = [p.zoom, p.fx, p.fy], firstOnly = false, RW = W) {
     if (p.kind !== "image" && fit === "pan") fit = "fill";
     if (fit !== "fill") view = [1, 0.5, 0.5];
-    if (p.kind === "video") return fitInto(c, p.el, p.w, p.h, fit, view);
+    if (p.kind === "video") return fitInto(c, p.el, p.w, p.h, fit, view, RW);
     if (p.kind === "gif") {
-      const fr = gifFrames(p, fit, view, firstOnly);
+      const fr = gifFrames(p, fit, view, firstOnly, RW);
       let pos = (t * 1000) % fr.total, f = fr[0];
       for (const x of fr) { if (pos < x.ms) { f = x; break; } pos -= x.ms; }
       return c.drawImage(f.cv, 0, 0);
     }
     if (fit === "pan") {                              // boosted once at full cover size, then a window slides over it
-      const [cw, ch] = cover(p.w, p.h);
-      const big = keep(`${p.id}|pan|${S.pic_boost !== false}`, () => {
+      const [cw, ch] = cover(p.w, p.h, RW);
+      const big = keep(`${p.id}|pan|${S.pic_boost !== false}|${RW}`, () => {
         const cv = newC(cw, ch), x = cv.getContext("2d");
         if (S.pic_boost !== false) x.filter = "saturate(1.35) contrast(1.12)";
         x.drawImage(p.el, 0, 0, cw, ch); return cv;
       });
       const period = Math.max(6, S.pic_secs || 10), ph = (t % (2 * period)) / period;
       const q = 0.5 - 0.5 * Math.cos(Math.PI * (ph <= 1 ? ph : 2 - ph));
-      c.fillStyle = "#000"; c.fillRect(0, 0, W, H);
-      return c.drawImage(big, -(big.width - W) * q, -(big.height - H) * q);
+      c.fillStyle = "#000"; c.fillRect(0, 0, RW, H);
+      return c.drawImage(big, -(big.width - RW) * q, -(big.height - H) * q);
     }
-    c.drawImage(keep(`${p.id}|${fit}|${view}|${S.pic_boost !== false}`, () => {
-      const cv = newC(W, H); fitInto(cv.getContext("2d"), p.el, p.w, p.h, fit, view); return cv; }), 0, 0);
+    c.drawImage(keep(`${p.id}|${fit}|${view}|${S.pic_boost !== false}|${RW}`, () => {
+      const cv = newC(RW, H); fitInto(cv.getContext("2d"), p.el, p.w, p.h, fit, view, RW); return cv; }), 0, 0);
   }
   const thumbCanvas = newC(W, H);
   function thumb(id, q = "") {

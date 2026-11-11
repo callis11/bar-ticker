@@ -293,8 +293,9 @@ class Library:
         return it
 
     # ---- rendering
-    def rendered(self, pid, do_boost=True, fit=None, view=None):
-        """Frames for a picture with its settings (or the given fit / (zoom, x, y) for a preview). Cached."""
+    def rendered(self, pid, do_boost=True, fit=None, view=None, size=None):
+        """Frames for a picture with its settings (or the given fit / (zoom, x, y) for a preview), sized for the
+        whole strip or for size=(w, h) (one side of a side-by-side alert). Cached."""
         it = self.get(pid)
         if not it or it.get("status") != "ready":
             return None
@@ -305,19 +306,20 @@ class Library:
             fit = "fill"                                   # moving pictures don't also pan
         if fit != "fill":
             view = (1.0, 0.5, 0.5)
-        key = (pid, fit, tuple(round(v, 3) for v in view), bool(do_boost))
+        size = tuple(size or (self.W, self.H))
+        key = (pid, fit, tuple(round(v, 3) for v in view), bool(do_boost), size)
         with self.lock:
             if key in self.cache:
                 self.cache.move_to_end(key)
                 return self.cache[key]
-        r = self._render(it, fit, view, do_boost)
+        r = self._render(it, fit, view, do_boost, size)
         with self.lock:
             self.cache[key] = r
             while sum(v.size for v in self.cache.values()) > CACHE_FRAMES and len(self.cache) > 1:
                 self.cache.popitem(last=False)
         return r
 
-    def rendered_async(self, pid, do_boost=True):
+    def rendered_async(self, pid, do_boost=True, size=None):
         """Like rendered(), but never makes the display wait: returns None and renders in the background
         if this picture isn't ready yet (a 20 s video takes a few seconds to prepare on the Pi)."""
         it = self.get(pid)
@@ -325,7 +327,8 @@ class Library:
             return None
         fit = "fill" if it["kind"] != "image" and it["fit"] == "pan" else it["fit"]
         view = view_of(it) if fit == "fill" else (1.0, 0.5, 0.5)
-        key = (pid, fit, tuple(round(v, 3) for v in view), bool(do_boost))
+        size = tuple(size or (self.W, self.H))
+        key = (pid, fit, tuple(round(v, 3) for v in view), bool(do_boost), size)
         with self.lock:
             if key in self.cache:
                 self.cache.move_to_end(key)
@@ -335,7 +338,7 @@ class Library:
             self._busy.add(key)
         def work():
             try:
-                self.rendered(pid, do_boost)
+                self.rendered(pid, do_boost, size=size)
             except Exception as e:
                 print("picture", pid, "failed:", e)
             finally:
@@ -344,8 +347,8 @@ class Library:
         threading.Thread(target=work, daemon=True).start()
         return None
 
-    def _render(self, it, fit, view, do_boost):
-        W, H = self.W, self.H
+    def _render(self, it, fit, view, do_boost, size=None):
+        W, H = size or (self.W, self.H)
         path = self.path(it)
         if it["kind"] == "video":
             frames = [(render(fr, fit, view, W, H, do_boost), 1000 // VIDEO_FPS)
