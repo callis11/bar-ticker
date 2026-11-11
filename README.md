@@ -114,6 +114,13 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
   - Close game: flashes CLOSE GAME in amber once a game gets tight late. Football: 4th quarter, under 8:00, within 8 points. NBA: 4th quarter, under 5:00, within 6. College hoops: 2nd half, under 5:00, within 6
 - Test without LEDs: `python3 ticker.py --preview` (scroll) or `python3 ticker.py --test-alert td` (also `win`, `close`). Sample GIFs are in `previews/`
 
+## Upgrade for later: twice as tall (640 x 128, 5.25 ft x 12.6 in)
+Two rows of five panels: your game held big on top, the whole ticker crawling underneath at today's size, alerts and GIFs twice as tall (a 5:1 picture). Not started; when you're ready, tell Claude and it adds the tall layout and the Colorlight output.
+- **Parts (~$120):** 5 more P2.5 128x64 panels from the same seller, ICN2037 chip again (~$68 + shipping); a **Colorlight 5A-75B** receiving card (~$24, seen on AliExpress for $24.21 in the 11.11 sale); a second 5 V 30 A supply for the top row (~$25); a taller backer board
+- **How it works:** the Pi draws the picture and sends it over an Ethernet cable to the 5A-75B, which drives the panels on its 8 outputs (steady, flicker-free refresh at any size; the Pi stays on Wi-Fi for scores). One-time setup of the card in Colorlight's free LEDVISION program on a Windows PC: 128x64 panels, 1/32 scan, ICN2037. The Triple Bonnet isn't used then
+- **Code to add:** a `ROWS = 128` layout (two full-size rows) and a Colorlight output in ticker.py. Looks, alerts, pictures and the phone page stay the same. Needs one tune-up round once the card is here
+- Building the 5-panel version first wastes nothing; the top row can be added any time
+
 ## Ideas for next scripts
 - Leg tracker: show each live parlay leg turning green or red as games go final
 - Goal / home run alerts for hockey and baseball teams
