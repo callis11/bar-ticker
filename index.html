@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
+<meta name="build" content="20261111165053">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -1814,13 +1815,27 @@ async function start() {
   return {start, api, testAlert, refresh, thumb, decodeGIF};
 })();
 
+// GitHub Pages lets phones keep an old copy of this page for a while (longer as a home-screen app).
+// Check for a newer one when the page opens or comes back to the front, and reload into it.
+async function checkUpdate() {
+  if (!DEMO) return;                                   // on the Pi the page is always fresh
+  try {
+    const t = await (await fetch(location.pathname + "?check=" + Date.now(), {cache: "no-store"})).text();
+    const m = /<meta name="build" content="([^"]+)"/.exec(t), mine = document.querySelector('meta[name="build"]').content;
+    if (m && m[1] > mine) {                          // build numbers are times, so newer = bigger
+      toast("Updating to the newest version…"); setTimeout(() => location.replace(location.pathname + "?v=" + m[1] + location.hash), 700); }
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
+setInterval(checkUpdate, 5 * 60 * 1000);
+
 async function start() {
   try {
     if (location.hash === "#demo") throw 0;
     const ctl = new AbortController(); setTimeout(() => ctl.abort(), 2500);
     const r = await fetch("/api/state", {signal: ctl.signal});
     if (!r.ok || !(r.headers.get("content-type") || "").includes("json")) throw 0;
-  } catch { DEMO = true; await Demo.start(); }
+  } catch { DEMO = true; await Demo.start(); checkUpdate(); }
   if (!DEMO) setInterval(() => { $("#frame").src = "/api/frame.png?" + Date.now(); }, 500);
   poll(); setInterval(poll, 5000);
 }
