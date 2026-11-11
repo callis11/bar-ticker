@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261111165053">
+<meta name="build" content="20261111171138">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -514,14 +514,15 @@ const SPORT_LABEL = {NFL:"NFL", CFB:"College FB", NBA:"NBA", CBB:"College BB", N
 const STYLE_LABEL = [["switch", "GIF ↔ words"], ["over", "Words on the GIF"], ["pics", "GIF only"], ["words", "Words only"]];
 const STYLE_HINT = {switch:"Your GIF, then the flashing words, back and forth.", over:"Your GIF with the words flashing on top.",
                     pics:"Just your GIFs (they take turns if you pick more than one).", words:"The classic flashing words in your colors."};
-let alSel = {team: null, kind: "td"};
+let alSel = {team: null, kind: "td"}, alEditPic = null;
 const teamLabel = t => t.league === "ANY" ? "Every game" : `${t.name.charAt(0) + t.name.slice(1).toLowerCase()} · ${SPORT_LABEL[t.league]}`;
 function renderAlerts() {
   const teams = S.alert_teams || []; if (!teams.length) return;
   const tm = teams.find(t => t.key === alSel.team) || teams[0]; alSel.team = tm.key;
   if (!tm.kinds.includes(alSel.kind)) alSel.kind = tm.kinds[0];
   const th = tm.themes[alSel.kind], ready = readyPics();
-  const key = JSON.stringify([alSel, teams.map(t => t.key), th, ready.map(p => p.id), S.pic_version, $("#addTeam").hidden]);
+  if (alEditPic && !(th.pics || []).includes(alEditPic)) alEditPic = null;
+  const key = JSON.stringify([alSel, teams.map(t => t.key), th, ready.map(p => [p.id, p.fit, p.zoom, p.fx, p.fy]), S.pic_version, $("#addTeam").hidden, alEditPic]);
   if (key === renderAlerts.key) return;
   renderAlerts.key = key;
   $("#alTeams").innerHTML = teams.map(t => `<button data-t="${t.key}" class="${t.key === tm.key ? "on" : ""}">${esc(teamLabel(t))}</button>`).join("")
@@ -538,6 +539,14 @@ function renderAlerts() {
     ${ready.length ? `<div class="tiles">${ready.map(p => { const i = sel.indexOf(p.id);
       return `<button class="tile ${i >= 0 ? "on" : ""}" data-pid="${p.id}"><img alt="" src="${picURL(p.id, "t=1")}"><b>${i + 1}</b><small>${esc(p.name)}</small></button>`; }).join("")}</div>`
       : `<p class="empty">No pictures yet.</p>`}
+    ${sel.filter(id => ready.some(p => p.id === id)).length ? `<div class="chips wrap alEditChips"><span class="segLabel" style="padding-left:0">Edit how it looks:</span>${sel
+      .map(id => ready.find(p => p.id === id)).filter(Boolean)
+      .map(p => `<button data-pid="${p.id}" class="${alEditPic === p.id ? "on" : ""}">✎ ${esc(p.name)}</button>`).join("")}</div>` : ""}
+    ${(() => { const p = alEditPic && ready.find(z => z.id === alEditPic); return !p ? "" :
+      `<div class="pic sel alpic" data-id="${p.id}"><div class="top"><span class="name">${esc(p.name)}</span>
+         <button class="ed">Done</button></div><img class="thumb" alt="" src="${picURL(p.id, "t=1")}">
+         <div class="edit">${picEditor(p)}</div>
+         <p class="hint" style="margin-top:6px">Changes this picture everywhere it shows (slideshow and every alert that uses it).</p></div>`; })()}
     <label for="alFile" class="btn ghost" style="display:block;text-align:center;margin-top:0">+ Add GIFs or pictures</label>
     <input type="file" id="alFile" accept="image/*,video/*" multiple>
     <p class="hint">Tap as many as you like; they take turns in the order you tap them (the numbers). New ones you add here are picked for this alert.</p>
@@ -572,6 +581,16 @@ $("#alTeams").onclick = e => {
 $("#alKinds").onclick = e => { const b = e.target.closest("button"); if (b) { alSel.kind = b.dataset.k; renderAlerts(); } };
 $("#alEdit").onclick = async e => {
   const th = curTheme();
+  const chip = e.target.closest(".alEditChips button");
+  if (chip) { alEditPic = alEditPic === chip.dataset.pid ? null : chip.dataset.pid; return renderAlerts(); }
+  const card = e.target.closest(".alpic");
+  if (card) {                                          // the picture editor, same as the Picture tab
+    const id = card.dataset.id;
+    if (e.target.closest(".ed")) { alEditPic = null; return renderAlerts(); }
+    if (e.target.closest(".reset")) return picEdit(id, {zoom: 1, fx: 0.5, fy: 0.5});
+    const fb = e.target.closest(".fitSeg button"); if (fb) return picEdit(id, {fit: fb.dataset.fit});
+    return;
+  }
   const tile = e.target.closest(".tile");
   if (tile) {
     let pics = (th.pics || []).slice(); const id = tile.dataset.pid;
@@ -595,7 +614,9 @@ $("#alEdit").onclick = async e => {
     return save({favorites: (S.favorites || []).filter(f => `${f.league}|${f.abbr}` !== tm.key)}, `${tm.name} removed`);
   }
 };
+$("#alEdit").oninput = picSliderInput;
 $("#alEdit").onchange = async e => {
+  if (picSliderChange(e)) return;
   const th = curTheme();
   if (e.target.matches(".alOn")) return themeSave({on: e.target.checked}, e.target.checked ? "Alert on" : "Alert off");
   if (e.target.matches(".alScore")) return themeSave({score: e.target.checked});
@@ -680,6 +701,15 @@ const picURL = (id, q = "") => DEMO ? Demo.thumb(id, q) : `/api/pictures/${id}.p
 const readyPics = () => (S.pictures || []).filter(p => p.status === "ready");
 const picChecked = p => !(S.pic_ids || []).length || S.pic_ids.includes(p.id);
 const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function picEditor(p) {                               // Whole picture / Fill / Slow pan + zoom and position (Picture and Alerts tabs)
+  const still = p.kind === "image";
+  return `<div class="seg fitSeg">
+      <button data-fit="contain" class="${p.fit === "contain" ? "on" : ""}">Whole picture</button>
+      <button data-fit="fill" class="${p.fit === "fill" || (!still && p.fit === "pan") ? "on" : ""}">Fill</button>
+      ${still ? `<button data-fit="pan" class="${p.fit === "pan" ? "on" : ""}">Slow pan</button>` : ""}</div>
+    ${p.fit === "fill" || (!still && p.fit === "pan") ? viewSliders(p) : ""}
+    <p class="hint">${FIT_HINT[still ? p.fit : (p.fit === "contain" ? "contain" : "fill")]}</p>`;
+}
 function renderPics() {
   const list = S.pictures || [];
   document.querySelectorAll("#picSecs button").forEach(b => b.classList.toggle("on", +b.dataset.s === S.pic_secs));
@@ -706,12 +736,7 @@ function renderPics() {
       : p.status === "converting" ? `<div class="wait">Getting your video ready for the ticker…<br>(about a minute)</div>`
       : `<div class="wait err">That one didn't work: ${esc(p.error || "unknown problem")}</div>`;
     const editor = !open ? "" : `<div class="edit">
-      ${ready ? `<div class="seg fitSeg">
-        <button data-fit="contain" class="${p.fit === "contain" ? "on" : ""}">Whole picture</button>
-        <button data-fit="fill" class="${p.fit === "fill" || (!still && p.fit === "pan") ? "on" : ""}">Fill</button>
-        ${still ? `<button data-fit="pan" class="${p.fit === "pan" ? "on" : ""}">Slow pan</button>` : ""}</div>
-      ${p.fit === "fill" || (!still && p.fit === "pan") ? viewSliders(p) : ""}
-      <p class="hint">${FIT_HINT[still ? p.fit : (p.fit === "contain" ? "contain" : "fill")]}</p>` : ""}
+      ${ready ? picEditor(p) : ""}
       <div class="actions">${ready ? `<button class="btn showNow">Show this now</button>` : "<span></span>"}<button class="btn danger del">Delete</button></div>
     </div>`;
     return `<div class="pic ${ready && picChecked(p) ? "sel" : ""}" data-id="${p.id}">
@@ -750,7 +775,7 @@ $("#pics").onclick = async e => {
 let tFocus;
 const editView = card => { const p = (S.pictures || []).find(z => z.id === card.dataset.id);
   return [sliderToZ(p, +card.querySelector(".vz").value), +card.querySelector(".vx").value / 100, +card.querySelector(".vy").value / 100]; };
-$("#pics").oninput = e => {                             // live preview while sliding zoom / position
+function picSliderInput(e) {                           // live preview while sliding zoom / position
   if (!e.target.matches(".vz, .vx, .vy")) return;
   const card = e.target.closest(".pic"), id = card.dataset.id, p = (S.pictures || []).find(z => z.id === id);
   const [z, fx, fy] = editView(card), [rx, ry] = room(p, z);
@@ -758,12 +783,15 @@ $("#pics").oninput = e => {                             // live preview while sl
   card.querySelector(".vxw").hidden = !(rx > 1); card.querySelector(".vyw").hidden = !(ry > 1);
   clearTimeout(tFocus);
   tFocus = setTimeout(() => { const im = card.querySelector(".thumb"); if (im) im.src = picURL(id, `fit=fill&zoom=${z}&fx=${fx}&fy=${fy}&t=1`); }, 80);
-};
-$("#pics").onchange = e => {
-  if (!e.target.matches(".vz, .vx, .vy")) return;
+}
+function picSliderChange(e) {
+  if (!e.target.matches(".vz, .vx, .vy")) return false;
   const card = e.target.closest(".pic"), [zoom, fx, fy] = editView(card);
   picEdit(card.dataset.id, {zoom, fx, fy});
-};
+  return true;
+}
+$("#pics").oninput = picSliderInput;
+$("#pics").onchange = picSliderChange;
 $("#playShow").onclick = () => save({mode:"image", pic_solo:""}, "Playing the slideshow");
 $("#picSecs").onclick = e => { const b = e.target.closest("button"); if (b) save({pic_secs:+b.dataset.s}); };
 $("#picOrder").onclick = e => { const b = e.target.closest("button"); if (b) save({pic_order:b.dataset.o}); };
