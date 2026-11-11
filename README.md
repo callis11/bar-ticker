@@ -62,6 +62,14 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
     - **Order**: By league, or By start time (LIVE, then each slot like "SUN 1:00 PM", then FINAL). **Days**: Today or This week
   - **ParlayLabs**: Record, Top parlays and/or Top overs (all off = left out), mixed in after the games. Pick how many (top 3/5/8), which sports and which prop types
   - **Odds**: Show odds switch, plus Moneyline, Over/Under and Spread picks, for games that haven't started
+  - **Look**: how the whole ticker is drawn:
+    - **Classic**: two lines per game, league boxes
+    - **Broadcast**: TV style, one line per game in tall narrow letters (**CLE 27 @ TEN 24 FINAL**), gold clock and dots, gold league labels
+    - **Team colors**: each team in a pill of its own colors (from ESPN)
+    - **Stadium**: old amber scoreboard, scores in boxes, live clock in red
+    - **Big & bold**: one line, extra big, readable from across the room
+
+    Fonts: Barlow Condensed and Oswald (free, SIL Open Font License, in `fonts/`)
   - **How it moves**: **Scroll** (the classic crawl) or one item at a time with **Cut**, **Fade**, **Flash**, **Slide up** or **Slide left**. In one-at-a-time styles, games show as a big scoreboard and ParlayLabs items as a card with a small label on top. **Speed** slider for crawling, and **Each item stays** 3, 5, 8 or 15 sec
   - **Hold on top** (split screen): **Off**, **My teams**, **Live games** or **Picked games**. Those games stay put on the top row (one line each: teams, scores, clock; several side by side, taking turns if they don't all fit) while everything else crawls along the bottom row on one line. When none of them are live it goes back to the full-height ticker by itself. My teams and Live games keep a game on 15 min after it ends
 - **Picture**: your own picture library, saved on the Pi

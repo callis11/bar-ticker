@@ -126,7 +126,7 @@ class Control:
             # pictures: which ones (empty = all), one played on its own, seconds each, order, change style,
             # how often one pops up in the ticker, LED color boost
             "pic_ids": [], "pic_solo": "", "pic_secs": 10, "pic_order": "inorder", "pic_fx": "fade",
-            "pic_every": 0, "pic_boost": True,
+            "pic_every": 0, "pic_boost": True, "look": "classic",
             # your own alert looks, per team and kind: {"NFL|DET|td": {...}} (see alert_theme)
             "themes": {},
             # favorite teams (gold, My teams, alerts): starts with the Lions, Pistons and MSU; add any team from the phone
@@ -176,6 +176,7 @@ class Control:
         self.hold = max(2, min(15, int(self.hold)))
         self.ranks = bool(self.ranks)
         self.pin = self.pin if self.pin in PIN_CHOICES else "off"
+        self.look = set_look(self.look)
         self.pic_ids = [str(i) for i in (self.pic_ids or [])][:200]
         self.pic_solo = str(self.pic_solo or "")
         self.pic_secs = max(3, min(120, int(self.pic_secs)))
@@ -262,6 +263,8 @@ def parse_game(label, ev):
         poss="away" if poss and poss in ids(a) else "home" if poss and poss in ids(h) else "",
         id=f"{label}-{ev['id']}", league=label,
         away=a["team"]["abbreviation"], home=h["team"]["abbreviation"],
+        acolor=_hexrgb(a["team"].get("color")), hcolor=_hexrgb(h["team"].get("color")),
+        aalt=_hexrgb(a["team"].get("alternateColor")), halt=_hexrgb(h["team"].get("alternateColor")),
         ascore=_score(a), hscore=_score(h),
         state=st["type"]["state"], detail=st["type"]["shortDetail"],
         period=st.get("period", 0), clock=clock_secs(st.get("displayClock")),
@@ -271,6 +274,13 @@ def parse_game(label, ev):
         mla=moneyline(odds, "away"), mlh=moneyline(odds, "home"),
         start=start_time(ev.get("date")),
     )
+
+def _hexrgb(h):
+    try:
+        h = str(h or "").lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) if len(h) == 6 else None
+    except ValueError:
+        return None
 
 def _score(c):
     v = c.get("score")
@@ -762,12 +772,34 @@ class AlertWatcher:
                 self.close_shown.discard(g["id"])
 
 # ------------------------------------------------------------------ drawing
-FONT = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+# ---- looks: how the whole ticker is drawn (picked on the phone, Ticker tab → Look)
+LOOKS = ("classic", "broadcast", "team", "stadium", "big")
+FACES = {"classic": FONT_PATH,
+         "broadcast": os.path.join(HERE, "fonts", "BarlowCondensed-Bold.ttf"),   # tall narrow TV-style letters
+         "big": os.path.join(HERE, "fonts", "BarlowCondensed-Bold.ttf"),
+         "team": os.path.join(HERE, "fonts", "Oswald-SemiBold.ttf"),
+         "stadium": "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"}  # old scoreboard numbers
+AMBER, AMBER_DIM = (255, 165, 0), (150, 90, 0)
+LOOK = "classic"
+
+def set_look(name):
+    global LOOK
+    LOOK = name if name in LOOKS else "classic"
+    if not os.path.exists(FACES[LOOK]):
+        print("look: missing font", FACES[LOOK])
+    return LOOK
+
 _fonts = {}
 def font(size):
-    if size not in _fonts:
-        _fonts[size] = ImageFont.truetype(FONT_PATH, size)
-    return _fonts[size]
+    path = FACES.get(LOOK, FONT_PATH)
+    key = (path, size)
+    if key not in _fonts:
+        try:
+            _fonts[key] = ImageFont.truetype(path, size)
+        except OSError:
+            _fonts[key] = ImageFont.truetype(FONT_PATH, size)
+    return _fonts[key]
+FONT = ImageFont.truetype(FONT_PATH, FONT_SIZE)
 
 def fit_font(text, max_w=W - 8, start=28 * K):
     for size in range(start, 9, -1):
@@ -1151,6 +1183,166 @@ def game_block(g, odds=("ou", "ml")):
         text_at(d, x_stat, cy, txt, fs, col)
     return img
 
+BC_GOLD = (240, 185, 40)
+
+def look_color(color, is_dot=False):
+    """Colors of plain text in the scroll for the look you picked."""
+    if is_dot:
+        return {"broadcast": BC_GOLD, "stadium": AMBER_DIM, "big": (90, 90, 90)}.get(LOOK, color)
+    if LOOK == "stadium" and isinstance(color, tuple) and color != RED:
+        return AMBER
+    if LOOK == "broadcast" and color == (0, 180, 255):  # the clock and time labels: gold instead of blue
+        return BC_GOLD
+    return color
+
+def line_piece(parts, pad=14):
+    """Draws a game on one line from parts: (text, color, font) / ("ball", side-size) / ("live",) / ("gap", px)."""
+    widths = []
+    for p in parts:
+        widths.append(p[1] if p[0] == "gap" else 16 if p[0] == "ball" else 14 if p[0] == "live" else p[2].getlength(p[0]))
+    img = Image.new("RGB", (int(sum(widths) + 2 * pad), ROWS))
+    d = ImageDraw.Draw(img)
+    x = pad
+    for p, w in zip(parts, widths):
+        if p[0] == "ball":
+            draw_ball(d, x + 1, ROWS / 2, p[1])
+        elif p[0] == "live":
+            d.ellipse([x + 2, ROWS / 2 - 4, x + 10, ROWS / 2 + 4], fill=RED)
+        elif p[0] != "gap":
+            text_at(d, x, ROWS / 2, p[0], p[2], p[1])
+        x += w
+    return img
+
+def one_line_status(g, odds):
+    """[(text, color)] after the teams on a one-line game: FINAL / 4TH 3:12 · 3RD & 7 · DET 35 / SUN 4:25 PM  O/U 51.5"""
+    if g["state"] == "pre":
+        out = [(short_time(g["detail"]).upper(), (175, 175, 175))]
+        extra = (f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or (g.get("spread") or "" if "spread" in odds else "")
+        return out + ([(extra, (150, 150, 150))] if extra else [])
+    if g["state"] == "in":
+        return [(g["detail"].upper(), None)] + ([(downs(g).upper(), down_color(g))] if downs(g) else [])
+    return [(g["detail"].upper(), None)]
+
+def game_broadcast(g, odds):
+    """TV style, one line:  CLE 27 @ TEN 24 FINAL   (gold status, the team with the ball gets a little football)"""
+    f, fs = font(38), font(32)
+    pre, my = g["state"] == "pre", mine(g)[0]
+    show_ml = pre and "ml" in odds and g.get("mla") and g.get("mlh")
+    parts = []
+    for side, sc, ml in (("away", "ascore", "mla"), ("home", "hscore", "mlh")):
+        if side == "home":
+            parts += [("gap", 10), ("@", (150, 150, 150), fs), ("gap", 10)]
+        if g["state"] == "in" and g.get("poss") == side:
+            parts += [("ball", 1.3), ("gap", 4)]
+        parts.append((team(g, side), BC_GOLD if g[side] == my else WHITE, f))
+        right = (g[ml] if show_ml else "") if pre else str(g[sc])
+        if right:
+            other = g["hscore"] if side == "away" else g["ascore"]
+            col = (150, 150, 150) if pre else WHITE if g[sc] >= other or g["state"] == "in" else (170, 170, 170)
+            parts += [("gap", 9), (right, col, f if not pre else fs)]
+    parts.append(("gap", 16))
+    if g["state"] == "in":
+        parts += [("live",), ("gap", 2)]
+    for i, (txt, col) in enumerate(one_line_status(g, odds)):
+        parts += ([("gap", 12), ("·", (110, 110, 110), fs), ("gap", 12)] if i else []) + [(txt, col or BC_GOLD, fs)]
+    return line_piece(parts)
+
+def game_big(g, odds):
+    """Big and bold, readable from across the room:  DET 24  MIN 17  4TH 3:12"""
+    f, fs = font(52), font(34)
+    pre, my = g["state"] == "pre", mine(g)[0]
+    parts = []
+    for side, sc in (("away", "ascore"), ("home", "hscore")):
+        if side == "home":
+            parts.append(("gap", 26))
+        parts.append((team(g, side), GOLD if g[side] == my else WHITE, f))
+        if not pre:
+            other = g["hscore"] if side == "away" else g["ascore"]
+            parts += [("gap", 12), (str(g[sc]), (255, 225, 60) if g[sc] > other else WHITE, f)]
+    parts.append(("gap", 22))
+    status = one_line_status(g, odds)[0]
+    parts.append((status[0], RED if g["state"] == "in" else (170, 170, 170), fs))
+    return line_piece(parts, pad=18)
+
+def _lum(c):
+    return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+
+def team_colors(g, side):
+    """(fill, text) for a team's color pill; falls back to the league color."""
+    c = g.get("acolor" if side == "away" else "hcolor") or DEMO_COLORS.get(g[side])
+    alt = g.get("aalt" if side == "away" else "halt")
+    if not c or _lum(c) < 28:                        # nearly black shows as nothing on LEDs: use the other color
+        c = alt if alt and _lum(alt) >= 28 else c
+    if not c or _lum(c) < 28:
+        c = {l: col for l, _, col in LEAGUES}.get(g["league"], GRAY)
+    return c, ((0, 0, 0) if _lum(c) > 150 else WHITE)
+
+def game_team(g, odds):
+    """Team colors: each team in a pill of its own color, score next to it, time on the right (two lines)."""
+    f, fp, fs = font(LINE_SIZE), font(LINE_SIZE - 3), font(STATUS_SIZE)
+    pre, my = g["state"] == "pre", mine(g)[0]
+    show_ml = pre and "ml" in odds and g.get("mla") and g.get("mlh")
+    names = [team(g, s) for s in ("away", "home")]
+    pw = max(fp.getlength(n) for n in names) + 18
+    rights = [(g["mla"] if show_ml else "") if pre else str(g["ascore"]), (g["mlh"] if show_ml else "") if pre else str(g["hscore"])]
+    sw = max(f.getlength(r) for r in rights)
+    status = game_status(g, odds)
+    stw = max(fs.getlength(t) for t, _ in status)
+    x_pill, x_score_r = 8, 8 + pw + 12 + sw
+    ball = g["state"] == "in" and g.get("poss")
+    x_stat = x_score_r + (32 if ball else 18)
+    img = Image.new("RGB", (int(x_stat + stw + 12), ROWS))
+    d = ImageDraw.Draw(img)
+    for i, (side, cy) in enumerate((("away", ROWS * 0.25), ("home", ROWS * 0.75))):
+        fill, tc = team_colors(g, side)
+        d.rounded_rectangle([x_pill, cy - 13, x_pill + pw, cy + 12], radius=6, fill=fill,
+                            outline=GOLD if g[side] == my else None, width=2)
+        text_at(d, x_pill + (pw - fp.getlength(names[i])) / 2, cy, names[i], fp, tc)
+        if rights[i]:
+            other = g["hscore"] if side == "away" else g["ascore"]
+            col = ODDS_COLOR if pre else WHITE if g["ascore" if side == "away" else "hscore"] >= other else (150, 150, 150)
+            text_at(d, x_score_r - f.getlength(rights[i]), cy, rights[i], f, col)
+        if g["state"] == "in" and g.get("poss") == side:
+            draw_ball(d, x_score_r + 8, cy, 1.1)
+    ys = [ROWS / 2] if len(status) == 1 else (ROWS * 0.25, ROWS * 0.75)
+    for (txt, col), cy in zip(status, ys):
+        text_at(d, x_stat, cy, txt, fs, col)
+    return img
+
+def game_stadium(g, odds):
+    """Old stadium scoreboard: amber letters, each score in its own box, live clock in red."""
+    f, fs = font(LINE_SIZE - 1), font(STATUS_SIZE - 2)
+    pre = g["state"] == "pre"
+    show_ml = pre and "ml" in odds and g.get("mla") and g.get("mlh")
+    names = [team(g, s) for s in ("away", "home")]
+    rights = [(g["mla"] if show_ml else "") if pre else str(g["ascore"]), (g["mlh"] if show_ml else "") if pre else str(g["hscore"])]
+    nw = max(f.getlength(n) for n in names)
+    bw = max([f.getlength(r) for r in rights] + [f.getlength("00")]) + 10
+    status = [(t, RED if g["state"] == "in" and i == 0 else AMBER_DIM if g["state"] != "in" else AMBER) for i, (t, _) in enumerate(game_status(g, odds))]
+    stw = max(fs.getlength(t) for t, _ in status)
+    x_box = 10 + nw + 10
+    x_stat = x_box + bw + 14
+    img = Image.new("RGB", (int(x_stat + stw + 12), ROWS))
+    d = ImageDraw.Draw(img)
+    for i, cy in enumerate((ROWS * 0.25, ROWS * 0.75)):
+        text_at(d, 10, cy, names[i], f, AMBER)
+        if rights[i] or not pre:
+            d.rectangle([x_box, cy - 13, x_box + bw, cy + 12], outline=AMBER_DIM, width=1)
+            text_at(d, x_box + (bw - f.getlength(rights[i])) / 2, cy, rights[i], f, AMBER)
+    ys = [ROWS / 2] if len(status) == 1 else (ROWS * 0.25, ROWS * 0.75)
+    for (txt, col), cy in zip(status, ys):
+        text_at(d, x_stat, cy, txt, fs, col)
+    return img
+
+def game_piece(g, odds=("ou", "ml")):
+    """One game in the scroll, drawn in the look you picked."""
+    return {"broadcast": game_broadcast, "big": game_big, "team": game_team, "stadium": game_stadium}.get(LOOK, game_block)(g, odds)
+
+# colors for the made-up demo games (real games get them from ESPN)
+DEMO_COLORS = {"MIN": (79, 38, 131), "DET": (0, 118, 182), "CHI": (11, 22, 42), "GB": (24, 48, 40), "KC": (227, 24, 55),
+               "BUF": (0, 51, 141), "PHI": (0, 76, 84), "DAL": (0, 53, 148), "NYJ": (18, 87, 64), "MIA": (0, 142, 151),
+               "BOS": (0, 122, 51), "MSU": (24, 69, 59), "IOWA": (255, 205, 0), "DUKE": (0, 48, 135)}
+
 HALF_SIZE = 20          # text size on a half-height row (split screen)
 
 def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE):
@@ -1229,6 +1421,16 @@ def pinned_frame(games, t, ctl):
 
 def hdr_block(text, color, h=ROWS):
     """League / time-slot / ParlayLabs label: black words on a colored box."""
+    if LOOK == "broadcast":                          # TV style: just the label in gold with a thin gold line under it
+        f, txt = font(int(26 * h / ROWS) + 2), text.strip()
+        tw = f.getlength(txt)
+        img = Image.new("RGB", (int(tw + 36), h))
+        d = ImageDraw.Draw(img)
+        text_at(d, 18, h / 2 - 2, txt, f, BC_GOLD)
+        d.rectangle([18, int(h / 2 + f.size * 0.45), int(18 + tw), int(h / 2 + f.size * 0.45) + 1], fill=BC_GOLD)
+        return img
+    if LOOK == "stadium":
+        color = AMBER if color != RED else RED
     k = h / ROWS
     f, txt = font(int(HDR_SIZE * k) + (2 if h < ROWS else 0)), text.strip()
     tw, pad = f.getlength(txt), int(11 * k)
@@ -1266,12 +1468,12 @@ def seg_kind(sg):
 def seg_width(sg):
     k = seg_kind(sg)
     if k == "game":
-        return game_block(sg[3], sg[4]).width
+        return game_piece(sg[3], sg[4]).width
     if k == "hdr":
         return hdr_block(sg[0], sg[1]).width
     if k == "sub":
         return sub_block(sg[0], sg[1]).width
-    return int(FONT.getlength(sg[0]))
+    return int(font(FONT_SIZE).getlength(sg[0]))
 
 def text_strip(segs, stamp=True, hide_msg=False, h=ROWS):
     """Draws segments onto one long 64-tall image; we scroll a window across it.
@@ -1280,16 +1482,16 @@ def text_strip(segs, stamp=True, hide_msg=False, h=ROWS):
     Where your message sits is kept in img.info["spans"] so effects can find it while it scrolls by."""
     if stamp:
         segs = [(f"  {datetime.now():%-I:%M}  ", (0, 180, 255))] + (segs or [("No games right now", GRAY)])
-    F = FONT if h == ROWS else font(HALF_SIZE)
+    F = font(FONT_SIZE) if h == ROWS else font(HALF_SIZE)
     pieces = []
     for sg in segs:
         k = seg_kind(sg)
         if k == "game":
-            pieces.append((sg, game_block(sg[3], sg[4]) if h == ROWS else game_line(sg[3], sg[4], h)))
+            pieces.append((sg, game_piece(sg[3], sg[4]) if h == ROWS else game_line(sg[3], sg[4], h)))
         elif k == "hdr":
             pieces.append((sg, hdr_block(sg[0], sg[1], h)))
         elif k == "sub":
-            pieces.append((sg, sub_block(sg[0], sg[1], h)))
+            pieces.append((sg, sub_block(sg[0], look_color(sg[1]), h)))
         else:
             pieces.append((sg, None))
     width = sum(p.width if p is not None else int(F.getlength(sg[0])) for sg, p in pieces) + 4
@@ -1301,7 +1503,7 @@ def text_strip(segs, stamp=True, hide_msg=False, h=ROWS):
             img.paste(pic, (x, 0))
             x += pic.width
             continue
-        text, color = sg[0], sg[1]
+        text, color = sg[0], look_color(sg[1], sg == DOT)
         is_msg = seg_kind(sg) == "msg"
         w = int(F.getlength(text))
         if is_msg:
@@ -1344,7 +1546,7 @@ def message_frame(ctl, t, x, background=None):
     d = ImageDraw.Draw(img)
     lay = None if fx == "scroll" else message_layout(txt)
     scrolling = lay is None
-    f, lines = (FONT, [txt]) if scrolling else lay
+    f, lines = (font(FONT_SIZE), [txt]) if scrolling else lay
     if fx == "fireworks":
         fireworks(d, t)
     outline = 2 * K if background is not None else 0
@@ -1434,7 +1636,7 @@ def card_length(card, ctl):
     size, lines = card_layout(card)
     if size:
         return ctl.hold
-    return max(ctl.hold, (W + _line_w(lines[0], FONT)) / ctl.speed)
+    return max(ctl.hold, (W + _line_w(lines[0], font(FONT_SIZE))) / ctl.speed)
 
 def card_frame(card, t, ctl):
     """Draws one card, t seconds after it came up."""
@@ -1443,7 +1645,7 @@ def card_frame(card, t, ctl):
     img = Image.new("RGB", (W, ROWS))
     d = ImageDraw.Draw(img)
     size, lines = card_layout(card)
-    f = font(size) if size else FONT
+    f = font(size) if size else font(FONT_SIZE)
     if card["label"]:
         lt, lc = card["label"]
         d.text((3 * K, 0), lt.upper(), font=font(LABEL_FONT), fill=lc)
@@ -1780,7 +1982,7 @@ DEMO_GAMES = [
 ]
 
 # ------------------------------------------------------------------ control page / API
-STATIC_FILES = {"icon-32.png": "image/png", "icon-180.png": "image/png", "icon-192.png": "image/png",
+STATIC_FILES = {"fonts/BarlowCondensed-Bold.ttf": "font/ttf", "fonts/Oswald-SemiBold.ttf": "font/ttf", "icon-32.png": "image/png", "icon-180.png": "image/png", "icon-192.png": "image/png",
                 "icon-512.png": "image/png", "manifest.json": "application/manifest+json"}
 
 def make_handler(ctl, feed):
