@@ -640,7 +640,9 @@ def apply_favorites(favs):
     for f in clean[:16]:
         MY_TEAMS[(f["league"], f["abbr"])] = (f["name"], hex_rgb(f["c1"]), hex_rgb(f["c2"]))
     return clean[:16]
-THEME_STYLES = ["switch", "over", "pics", "words"]   # GIF <-> words back and forth / words on the GIF / GIF only / classic
+THEME_STYLES = ["switch", "over", "pics", "words"]
+ANY_CLOSE = "ANY|ALL|close"                         # the close-game alert for every other game
+ANY_INFO = ("CLOSE GAME", (255, 170, 0), (255, 255, 255))   # GIF <-> words back and forth / words on the GIF / GIF only / classic
 
 def rgb_hex(c):
     return "#%02x%02x%02x" % tuple(c)
@@ -650,6 +652,9 @@ def default_words(name, kind):
             "win": [name, "WIN!"], "close": ["CLOSE GAME", name]}[kind]
 
 def default_theme(league, abbr, kind):
+    if league == "ANY":                              # every game: flash, the score, back to the ticker
+        return {"on": True, "style": "words", "pics": [], "words": ["CLOSE GAME", "{score}"], "every": 1.5,
+                "secs": 8, "score": True, "c1": "#ffaa00", "c2": "#ffffff"}
     name, c1, c2 = MY_TEAMS[(league, abbr)]
     return {"on": True, "style": "switch", "pics": [], "words": default_words(name, kind), "every": 1.5,
             "secs": ALERT_SECONDS, "score": True, "c1": rgb_hex(c1), "c2": rgb_hex(c2)}
@@ -661,7 +666,8 @@ def clean_themes(themes):
             league, abbr, kind = key.split("|")
         except ValueError:
             continue
-        if (league, abbr) not in MY_TEAMS or kind not in ALERT_KINDS.get(league, []) or not isinstance(th, dict):
+        if key != ANY_CLOSE and ((league, abbr) not in MY_TEAMS or kind not in ALERT_KINDS.get(league, [])) \
+                or not isinstance(th, dict):
             continue
         t = {}
         if "on" in th: t["on"] = bool(th["on"])
@@ -682,7 +688,7 @@ class Alert:
     def __init__(self, kind, game, abbr, info):
         self.kind, self.game, self.abbr, self.at = kind, game, abbr, time.time()
         self.name, self.c1, self.c2 = info
-        self.key = f"{game['league']}|{abbr}|{kind}"
+        self.key = f"{game['league']}|{abbr}|{kind}" if abbr else ANY_CLOSE
         g = game
         self.score = f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}"
         self.words = default_words(self.name, kind)
@@ -692,11 +698,22 @@ class AlertWatcher:
     def __init__(self):
         self.prev, self.close_shown, self.queue = {}, set(), []
         self.rz_at = {}                                  # game id -> when its last red-zone alert fired
+        self.seen_any = set()
 
-    def check(self, games):
+    def check(self, games, ctl=None):
         for g in games:
             abbr, team = mine(g)
             if not abbr:
+                if g["id"] not in self.seen_any:            # first look (e.g. just switched on): no alert
+                    self.seen_any.add(g["id"])
+                    if is_close(g):
+                        self.close_shown.add(g["id"])
+                    continue
+                # any game in your sports getting tight late (your own teams have their own close alert)
+                if ctl and is_close(g) and g["id"] not in self.close_shown and \
+                        (not ctl.leagues or g["league"] in ctl.leagues) and ctl.theme(ANY_CLOSE)["on"]:
+                    self.close_shown.add(g["id"])
+                    self.queue.append(Alert("close", g, None, ANY_INFO))
                 continue
             old = self.prev.get(g["id"])
             self.prev[g["id"]] = g
@@ -775,10 +792,15 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
        switch: your GIF, then the flashing words, back and forth   over: the words on top of your GIF
        pics: just your GIFs                                         words: the classic flashing words
     The last few seconds show the score (unless the theme turns that off)."""
-    th = th or default_theme(al.game["league"], al.abbr, al.kind) if (al.game["league"], al.abbr) in MY_TEAMS else \
+    th = th or default_theme("ANY", "ALL", "close") if al.key == ANY_CLOSE else \
+        th or default_theme(al.game["league"], al.abbr, al.kind) if (al.game["league"], al.abbr) in MY_TEAMS else \
         th or {"style": "words", "pics": [], "words": al.words, "every": 1.5, "secs": ALERT_SECONDS, "score": True,
                "c1": rgb_hex(al.c1), "c2": rgb_hex(al.c2)}
-    c1, c2, words = hex_rgb(th["c1"]), hex_rgb(th["c2"]), th["words"] or al.words
+    c1, c2 = hex_rgb(th["c1"]), hex_rgb(th["c2"])
+    g = al.game                                          # {score} / {clock} / {league} fill in from the game
+    short = f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}"
+    words = [w.replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"])
+             for w in (th["words"] or al.words)]
     secs = th["secs"]
     tail = (4 if secs >= 8 else 2) if th["score"] else 0
     if t >= secs - tail:
@@ -1397,7 +1419,7 @@ class Feed:
                             self.last_error = str(e)
                         last[label] = now
                 self.games = [g for l, _, _ in LEAGUES for g in by_league.get(l, [])]
-                self.watcher.check(self.games)
+                self.watcher.check(self.games, self.ctl)
                 self.note_finishes()
                 if now - last_pl > PL_REFRESH:    # ParlayLabs files are big (~8 MB) and change slowly
                     self.pl, last_pl = parlaylabs() or self.pl, now
@@ -1579,6 +1601,11 @@ class Feed:
 
     def test_alert(self, team_key, kind):
         """The phone's Test button: a pretend alert for that team, shown right away."""
+        if team_key == "ANY|ALL":
+            al = Alert("close", fake("NBA", "LAL", "BOS", 101, 99, "in", "4th 1:12"), None, ANY_INFO)
+            al.at = 0
+            self.watcher.queue.insert(0, al)
+            return
         league, abbr = team_key.split("|")
         info = MY_TEAMS[(league, abbr)]
         opp = {"NFL": "MIN", "CFB": "IOWA", "NBA": "BOS", "CBB": "DUKE", "NHL": "TOR", "MLB": "CLE"}[league]
@@ -1675,6 +1702,8 @@ def make_handler(ctl, feed):
                           "kinds": ALERT_KINDS[lg],
                           "themes": {k: ctl.theme(f"{lg}|{ab}|{k}") for k in ALERT_KINDS[lg]}}
                          for (lg, ab), (nm, c1, c2) in MY_TEAMS.items()]
+                teams.insert(0, {"key": "ANY|ALL", "league": "ANY", "abbr": "ALL", "name": "EVERY GAME", "c1": "#ffaa00",
+                                 "c2": "#ffffff", "kinds": ["close"], "themes": {"close": ctl.theme(ANY_CLOSE)}})
                 self.send(200, dict(ctl.as_dict(), games=games, has_image=bool(ctl.lib.ready_ids()), alert_teams=teams,
                                     pictures=ctl.lib.list(), pic_version=ctl.lib.version,
                                     feed_ok=feed_ok, feed_error=feed.last_error,
@@ -1872,7 +1901,7 @@ def run_display(ctl, feed, matrix):
     inter_last = None
     while True:
         al = feed.next_alert()
-        th = ctl.theme(al.key) if al and (al.game["league"], al.abbr) in MY_TEAMS else None
+        th = ctl.theme(al.key) if al and (al.key == ANY_CLOSE or (al.game["league"], al.abbr) in MY_TEAMS) else None
         if al and (th is None or th["on"]):       # takeover, then go back to whatever was showing
             start, secs = time.time(), th["secs"] if th else ALERT_SECONDS
             while (t := time.time() - start) < secs:

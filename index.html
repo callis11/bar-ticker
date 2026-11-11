@@ -514,7 +514,7 @@ const STYLE_LABEL = [["switch", "GIF ↔ words"], ["over", "Words on the GIF"], 
 const STYLE_HINT = {switch:"Your GIF, then the flashing words, back and forth.", over:"Your GIF with the words flashing on top.",
                     pics:"Just your GIFs (they take turns if you pick more than one).", words:"The classic flashing words in your colors."};
 let alSel = {team: null, kind: "td"};
-const teamLabel = t => `${t.name.charAt(0) + t.name.slice(1).toLowerCase()} · ${SPORT_LABEL[t.league]}`;
+const teamLabel = t => t.league === "ANY" ? "Every game" : `${t.name.charAt(0) + t.name.slice(1).toLowerCase()} · ${SPORT_LABEL[t.league]}`;
 function renderAlerts() {
   const teams = S.alert_teams || []; if (!teams.length) return;
   const tm = teams.find(t => t.key === alSel.team) || teams[0]; alSel.team = tm.key;
@@ -526,10 +526,12 @@ function renderAlerts() {
   $("#alTeams").innerHTML = teams.map(t => `<button data-t="${t.key}" class="${t.key === tm.key ? "on" : ""}">${esc(teamLabel(t))}</button>`).join("")
     + `<button data-t="+">+ Add a team</button>`;
   $("#alBody").hidden = !$("#addTeam").hidden;
-  $("#alTitle").textContent = `${tm.name} alerts`;
+  const any = tm.league === "ANY";
+  $("#alTitle").textContent = any ? "Close games, every game" : `${tm.name} alerts`;
   $("#alKinds").innerHTML = tm.kinds.map(k => `<button data-k="${k}" class="${k === alSel.kind ? "on" : ""}">${KIND_LABEL[k]}</button>`).join("");
   const sel = th.pics || [], w = th.words || [];
   $("#alEdit").innerHTML = `
+    ${any ? `<p class="hint" style="margin:0 0 6px">When any game in your Ticker sports gets close in the last few minutes, the ticker flashes, shows that game's score, then goes back to scrolling. Once per game. Your own teams use their own close-game alert.</p>` : ""}
     <div class="switch" style="margin-top:4px"><span>Use this alert</span><input type="checkbox" class="alOn" ${th.on ? "checked" : ""}></div>
     <h2 class="sect">Pictures &amp; GIFs</h2>
     ${ready.length ? `<div class="tiles">${ready.map(p => { const i = sel.indexOf(p.id);
@@ -543,6 +545,7 @@ function renderAlerts() {
     <p class="hint" style="margin-top:0">${sel.length || th.style === "words" ? STYLE_HINT[th.style] : "Pick a GIF above for this style; until then it shows the flashing words."}</p>
     <h2 class="sect">Words</h2>
     ${[0, 1, 2].map(i => `<input type="text" class="alW" data-i="${i}" maxlength="24" value="${esc(w[i] || "")}" placeholder="${i < 2 ? "" : "Third word (optional)"}">`).join("")}
+    <p class="hint" style="margin:0">Use <b>{score}</b> for the game's score, <b>{clock}</b> for the time left, <b>{league}</b> for the sport.</p>
     <div class="colors2"><label>Color 1 <input type="color" class="alC" data-c="c1" value="${th.c1}"></label><label>Color 2 <input type="color" class="alC" data-c="c2" value="${th.c2}"></label></div>
     <h2 class="sect">Timing</h2>
     <div class="seg alEvery"><span class="segLabel">Switch every</span>${[1, 1.5, 2, 3].map(v => `<button data-v="${v}" class="${th.every === v ? "on" : ""}">${v} s</button>`).join("")}</div>
@@ -550,7 +553,7 @@ function renderAlerts() {
     <div class="switch"><span>End on the score</span><input type="checkbox" class="alScore" ${th.score ? "checked" : ""}></div>
     <button class="btn" id="alTest">Test it on the ticker</button>
     <div class="row3" style="grid-template-columns:1fr 1fr;margin-top:6px">
-      <button class="btn ghost" id="alReset">Classic look</button><button class="btn danger" id="alRemove">Remove ${esc(tm.name.toLowerCase())}</button></div>`;
+      <button class="btn ghost" id="alReset">Classic look</button>${any ? "<span></span>" : `<button class="btn danger" id="alRemove">Remove ${esc(tm.name.toLowerCase())}</button>`}</div>`;
 }
 async function themeSave(patch, msg, reset = false) {
   try {
@@ -872,6 +875,8 @@ const Demo = (() => {
   }
   const defaultWords = (name, kind) => ({td:["TOUCHDOWN!", name + "!"], redzone:["RED ZONE", name + "!"], win:[name, "WIN!"], close:["CLOSE GAME", name]})[kind];
   function themeOf(key) {
+    if (key === "ANY|ALL|close") return Object.assign({on:true, style:"words", pics:[], words:["CLOSE GAME", "{score}"], every:1.5, secs:8,
+                                                      score:true, c1:"#ffaa00", c2:"#ffffff"}, (S.themes || {})[key] || {});
     const [lg, ab, kind] = key.split("|"), [name, c1, c2] = MY[`${lg}|${ab}`] || ["TEAM", "#ffbe00", "#ffffff"];
     return Object.assign({on:true, style:"switch", pics:[], words:defaultWords(name, kind), every:1.5, secs:10, score:true, c1, c2},
                          (S.themes || {})[key] || {});
@@ -1393,7 +1398,8 @@ const Demo = (() => {
     center(word, fit(word), flash ? (kind === "close" ? "#000" : "#fff") : hot);
   }
   function drawAlert(al, t) {                      // same styles as ticker.py: switch / over / pics / words
-    const th = themeOf(al.key), words = th.words.length ? th.words : al.words;
+    const th = themeOf(al.key), gm = al.game, short = `${gm.away} ${gm.ascore}  ${gm.home} ${gm.hscore}`;
+    const words = (th.words.length ? th.words : al.words).map(w => w.replace("{score}", short).replace("{clock}", gm.detail).replace("{league}", gm.league));
     const tail = th.score ? (th.secs >= 8 ? 4 : 2) : 0;
     if (t >= th.secs - tail) {
       drawGame(al.game);                          // the score, big, with a pulsing team-color border
@@ -1721,6 +1727,10 @@ const Demo = (() => {
   }
 
   function testAlert(teamKey = "NFL|DET", kind = "td") {     // the Test button: shows right away
+    if (teamKey === "ANY|ALL") {
+      alerts.unshift({kind: "close", key: "ANY|ALL|close", now: true, at: performance.now(), game: fake("NBA","LAL","BOS",101,99,"in","4th 1:12"), words: ["CLOSE GAME"]});
+      return;
+    }
     const [lg, ab] = teamKey.split("|"), [name] = MY[teamKey] || ["TEAM"];
     let opp = {NFL:"MIN", CFB:"IOWA", NBA:"BOS", CBB:"DUKE", NHL:"TOR", MLB:"CLE"}[lg];
     if (opp === ab) opp = {NFL:"GB", CFB:"OSU", NBA:"NY", CBB:"UK", NHL:"MTL", MLB:"NYY"}[lg];
@@ -1773,9 +1783,10 @@ const Demo = (() => {
     }
     return Object.assign({}, S, {games: games.map(z => Object.assign({mine: !!mine(z), close: isClose(z)}, z)),
                                  pictures: lib.map(meta), pic_version: libVer,
-                                 alert_teams: (S.favorites || []).map(f => { const key = `${f.league}|${f.abbr}`;
+                                 alert_teams: [{key: "ANY|ALL", league: "ANY", abbr: "ALL", name: "EVERY GAME", c1: "#ffaa00", c2: "#ffffff",
+                                                kinds: ["close"], themes: {close: themeOf("ANY|ALL|close")}}].concat((S.favorites || []).map(f => { const key = `${f.league}|${f.abbr}`;
                                    return {key, league: f.league, abbr: f.abbr, name: f.name, c1: f.c1, c2: f.c2, kinds: ALERT_KINDS[f.league],
-                                           themes: Object.fromEntries(ALERT_KINDS[f.league].map(k => [k, themeOf(`${key}|${k}`)]))}; }),
+                                           themes: Object.fromEntries(ALERT_KINDS[f.league].map(k => [k, themeOf(`${key}|${k}`)]))}; })),
                                  has_image: lib.length > 0, feed_ok: true, last_ok: 0});
   }
 
