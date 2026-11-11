@@ -229,7 +229,13 @@ def parse_game(label, ev):
     a, h = teams["away"], teams["home"]
     st = ev.get("status") or comp.get("status") or {}
     odds = (comp.get("odds") or [{}])[0]
+    sit = comp.get("situation") or {}               # football, while it's live: down, distance, ball
+    poss = str(sit.get("possession") or "")
+    ids = lambda c: {str(c.get("id") or ""), str((c.get("team") or {}).get("id") or "")} - {""}
     return dict(
+        down=sit.get("shortDownDistanceText") or "", spot=sit.get("possessionText") or "",
+        redzone=bool(sit.get("isRedZone")),
+        poss="away" if poss and poss in ids(a) else "home" if poss and poss in ids(h) else "",
         id=f"{label}-{ev['id']}", league=label,
         away=a["team"]["abbreviation"], home=h["team"]["abbreviation"],
         ascore=_score(a), hscore=_score(h),
@@ -668,7 +674,7 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     left  = (f"{away} {g['mla']}" if ml else away) if pre else f"{away} {g['ascore']}"
     right = (f"{g['mlh']} {home}" if ml else home) if pre else f"{g['hscore']} {home}"
     mid1  = short_time(g["detail"]) if pre else g["detail"]
-    mid2  = ""
+    mid2  = downs(g)                                     # live football: the down under the clock
     if pre:
         mid2 = (f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or \
                (g.get("spread") or "" if "spread" in odds else "")
@@ -676,7 +682,7 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
         big, small = font(size), font(max(9, size // 2 + 1))
         parts = mid1.split(" ", 1) if " " in mid1 and not mid2 else [mid1]
         mid_w = max([small.getlength(x) for x in parts] + [small.getlength(mid2)])
-        if big.getlength(left) + big.getlength(right) + mid_w + 20 * K <= W:
+        if big.getlength(left) + big.getlength(right) + mid_w + 20 * K + (30 * K if g.get("poss") else 0) <= W:
             break
     my = mine(g)[0]
     col = lambda team: GOLD if team == my else WHITE
@@ -692,7 +698,10 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     mx = int((gap_l + gap_r) / 2)                        # middle of the space between the teams
     gap = gap_r - gap_l - 6
     top, bot = int(ROWS * 0.29), int(ROWS * 0.71)
-    if mid2:
+    if mid2 and live:
+        centered(d, mid1, small, RED, cx=mx, cy=top)
+        centered(d, mid2, small, down_color(g), cx=mx, cy=bot)
+    elif mid2:
         centered(d, mid1, small, ODDS_COLOR, cx=mx, cy=top)
         centered(d, mid2, small, ODDS_COLOR, cx=mx, cy=bot)
     else:
@@ -700,6 +709,12 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
         for i, p in enumerate(parts):
             cy = ROWS // 2 if len(parts) == 1 else (top if i == 0 else bot)
             centered(d, p, small, RED if live else GRAY, cx=mx, cy=cy)
+    if live and g.get("poss"):                           # little football next to the team with the ball
+        bs = big.size / 22
+        if g["poss"] == "away":
+            draw_ball(d, gap_l + 5, ROWS / 2, bs)
+        else:
+            draw_ball(d, gap_r - 5 - 11 * bs, ROWS / 2, bs)
     if rotate:                                           # thin bar along the top = time until the next game
         d.rectangle([0, 0, int(W * (time.time() % rotate) / rotate), K - 1], fill=(50, 50, 80))
     return img
@@ -768,6 +783,25 @@ def text_at(d, x, cy, text, f, color, **kw):
     d.text((x, cy - (b - t) / 2 - t), text, font=f, fill=color, **kw)
     return f.getlength(text)
 
+BALL, LACE = (150, 75, 30), (255, 255, 255)
+REDZONE = (255, 90, 60)
+
+def downs(g):
+    """'3rd & 7 · DET 35' for a live football game ('' otherwise, e.g. between quarters)."""
+    if g["state"] != "in" or not g.get("down"):
+        return ""
+    return f"{g['down']} · {g['spot']}" if g.get("spot") else g["down"]
+
+def down_color(g):
+    return REDZONE if g.get("redzone") else WHITE
+
+def draw_ball(d, x, cy, size=1.0):
+    """Little football: marks the team that has the ball."""
+    w, h = 11 * size, 7 * size
+    d.ellipse([x, cy - h / 2, x + w, cy + h / 2], fill=BALL)
+    d.line([(x + w * 0.3, cy), (x + w * 0.7, cy)], fill=LACE, width=max(1, round(size)))
+    return w
+
 def game_status(g, odds):
     """Right-hand column of a two-line game: [(text, color), ...] (one or two lines)."""
     if g["state"] == "pre":
@@ -780,6 +814,8 @@ def game_status(g, odds):
         return [(first, (170, 170, 170))] + ([(line2, ODDS_COLOR)] if line2 else [])
     if g["state"] == "in":
         d = g["detail"]
+        if downs(g):                                                  # football: clock on top, the down underneath
+            return [(d, RED), (downs(g), down_color(g))]
         parts = d.split(" ", 1) if " " in d else [d]                # "4th 3:12" -> "4th" / "3:12"
         return [(p, RED) for p in parts]
     return [(g["detail"], (150, 150, 150))]
@@ -807,7 +843,8 @@ def game_block(g, odds=("ou", "ml")):
     nw = max(f.getlength(r[0]) for r in rows)
     sw = max(f.getlength(r[1]) for r in rows)
     stw = max(fs.getlength(t) for t, _ in status)
-    x_name = 10
+    ball_col = g["state"] == "in" and g.get("poss")
+    x_name = 26 if ball_col else 10                                  # room for the little football
     x_score_r = x_name + nw + (14 + sw if sw else 0)
     x_div = x_score_r + 12
     x_stat = x_div + 12
@@ -817,7 +854,9 @@ def game_block(g, odds=("ou", "ml")):
     lg = {l: c for l, _, c in LEAGUES}.get(g["league"], GRAY)
     d.rectangle([0, 4, 3, ROWS - 5], fill=lg)
     cys = (ROWS * 0.25, ROWS * 0.75)
-    for (name, right, col, rcol), cy in zip(rows, cys):
+    for (name, right, col, rcol), cy, side in zip(rows, cys, ("away", "home")):
+        if ball_col and g["poss"] == side:
+            draw_ball(d, 9, cy, 1.3)
         text_at(d, x_name, cy, name, f, col)
         if right:
             text_at(d, x_score_r - f.getlength(right), cy, right, f, rcol)
@@ -846,17 +885,25 @@ def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE):
         if line:
             parts.append(("  " + line, ODDS_COLOR, fs))
     else:
-        parts += [(f"{team(g, 'away')} {g['ascore']}", tcol("away", "ascore", g["hscore"]), f), ("  ", WHITE, f),
-                  (f"{team(g, 'home')} {g['hscore']}", tcol("home", "hscore", g["ascore"]), f),
-                  ("  " + g["detail"], RED if g["state"] == "in" else (150, 150, 150), fs)]
-    width = int(9 + sum(pf.getlength(t) for t, _, pf in parts) + 6)
+        ball = lambda side: [("@BALL", None, f)] if g["state"] == "in" and g.get("poss") == side else []
+        parts += ball("away") + [(f"{team(g, 'away')} {g['ascore']}", tcol("away", "ascore", g["hscore"]), f), ("  ", WHITE, f)] \
+                 + ball("home") + [(f"{team(g, 'home')} {g['hscore']}", tcol("home", "hscore", g["ascore"]), f),
+                                   ("  " + g["detail"], RED if g["state"] == "in" else (150, 150, 150), fs)]
+        if downs(g):
+            parts.append(("  " + downs(g), down_color(g), fs))
+    bsize = size / 22
+    plen = lambda t, pf: 11 * bsize + 5 if t == "@BALL" else pf.getlength(t)
+    width = int(9 + sum(plen(t, pf) for t, _, pf in parts) + 6)
     img = Image.new("RGB", (width, h))
     d = ImageDraw.Draw(img)
     lg = {l: c for l, _, c in LEAGUES}.get(g["league"], GRAY)
     d.rectangle([0, 3, 2, h - 4], fill=lg)
     x = 9
     for t, c, pf in parts:
-        x += text_at(d, x, h / 2, t, pf, c)
+        if t == "@BALL":
+            x += draw_ball(d, x, h / 2, bsize) + 5
+        else:
+            x += text_at(d, x, h / 2, t, pf, c)
     return img
 
 def pinned_frame(games, t, ctl):
@@ -1398,10 +1445,11 @@ def demo_parlaylabs():
         return []
 
 def fake(league, away, home, a, h, state, detail, spread=None, total=None, period=4, clock=180, mla=None, mlh=None,
-         hours=0, arank=None, hrank=None):
+         hours=0, arank=None, hrank=None, down="", spot="", poss="", redzone=False):
     return dict(id=f"{league}-{away}{home}", league=league, away=away, home=home, ascore=a, hscore=h,
                 state=state, detail=detail, period=period, clock=clock, ranked=True, spread=spread, total=total,
-                mla=mla, mlh=mlh, start=_demo_start(hours), arank=arank, hrank=hrank)
+                mla=mla, mlh=mlh, start=_demo_start(hours), arank=arank, hrank=hrank,
+                down=down, spot=spot, poss=poss, redzone=redzone)
 
 def _demo_start(hours):
     """Sample start times: on the hour, `hours` from now."""
@@ -1409,13 +1457,13 @@ def _demo_start(hours):
     return t - t % 1800
 
 DEMO_GAMES = [
-    fake("NFL", "MIN", "DET", 17, 24, "in", "4th 3:12", hours=-3),
-    fake("NFL", "CHI", "GB", 10, 14, "in", "2nd 0:45", period=2, hours=-1),
+    fake("NFL", "MIN", "DET", 17, 24, "in", "4th 3:12", hours=-3, down="3rd & 7", spot="DET 35", poss="home"),
+    fake("NFL", "CHI", "GB", 10, 14, "in", "2nd 0:45", period=2, hours=-1, down="1st & Goal", spot="CHI 8", poss="home", redzone=True),
     fake("NFL", "KC", "BUF", 0, 0, "pre", "Sun 4:25 PM EST", "BUF -2.5", 51.5, mla="+120", mlh="-142", hours=26),
     fake("NFL", "PHI", "DAL", 0, 0, "pre", "Sun 4:25 PM EST", "DAL +3", 47.5, mla="-150", mlh="+128", hours=26),
     fake("NFL", "NYJ", "MIA", 20, 23, "post", "Final", hours=-5),
     fake("NBA", "DET", "BOS", 0, 0, "pre", "7:30 PM EST", "BOS -6.5", 224.5, mla="+225", mlh="-275", hours=4),
-    fake("CFB", "MSU", "IOWA", 21, 17, "in", "3rd 9:58", period=3, hours=-2, hrank=22),
+    fake("CFB", "MSU", "IOWA", 21, 17, "in", "3rd 9:58", period=3, hours=-2, hrank=22, down="2nd & 4", spot="IOWA 41", poss="away"),
     fake("CBB", "MSU", "DUKE", 0, 0, "pre", "Tue 9:00 PM EST", "DUKE -3", 148.5, mla="+130", mlh="-155", hours=72, arank=15, hrank=6),
 ]
 
