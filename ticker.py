@@ -1465,11 +1465,16 @@ def make_handler(ctl, feed):
             elif path == "/api/pictures":
                 self.send(200, ctl.lib.list())
             elif path.startswith("/api/pictures/") and path.endswith(".png"):
-                # a 640 x 64 preview of one picture as the ticker shows it; ?fit=&focus=&t= try settings without saving
+                # a 640 x 64 preview of one picture as the ticker shows it; ?fit=&zoom=&fx=&fy=&t= try settings without saving
                 q = dict(kv.split("=", 1) for kv in self.path.split("?", 1)[1].split("&") if "=" in kv) if "?" in self.path else {}
                 pid = path[len("/api/pictures/"):-4]
                 try:
-                    r = ctl.lib.rendered(pid, ctl.pic_boost, q.get("fit"), q.get("focus"))
+                    it = ctl.lib.get(pid)
+                    view = None
+                    if it and any(k in q for k in ("zoom", "fx", "fy")):
+                        z, fx, fy = pictures.view_of(it)
+                        view = (q.get("zoom", z), q.get("fx", fx), q.get("fy", fy))
+                    r = ctl.lib.rendered(pid, ctl.pic_boost, q.get("fit"), view)
                 except Exception as e:
                     return self.send(400, {"error": str(e)})
                 if r is None:
@@ -1527,7 +1532,7 @@ def make_handler(ctl, feed):
                     ctl.update({"pic_ids": [i for i in ctl.pic_ids if i != pid],
                                 "pic_solo": "" if ctl.pic_solo == pid else ctl.pic_solo,
                                 "mode": "scroll" if ctl.mode == "image" and not ctl.lib.ready_ids() else ctl.mode})
-                elif path.startswith("/api/pictures/"):      # change a picture's fit / focus / name
+                elif path.startswith("/api/pictures/"):      # change a picture's fit / zoom / position / name
                     ctl.lib.edit(path.split("/")[3], json.loads(body or b"{}"))
                     ctl.update({})
                 else:

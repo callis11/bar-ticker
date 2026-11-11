@@ -39,10 +39,13 @@ def cover_size(w, h, W, H):
     return max(W, round(w * s)), max(H, round(h * s))
 
 
-def render(img, fit, focus, W, H, do_boost=True):
+MAX_ZOOM = 4.0
+
+def render(img, fit, view, W, H, do_boost=True):
     """One frame of a picture fitted to the W x H strip.
-    contain: whole picture, black bars.  fill / pan: cover the strip; focus (0-1) picks which part shows
-    (top..bottom for normal photos, left..right for extra-wide panoramas)."""
+    contain: whole picture, black bars.
+    fill: covers the strip. view = (zoom, x, y): zoom 1 just fills the strip, up to 4x closer;
+          x and y (0-1) slide which part shows, left..right and top..bottom."""
     img = img.convert("RGB")
     out = Image.new("RGB", (W, H))
     if fit == "contain":
@@ -50,12 +53,26 @@ def render(img, fit, focus, W, H, do_boost=True):
         r = _resize(img, (max(1, round(img.width * s)), max(1, round(img.height * s))))
         out.paste(r, ((W - r.width) // 2, (H - r.height) // 2))
     else:
-        cw, ch = cover_size(img.width, img.height, W, H)
-        r = _resize(img, (cw, ch))
-        ox = round((cw - W) * focus) if cw > W else 0
-        oy = round((ch - H) * focus) if ch > H else 0
-        out = r.crop((ox, oy, ox + W, oy + H))
+        zoom, fx, fy = view
+        s = max(W / img.width, H / img.height) * zoom        # picture pixels -> strip pixels
+        cw, ch = img.width * s, img.height * s
+        ox, oy = max(0.0, cw - W) * fx, max(0.0, ch - H) * fy
+        box = (ox / s, oy / s, (ox + W) / s, (oy + H) / s)   # the part of the picture that shows
+        if s > 1.4 and img.height <= 128:                     # pixel art: crisp blocks
+            out = img.resize((W, H), Image.NEAREST, box=box)
+        else:
+            out = img.resize((W, H), Image.LANCZOS, box=box, reducing_gap=3.0)
     return boost(out) if do_boost else out
+
+
+def view_of(it):
+    """(zoom, x, y) for a library item. Older items only had one "focus" slider (up/down, or left/right
+    for extra-wide panoramas)."""
+    if "fy" in it:
+        return (it.get("zoom", 1.0), it.get("fx", 0.5), it["fy"])
+    f = it.get("focus", 0.5)
+    wide = it.get("w") and it.get("h") and it["w"] / it["h"] > 10
+    return (1.0, f, 0.5) if wide else (1.0, 0.5, f)
 
 
 def pan_source(img, W, H, do_boost=True):
@@ -152,7 +169,7 @@ class Library:
         name = (name or "Picture").strip()[:60]
         ext = os.path.splitext(name)[1].lower()
         is_video = mime.startswith("video/") or ext in VIDEO_EXT
-        it = {"id": pid, "name": os.path.splitext(name)[0] or "Picture", "fit": fit, "focus": 0.5,
+        it = {"id": pid, "name": os.path.splitext(name)[0] or "Picture", "fit": fit, "zoom": 1.0, "fx": 0.5, "fy": 0.5,
               "added": int(time.time())}
         if is_video:
             it.update(kind="video", status="converting", file=pid + ".src" + (ext or ".mp4"))
@@ -228,8 +245,19 @@ class Library:
                 raise KeyError("no such picture")
             if "fit" in d and d["fit"] in FITS:
                 it["fit"] = d["fit"]
-            if "focus" in d:
-                it["focus"] = max(0.0, min(1.0, float(d["focus"])))
+            zoom, fx, fy = view_of(it)
+            if "focus" in d:                                   # older phone page: one slider
+                f = max(0.0, min(1.0, float(d["focus"])))
+                wide = it.get("w") and it.get("h") and it["w"] / it["h"] > 10
+                fx, fy = (f, fy) if wide else (fx, f)
+            if "zoom" in d:
+                zoom = max(1.0, min(MAX_ZOOM, float(d["zoom"])))
+            if "fx" in d:
+                fx = max(0.0, min(1.0, float(d["fx"])))
+            if "fy" in d:
+                fy = max(0.0, min(1.0, float(d["fy"])))
+            it.update(zoom=round(zoom, 3), fx=round(fx, 3), fy=round(fy, 3))
+            it.pop("focus", None)
             if "name" in d and str(d["name"]).strip():
                 it["name"] = str(d["name"]).strip()[:60]
             self.save()
@@ -258,21 +286,24 @@ class Library:
         return it
 
     # ---- rendering
-    def rendered(self, pid, do_boost=True, fit=None, focus=None):
-        """Frames for a picture with its settings (or the given fit/focus for a preview). Cached."""
+    def rendered(self, pid, do_boost=True, fit=None, view=None):
+        """Frames for a picture with its settings (or the given fit / (zoom, x, y) for a preview). Cached."""
         it = self.get(pid)
         if not it or it.get("status") != "ready":
             return None
         fit = fit if fit in FITS else it["fit"]
-        focus = it["focus"] if focus is None else max(0.0, min(1.0, float(focus)))
+        view = view_of(it) if view is None else (max(1.0, min(MAX_ZOOM, float(view[0]))),
+                                                 max(0.0, min(1.0, float(view[1]))), max(0.0, min(1.0, float(view[2]))))
         if it["kind"] != "image" and fit == "pan":
             fit = "fill"                                   # moving pictures don't also pan
-        key = (pid, fit, round(focus, 3), bool(do_boost))
+        if fit != "fill":
+            view = (1.0, 0.5, 0.5)
+        key = (pid, fit, tuple(round(v, 3) for v in view), bool(do_boost))
         with self.lock:
             if key in self.cache:
                 self.cache.move_to_end(key)
                 return self.cache[key]
-        r = self._render(it, fit, focus, do_boost)
+        r = self._render(it, fit, view, do_boost)
         with self.lock:
             self.cache[key] = r
             while sum(v.size for v in self.cache.values()) > CACHE_FRAMES and len(self.cache) > 1:
@@ -286,7 +317,8 @@ class Library:
         if not it or it.get("status") != "ready":
             return None
         fit = "fill" if it["kind"] != "image" and it["fit"] == "pan" else it["fit"]
-        key = (pid, fit, round(it["focus"], 3), bool(do_boost))
+        view = view_of(it) if fit == "fill" else (1.0, 0.5, 0.5)
+        key = (pid, fit, tuple(round(v, 3) for v in view), bool(do_boost))
         with self.lock:
             if key in self.cache:
                 self.cache.move_to_end(key)
@@ -305,11 +337,11 @@ class Library:
         threading.Thread(target=work, daemon=True).start()
         return None
 
-    def _render(self, it, fit, focus, do_boost):
+    def _render(self, it, fit, view, do_boost):
         W, H = self.W, self.H
         path = self.path(it)
         if it["kind"] == "video":
-            frames = [(render(fr, fit, focus, W, H, do_boost), 1000 // VIDEO_FPS)
+            frames = [(render(fr, fit, view, W, H, do_boost), 1000 // VIDEO_FPS)
                       for fr in video_frames(path, it.get("w"), it.get("h"))]
             return Rendered(frames=frames or [(Image.new("RGB", (W, H)), 1000)])
         im = Image.open(path)
@@ -319,13 +351,13 @@ class Library:
                 im.draft("RGB", (W * 2, H * 2))
             if fit == "pan":
                 return Rendered(pan=pan_source(im, W, H, do_boost))
-            return Rendered(frames=[(render(im, fit, focus, W, H, do_boost), 1000)])
+            return Rendered(frames=[(render(im, fit, view, W, H, do_boost), 1000)])
         frames = []
         for i, fr in enumerate(ImageSequence.Iterator(im)):
             if i >= MAX_GIF_FRAMES:
                 break
             ms = fr.info.get("duration", 100) or 100
-            frames.append((render(fr.convert("RGB"), fit, focus, W, H, do_boost), 100 if ms <= 10 else max(20, ms)))
+            frames.append((render(fr.convert("RGB"), fit, view, W, H, do_boost), 100 if ms <= 10 else max(20, ms)))
         return Rendered(frames=frames)
 
 

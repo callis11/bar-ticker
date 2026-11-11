@@ -485,8 +485,29 @@ $("#demoTests").onclick = e => { const b = e.target.closest("button"); if (b) De
 // ---------- picture library
 let openPic = null;                                  // the picture whose settings are open
 const FIT_HINT = {contain:"The whole picture, with black bars at the sides.",
-                  fill:"Fills the strip edge to edge. Slide to pick which part shows.",
+                  fill:"Fills the strip edge to edge. Zoom in, then slide left/right and up/down to pick exactly what shows.",
                   pan:"Fills the strip and slowly glides across the whole picture, then back."};
+// zoom / left-right / up-down for a Fill picture; a slider only shows when there's room to move that way
+const viewOf = p => {
+  if (p.fy !== undefined) return [p.zoom || 1, p.fx ?? 0.5, p.fy];
+  const f = p.focus ?? 0.5, wide = p.w && p.h && p.w / p.h > 10;
+  return wide ? [1, f, 0.5] : [1, 0.5, f];
+};
+function room(p, zoom) {                              // how far the picture spills past the strip, in strip pixels
+  if (!p.w || !p.h) return [1, 1];
+  const s = Math.max(640 / p.w, 64 / p.h) * zoom;
+  return [p.w * s - 640, p.h * s - 64];
+}
+function viewSliders(p) {
+  const [z, fx, fy] = viewOf(p), [rx, ry] = room(p, z);
+  return `<label class="row"><span>Zoom</span><span class="zv">${z.toFixed(1)}×</span></label>
+    <input type="range" class="vz" min="100" max="400" step="5" value="${Math.round(z * 100)}">
+    <div class="vxw" ${rx > 1 ? "" : "hidden"}><label class="row"><span>Left ↔ Right</span><span></span></label>
+      <input type="range" class="vx" min="0" max="100" value="${Math.round(fx * 100)}"></div>
+    <div class="vyw" ${ry > 1 ? "" : "hidden"}><label class="row"><span>Up ↕ Down</span><span></span></label>
+      <input type="range" class="vy" min="0" max="100" value="${Math.round(fy * 100)}"></div>
+    <button class="ed reset" style="margin-top:6px">Reset zoom and position</button>`;
+}
 const picURL = (id, q = "") => DEMO ? Demo.thumb(id, q) : `/api/pictures/${id}.png?v=${S.pic_version || 0}${q ? "&" + q : ""}`;
 const readyPics = () => (S.pictures || []).filter(p => p.status === "ready");
 const picChecked = p => !(S.pic_ids || []).length || S.pic_ids.includes(p.id);
@@ -504,7 +525,7 @@ function renderPics() {
   $("#playShow").textContent = showing ? "Slideshow is playing" : "Play slideshow";
   $("#playShow").classList.toggle("ghost", showing);
   $("#playShow").hidden = !readyPics().length;
-  const key = JSON.stringify([list.map(p => [p.id, p.status, p.fit, p.focus, p.name]), S.pic_ids, S.pic_solo, S.mode, openPic, S.pic_version, S.pic_boost]);
+  const key = JSON.stringify([list.map(p => [p.id, p.status, p.fit, p.zoom, p.fx, p.fy, p.name]), S.pic_ids, S.pic_solo, S.mode, openPic, S.pic_version, S.pic_boost]);
   if (key === renderPics.key) return;               // no flicker on every poll
   renderPics.key = key;
   if (!list.length) { $("#pics").innerHTML = '<p class="empty">No pictures yet. Add one above.</p>'; return; }
@@ -521,8 +542,7 @@ function renderPics() {
         <button data-fit="contain" class="${p.fit === "contain" ? "on" : ""}">Whole picture</button>
         <button data-fit="fill" class="${p.fit === "fill" || (!still && p.fit === "pan") ? "on" : ""}">Fill</button>
         ${still ? `<button data-fit="pan" class="${p.fit === "pan" ? "on" : ""}">Slow pan</button>` : ""}</div>
-      ${p.fit === "fill" || (!still && p.fit === "pan") ? `<label class="row"><span>Which part shows</span><span>${wide ? "left ↔ right" : "top ↔ bottom"}</span></label>
-        <input type="range" class="focus" min="0" max="100" value="${Math.round((p.focus ?? 0.5) * 100)}">` : ""}
+      ${p.fit === "fill" || (!still && p.fit === "pan") ? viewSliders(p) : ""}
       <p class="hint">${FIT_HINT[still ? p.fit : (p.fit === "contain" ? "contain" : "fill")]}</p>` : ""}
       <div class="actions">${ready ? `<button class="btn showNow">Show this now</button>` : "<span></span>"}<button class="btn danger del">Delete</button></div>
     </div>`;
@@ -539,6 +559,7 @@ async function picEdit(id, patch) {
 $("#pics").onclick = async e => {
   const card = e.target.closest(".pic"); if (!card) return;
   const id = card.dataset.id, p = (S.pictures || []).find(z => z.id === id); if (!p) return;
+  if (e.target.closest(".reset")) return picEdit(id, {zoom: 1, fx: 0.5, fy: 0.5});
   if (e.target.closest(".ed") || e.target.closest(".thumb") || e.target.closest(".wait")) { openPic = openPic === id ? null : id; return renderPics(); }
   const fb = e.target.closest(".fitSeg button");
   if (fb) return picEdit(id, {fit: fb.dataset.fit});
@@ -559,15 +580,20 @@ $("#pics").onclick = async e => {
   }
 };
 let tFocus;
-$("#pics").oninput = e => {                             // live preview while sliding "which part shows"
-  if (!e.target.classList.contains("focus")) return;
-  const card = e.target.closest(".pic"), id = card.dataset.id, f = e.target.value / 100;
+const editView = card => [+card.querySelector(".vz").value / 100, +card.querySelector(".vx").value / 100, +card.querySelector(".vy").value / 100];
+$("#pics").oninput = e => {                             // live preview while sliding zoom / position
+  if (!e.target.matches(".vz, .vx, .vy")) return;
+  const card = e.target.closest(".pic"), id = card.dataset.id, p = (S.pictures || []).find(z => z.id === id);
+  const [z, fx, fy] = editView(card), [rx, ry] = room(p, z);
+  card.querySelector(".zv").textContent = z.toFixed(1) + "×";
+  card.querySelector(".vxw").hidden = !(rx > 1); card.querySelector(".vyw").hidden = !(ry > 1);
   clearTimeout(tFocus);
-  tFocus = setTimeout(() => { const im = card.querySelector(".thumb"); if (im) im.src = picURL(id, `fit=fill&focus=${f}&t=1`); }, 90);
+  tFocus = setTimeout(() => { const im = card.querySelector(".thumb"); if (im) im.src = picURL(id, `fit=fill&zoom=${z}&fx=${fx}&fy=${fy}&t=1`); }, 80);
 };
 $("#pics").onchange = e => {
-  if (!e.target.classList.contains("focus")) return;
-  picEdit(e.target.closest(".pic").dataset.id, {focus: e.target.value / 100});
+  if (!e.target.matches(".vz, .vx, .vy")) return;
+  const card = e.target.closest(".pic"), [zoom, fx, fy] = editView(card);
+  picEdit(card.dataset.id, {zoom, fx, fy});
 };
 $("#playShow").onclick = () => save({mode:"image", pic_solo:""}, "Playing the slideshow");
 $("#picSecs").onclick = e => { const b = e.target.closest("button"); if (b) save({pic_secs:+b.dataset.s}); };
@@ -1198,7 +1224,7 @@ const Demo = (() => {
   }
 
   // ---- picture library (demo: kept in this page only, gone on reload)
-  const lib = [];                                   // {id, name, kind, fit, focus, status, w, h, seconds, el | buf}
+  const lib = [];                                   // {id, name, kind, fit, zoom, fx, fy, status, w, h, seconds, el | buf}
   let libVer = 1;
   const hold = document.createElement("div");     // videos only play while they're on the page
   hold.style.cssText = "position:fixed;left:-9999px;top:0;width:4px;height:4px;overflow:hidden;opacity:0;pointer-events:none";
@@ -1293,7 +1319,7 @@ const Demo = (() => {
     if (kind === "image" && h > w) fit = "pan";              // tall phone photos: glide top to bottom
     if (kind === "gif" && h <= 80) fit = "contain";          // little pixel-art GIFs: whole thing
     const it = {id: Math.random().toString(16).slice(2, 10), name: name.replace(/\.[^.]+$/, "") || "Picture",
-                kind, fit, focus: 0.5, status: "ready", w, h, seconds, el, buf};
+                kind, fit, zoom: 1, fx: 0.5, fy: 0.5, status: "ready", w, h, seconds, el, buf};
     lib.push(it); libVer++;
     return it;
   }
@@ -1308,28 +1334,33 @@ const Demo = (() => {
     while (baked.size > 24) baked.delete(baked.keys().next().value);
     return v;
   }
-  function fitInto(c, src, w, h, fit, focus) {        // same fitting as pictures.py
+  function fitInto(c, src, w, h, fit, view) {         // same fitting as pictures.py; view = [zoom, x, y]
     c.fillStyle = "#000"; c.fillRect(0, 0, W, H);
     c.imageSmoothingEnabled = !(h <= 128 && Math.min(W / w, H / h) > 1.4);   // pixel art stays crisp
     if (S.pic_boost !== false) c.filter = "saturate(1.35) contrast(1.12)";
     if (fit === "contain") { const sc = Math.min(W / w, H / h); c.drawImage(src, (W - w * sc) / 2, (H - h * sc) / 2, w * sc, h * sc); }
-    else { const [cw, ch] = cover(w, h); c.drawImage(src, -(cw - W) * focus, -(ch - H) * focus, cw, ch); }
+    else {
+      const [zoom, fx, fy] = view, sc = Math.max(W / w, H / h) * zoom, cw = w * sc, ch = h * sc;
+      c.imageSmoothingEnabled = !(h <= 128 && sc > 1.4);
+      c.drawImage(src, -Math.max(0, cw - W) * fx, -Math.max(0, ch - H) * fy, cw, ch);
+    }
     c.filter = "none"; c.imageSmoothingEnabled = true;
   }
-  function gifFrames(p, fit, focus, firstOnly = false) {
-    return keep(`${p.id}|${fit}|${focus}|${S.pic_boost !== false}|${firstOnly}`, () => {
+  function gifFrames(p, fit, view, firstOnly = false) {
+    return keep(`${p.id}|${fit}|${view}|${S.pic_boost !== false}|${firstOnly}`, () => {
       const frames = [];
-      decodeGIF(p.buf, (work, ms, w, h) => { const cv = newC(W, H); fitInto(cv.getContext("2d"), work, w, h, fit, focus); frames.push({cv, ms}); },
+      decodeGIF(p.buf, (work, ms, w, h) => { const cv = newC(W, H); fitInto(cv.getContext("2d"), work, w, h, fit, view); frames.push({cv, ms}); },
                 firstOnly ? 1 : 400);
       frames.total = frames.reduce((a, f) => a + f.ms, 0) || 1;
       return frames;
     });
   }
-  function renderPic(p, c, t, fit = p.fit, focus = p.focus, firstOnly = false) {
+  function renderPic(p, c, t, fit = p.fit, view = [p.zoom, p.fx, p.fy], firstOnly = false) {
     if (p.kind !== "image" && fit === "pan") fit = "fill";
-    if (p.kind === "video") return fitInto(c, p.el, p.w, p.h, fit, focus);
+    if (fit !== "fill") view = [1, 0.5, 0.5];
+    if (p.kind === "video") return fitInto(c, p.el, p.w, p.h, fit, view);
     if (p.kind === "gif") {
-      const fr = gifFrames(p, fit, focus, firstOnly);
+      const fr = gifFrames(p, fit, view, firstOnly);
       let pos = (t * 1000) % fr.total, f = fr[0];
       for (const x of fr) { if (pos < x.ms) { f = x; break; } pos -= x.ms; }
       return c.drawImage(f.cv, 0, 0);
@@ -1346,14 +1377,15 @@ const Demo = (() => {
       c.fillStyle = "#000"; c.fillRect(0, 0, W, H);
       return c.drawImage(big, -(big.width - W) * q, -(big.height - H) * q);
     }
-    c.drawImage(keep(`${p.id}|${fit}|${focus}|${S.pic_boost !== false}`, () => {
-      const cv = newC(W, H); fitInto(cv.getContext("2d"), p.el, p.w, p.h, fit, focus); return cv; }), 0, 0);
+    c.drawImage(keep(`${p.id}|${fit}|${view}|${S.pic_boost !== false}`, () => {
+      const cv = newC(W, H); fitInto(cv.getContext("2d"), p.el, p.w, p.h, fit, view); return cv; }), 0, 0);
   }
   const thumbCanvas = newC(W, H);
   function thumb(id, q = "") {
     const p = lib.find(z => z.id === id); if (!p) return "";
     const o = Object.fromEntries(q.split("&").filter(Boolean).map(kv => kv.split("=")));
-    renderPic(p, thumbCanvas.getContext("2d"), p.fit === "pan" && !o.fit ? 5 : 0, o.fit || p.fit, o.focus !== undefined ? +o.focus : p.focus, true);
+    const view = [o.zoom ?? p.zoom, o.fx ?? p.fx, o.fy ?? p.fy].map(Number);
+    renderPic(p, thumbCanvas.getContext("2d"), p.fit === "pan" && !o.fit ? 5 : 0, o.fit || p.fit, view, true);
     return thumbCanvas.toDataURL();
   }
   function picPlaylist() {
@@ -1498,7 +1530,9 @@ const Demo = (() => {
       } else {
         const d = JSON.parse(opts.body || "{}");
         if (["contain", "fill", "pan"].includes(d.fit)) p.fit = d.fit;
-        if (d.focus !== undefined) p.focus = Math.max(0, Math.min(1, +d.focus));
+        if (d.zoom !== undefined) p.zoom = Math.max(1, Math.min(4, +d.zoom));
+        if (d.fx !== undefined) p.fx = Math.max(0, Math.min(1, +d.fx));
+        if (d.fy !== undefined) p.fy = Math.max(0, Math.min(1, +d.fy));
         libVer++;
       }
     }
