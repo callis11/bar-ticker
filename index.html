@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261111183156">
+<meta name="build" content="20261111185135">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -58,6 +58,20 @@
           padding:10px; font-size:14px; font-weight:600; margin:8px 0 2px; }
   .rk { font-size:12px; color:var(--dim); font-weight:700; }
   small.dim { color:var(--dim); font-size:12px; }
+  /* laptop / computer screen: wider page, the ticker preview stays in view, the alert editor in two columns */
+  @media (min-width: 900px) {
+    body { max-width:1240px; margin:0 auto; padding:20px 32px 60px; }
+    .screen { position:sticky; top:0; z-index:5; box-shadow:0 8px 18px #000c; }
+    .tabs { max-width:640px; }
+    .card { padding:18px 22px; }
+    .alCols { display:grid; grid-template-columns:1fr 1fr; gap:0 36px; align-items:start; }
+    .alCol > h2.sect:first-child { border-top:none; padding-top:0; }
+    .tiles { grid-template-columns:repeat(3,1fr); }
+    .panel.on:not([data-panel="alerts"]), .card:not(.panel) { max-width:760px; }
+    button, label.btn, .tile { cursor:pointer; }
+    .chips button:hover, .seg button:hover, .tiles .tile:hover { border-color:var(--accent); }
+  }
+  @media (min-width: 1400px) { .tiles { grid-template-columns:repeat(4,1fr); } }
   .badge.fin { background:#3a4250; }
   .badge { font-size:10px; font-weight:800; color:#fff; background:var(--live); border-radius:4px; padding:2px 5px; margin-left:6px; vertical-align:2px; }
   .check { width:22px; height:22px; border-radius:50%; border:2px solid #3a4250; flex:none; display:grid; place-items:center; font-size:13px; color:#fff; }
@@ -268,6 +282,10 @@
     <div class="seg" id="alKinds"></div>
     <div id="alEdit"></div>
   </div>
+  <h2 class="sect">Save and move your alerts</h2>
+  <div class="row3" style="grid-template-columns:1fr 1fr"><button class="btn" id="alExport">Download my alerts</button><button class="btn ghost" id="alImportBtn">Load an alerts file</button></div>
+  <input type="file" id="alImport" accept=".ticker,.json,application/json" hidden>
+  <p class="hint">Saves all your teams and alert looks, with their pictures and GIFs, in one file. Make them on your laptop, then open this page on the ticker (<b>http://ticker.local</b>) and tap <b>Load an alerts file</b> to put them on the Pi. Also a handy backup.</p>
 </div>
 
 <div class="card">
@@ -307,6 +325,59 @@ async function save(patch, msg) {
   try { S = Object.assign(S, await api("/api/state", {method:"POST", body:JSON.stringify(patch)})); render(); if (msg) toast(msg); }
   catch (e) { toast("Couldn't reach the ticker"); }
 }
+// ---- Save and move your alerts: one file with your teams, alert looks and their pictures
+const toDataURL = blob => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(blob); });
+$("#alExport").onclick = async () => {
+  try {
+    toast("Getting your alerts ready…");
+    const st = await api("/api/state"), themes = st.themes || {}, out = [];
+    const ids = [...new Set(Object.values(themes).flatMap(t => t.pics || []))];
+    let skipped = 0;
+    for (const id of ids) {
+      const m = (st.pictures || []).find(p => p.id === id); if (!m) continue;
+      const blob = DEMO ? Demo.picFile(id) : await fetch(`/api/pictures/${id}/file`).then(r => r.ok ? r.blob() : null);
+      if (!blob) continue;
+      if (blob.size > 80e6) { skipped++; continue; }   // a huge phone video: add that one on the ticker itself
+      out.push({id, name: m.name, kind: m.kind, fit: m.fit, zoom: m.zoom, fx: m.fx, fy: m.fy, w: m.w, h: m.h, data: await toDataURL(blob)});
+    }
+    const pack = {kind: "bar-ticker-alerts", version: 1, saved: new Date().toISOString(), favorites: st.favorites || [], themes, pictures: out};
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(pack)], {type: "application/json"}));
+    a.download = `bar-ticker-alerts-${new Date().toISOString().slice(0, 10)}.ticker`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast(skipped ? `Saved (left out ${skipped} big video${skipped > 1 ? "s" : ""}; add those on the ticker)` : `Saved ${Object.keys(themes).length} alert looks and ${out.length} pictures`);
+  } catch (e) { toast("Couldn't save: " + (e.message || e)); }
+};
+$("#alImportBtn").onclick = () => $("#alImport").click();
+$("#alImport").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const pack = JSON.parse(await f.text());
+    if (pack.kind !== "bar-ticker-alerts") throw new Error("that isn't a Bar Ticker alerts file");
+    const st = await api("/api/state");
+    const favs = [...(st.favorites || [])];                       // add the teams you don't have yet
+    for (const t of pack.favorites || []) if (!favs.some(x => x.league === t.league && x.abbr === t.abbr)) favs.push(t);
+    await api("/api/state", {method: "POST", body: JSON.stringify({favorites: favs})});
+    const map = {}, have = st.pictures || [];
+    for (const [i, m] of (pack.pictures || []).entries()) {
+      toast(`Adding picture ${i + 1} of ${pack.pictures.length}…`);
+      const same = have.find(p => p.name === m.name && p.w === m.w && p.h === m.h);   // already on here: use it
+      if (same) { map[m.id] = same.id; continue; }
+      const blob = await (await fetch(m.data)).blob();
+      const ext = {"image/gif": ".gif", "image/png": ".png", "image/jpeg": ".jpg", "video/mp4": ".mp4", "video/quicktime": ".mov"}[blob.type] || "";
+      const it = await sendFile(new File([blob], m.name + ext, {type: blob.type}), false, () => {});
+      map[m.id] = it.id;
+      await api(`/api/pictures/${it.id}`, {method: "POST", body: JSON.stringify({fit: m.fit, zoom: m.zoom, fx: m.fx, fy: m.fy})}).catch(() => {});
+    }
+    let n = 0;
+    for (const [key, th] of Object.entries(pack.themes || {})) {
+      await api("/api/theme", {method: "POST", body: JSON.stringify({key, theme: Object.assign({}, th, {pics: (th.pics || []).map(i => map[i]).filter(Boolean)})})});
+      n++;
+    }
+    await poll(); toast(`Loaded ${n} alert looks and ${Object.keys(map).length} pictures`);
+  } catch (e) { toast("Couldn't load that file: " + (e.message || e)); }
+};
+
 function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("on"), 1800); }
 
 function render() {
@@ -539,6 +610,7 @@ function renderAlerts() {
   $("#alEdit").innerHTML = `
     ${any ? `<p class="hint" style="margin:0 0 6px">When any game in your Ticker sports gets close in the last few minutes, the ticker flashes, shows that game's score, then goes back to scrolling. Once per game. Your own teams use their own close-game alert.</p>` : ""}
     <div class="switch" style="margin-top:4px"><span>Use this alert</span><input type="checkbox" class="alOn" ${th.on ? "checked" : ""}></div>
+    <div class="alCols"><div class="alCol">
     <h2 class="sect">Pictures &amp; GIFs</h2>
     ${ready.length ? `<div class="tiles">${ready.map(p => { const i = sel.indexOf(p.id);
       return `<button class="tile ${i >= 0 ? "on" : ""}" data-pid="${p.id}"><img alt="" src="${picURL(p.id, "t=1")}"><b>${i + 1}</b><small>${esc(p.name)}</small></button>`; }).join("")}</div>`
@@ -554,6 +626,7 @@ function renderAlerts() {
     <label for="alFile" class="btn ghost" style="display:block;text-align:center;margin-top:0">+ Add GIFs or pictures</label>
     <input type="file" id="alFile" accept="image/*,video/*" multiple>
     <p class="hint">Tap as many as you like; they take turns in the order you tap them (the numbers). New ones you add here are picked for this alert.</p>
+    </div><div class="alCol">
     <h2 class="sect">Style</h2>
     <div class="chips wrap alStyle">${STYLE_LABEL.map(([k, n]) => `<button data-s="${k}" class="${th.style === k ? "on" : ""}">${n}</button>`).join("")}</div>
     <p class="hint" style="margin-top:0">${sel.length || th.style === "words" ? STYLE_HINT[th.style] : "Pick a GIF above for this style; until then it shows the flashing words."}</p>
@@ -578,7 +651,8 @@ function renderAlerts() {
     <div class="switch"><span>End on the score</span><input type="checkbox" class="alScore" ${th.score ? "checked" : ""}></div>
     <button class="btn" id="alTest">Test it on the ticker</button>
     <div class="row3" style="grid-template-columns:1fr 1fr;margin-top:6px">
-      <button class="btn ghost" id="alReset">Classic look</button>${any ? "<span></span>" : `<button class="btn danger" id="alRemove">Remove ${esc(tm.name.toLowerCase())}</button>`}</div>`;
+      <button class="btn ghost" id="alReset">Classic look</button>${any ? "<span></span>" : `<button class="btn danger" id="alRemove">Remove ${esc(tm.name.toLowerCase())}</button>`}</div>
+    </div></div>`;
 }
 async function themeSave(patch, msg, reset = false) {
   try {
@@ -1634,7 +1708,9 @@ const Demo = (() => {
     return {w, h, n};
   }
 
-  async function addPic(src, name, type) {
+  async function addPic(src, name, type, id) {
+    const blob = await (await fetch(src)).blob();            // kept so it can be saved and sent to the Pi
+    type = type || blob.type;
     const kind = /^video/.test(type) || /\.(mp4|mov|m4v|webm)$/i.test(name) ? "video" : /gif/i.test(type) || /\.gif$/i.test(name) ? "gif" : "image";
     let el = null, buf = null, w, h, seconds;
     if (kind === "video") {
@@ -1657,12 +1733,12 @@ const Demo = (() => {
     let fit = "fill";
     if (kind === "image" && h > w) fit = "pan";              // tall phone photos: glide top to bottom
     if (kind === "gif" && h <= 80) fit = "contain";          // little pixel-art GIFs: whole thing
-    const it = {id: Math.random().toString(16).slice(2, 10), name: name.replace(/\.[^.]+$/, "") || "Picture",
-                kind, fit, zoom: 1, fx: 0.5, fy: 0.5, status: "ready", w, h, seconds, el, buf};
+    const it = {id: id || Math.random().toString(16).slice(2, 10), name: name.replace(/\.[^.]+$/, "") || "Picture",
+                kind, fit, zoom: 1, fx: 0.5, fy: 0.5, status: "ready", w, h, seconds, el, buf, blob};
     lib.push(it); libVer++;
     return it;
   }
-  const meta = p => { const {el, buf, ...m} = p; return m; };
+  const meta = p => { const {el, buf, blob, ...m} = p; return m; };
   const cover = (w, h, RW = W) => { const s = Math.max(RW / w, H / h); return [Math.max(RW, w * s), Math.max(H, h * s)]; };
   const newC = (w, h) => { const c = document.createElement("canvas"); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; };
   // Pictures are fitted (and color-boosted) once and kept, instead of redrawing a big photo through filters 60 times a second
@@ -1851,6 +1927,7 @@ const Demo = (() => {
   }
 
   async function api(path, opts = {}) {
+    if (opts.method === "POST") setTimeout(persist, 0);   // remember what you made in this browser
     if (path.startsWith("/api/state") && opts.method === "POST") {
       Object.assign(S, JSON.parse(opts.body || "{}"));
       applyFavs();
@@ -1873,6 +1950,7 @@ const Demo = (() => {
         const f = opts.body;
         const it = await addPic(URL.createObjectURL(f), decodeURIComponent(q.name || f.name || "Picture"), f.type || "");
         if (q.show === "1" || path.startsWith("/api/image")) Object.assign(S, {mode: "image", pic_solo: it.id});
+        persist();
         return meta(it);
       }
       const p = lib.find(z => z.id === parts[3]);
@@ -1917,11 +1995,54 @@ async function start() {
     buildStrip(); requestAnimationFrame(tick);
     loadLive().then(() => { if (live) toast("Showing today's real games"); });
     for (const n of ["sunset.jpg", "skyline.jpg", "gameday.gif", "football.gif", "fractal-zoom.mp4"])   // sample pictures
-      try { await addPic("demo/pics/" + n, n, ""); } catch {}
+      try { await addPic("demo/pics/" + n, n, "", "s-" + n.split(".")[0]); } catch {}
+    await restore();
     poll();
   }
+
+  // ---- what you make here is kept in this browser (pictures included), so you can come back to it later
+  const idb = (() => {
+    let db = null;
+    const open = () => db || (db = new Promise((ok, bad) => {
+      const r = indexedDB.open("bar-ticker", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error);
+    }));
+    const run = async (mode, f) => { const d = await open(); return new Promise((ok, bad) => {
+      const tx = d.transaction("kv", mode), q = f(tx.objectStore("kv")); tx.oncomplete = () => ok(q && q.result); tx.onerror = () => bad(tx.error); }); };
+    return {get: k => run("readonly", st => st.get(k)), set: (k, v) => run("readwrite", st => st.put(v, k)), del: k => run("readwrite", st => st.delete(k))};
+  })();
+  const SAVE_KEYS = ["themes", "favorites", "pic_ids", "pic_secs", "pic_order", "pic_fx", "pic_every", "pic_boost", "message", "color", "effect"];
+  let saveT = 0, stored = new Set();
+  function persist() {
+    clearTimeout(saveT);
+    saveT = setTimeout(async () => {
+      try {
+        const keep = Object.fromEntries(SAVE_KEYS.filter(k => k in S).map(k => [k, S[k]]));
+        for (const p of lib) if (!p.id.startsWith("s-") && !stored.has(p.id)) { await idb.set("pic:" + p.id, p.blob); stored.add(p.id); }
+        for (const id of [...stored]) if (!lib.some(p => p.id === id)) { await idb.del("pic:" + id); stored.delete(id); }
+        await idb.set("work", {settings: keep, pics: lib.map(meta)});
+      } catch {}
+    }, 400);
+  }
+  async function restore() {
+    try {
+      const w = await idb.get("work"); if (!w) return;
+      for (const m of w.pics || []) {
+        let p = lib.find(z => z.id === m.id);
+        if (!p) {
+          const blob = await idb.get("pic:" + m.id); if (!blob) continue;
+          const url = URL.createObjectURL(blob);
+          try { p = await addPic(url, m.name + (m.kind === "gif" ? ".gif" : ""), blob.type, m.id); stored.add(m.id); } catch { continue; }
+        }
+        Object.assign(p, {name: m.name, fit: m.fit, zoom: m.zoom, fx: m.fx, fy: m.fy}); libVer++;
+      }
+      Object.assign(S, w.settings || {}); applyFavs();
+    } catch {}
+  }
+  const picFile = id => { const p = lib.find(z => z.id === id); return p && p.blob; };
   async function refresh() { await loadLive(); buildStrip(); }
-  return {start, api, testAlert, refresh, thumb, decodeGIF};
+  return {start, api, testAlert, refresh, thumb, decodeGIF, picFile};
 })();
 
 // GitHub Pages lets phones keep an old copy of this page for a while (longer as a home-screen app).

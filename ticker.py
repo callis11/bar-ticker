@@ -1833,6 +1833,15 @@ def make_handler(ctl, feed):
                     self.send(200, league_teams(lg))
                 except Exception as e:
                     self.send(502, {"error": f"couldn't get the {lg} teams from ESPN ({e})"})
+            elif path.startswith("/api/pictures/") and path.endswith("/file"):
+                # the picture itself (GIF / photo / shrunk video), for "Save my alerts" on a laptop
+                it = ctl.lib.get(path[len("/api/pictures/"):-len("/file")])
+                if not it or it.get("status") != "ready":
+                    return self.send(404, {"error": "not found"})
+                ext = os.path.splitext(it["file"])[1].lower()
+                ctype = {".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4"}.get(ext, "application/octet-stream")
+                with open(ctl.lib.path(it), "rb") as fh:
+                    self.send(200, fh.read(), ctype)
             elif path.startswith("/api/pictures/") and path.endswith(".png"):
                 # a 640 x 64 preview of one picture as the ticker shows it; ?fit=&zoom=&fx=&fy=&t= try settings without saving
                 q = dict(kv.split("=", 1) for kv in self.path.split("?", 1)[1].split("&") if "=" in kv) if "?" in self.path else {}
