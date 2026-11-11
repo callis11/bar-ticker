@@ -97,6 +97,23 @@
            opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.on { opacity:1; }
   input[type=file] { display:none; }
+  .pic { border:1px solid var(--line); border-radius:10px; padding:8px; margin-bottom:8px; background:#10141a; }
+  .pic.sel { border-color:var(--accent); background:#12233d; }
+  .pic .top { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .pic.sel .check { background:var(--accent); border-color:var(--accent); }
+  .pic .name { flex:1; font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pic .kind { font-size:10px; font-weight:800; color:#fff; background:#3a4250; border-radius:4px; padding:2px 5px; }
+  .pic .kind.now { background:var(--live); }
+  .pic .ed { background:#1d222b; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:5px 10px; font-size:13px; font-weight:600; }
+  .pic img.thumb { width:100%; aspect-ratio:10/1; display:block; image-rendering:pixelated; background:#000; border-radius:4px; }
+  .pic .wait { aspect-ratio:10/1; display:grid; place-items:center; color:var(--dim); font-size:13px; background:#000; border-radius:4px; text-align:center; padding:0 8px; }
+  .pic .wait.err { color:#ffb4b4; }
+  .pic .edit { margin-top:6px; }
+  .pic .actions { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+  .pic .actions .btn { margin:0; padding:10px; font-size:14px; }
+  .btn.danger { background:#3a1414; color:#ffb4b4; border:1px solid #7a2a2a; }
+  .progress { height:4px; background:#1d222b; border-radius:2px; overflow:hidden; margin:8px 0 0; }
+  .progress i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
 </style>
 </head>
 <body>
@@ -174,15 +191,32 @@
 </div>
 
 <div class="card panel" data-panel="image">
-  <h2>Show a picture or GIF</h2>
-  <div class="seg" id="fit">
-    <button data-fit="contain">Fit whole picture</button>
-    <button data-fit="fill">Fill the strip</button>
-  </div>
-  <label for="file" class="btn" style="display:block;text-align:center">Choose photo or GIF</label>
-  <input type="file" id="file" accept="image/*">
-  <button class="btn ghost" id="showImage">Show last picture</button>
-  <p class="hint">The ticker is 8 times wider than it is tall. Wide pictures and logos look best. GIFs play as animations. To put a message on top, turn on <b>Over the picture</b> on the Message tab.</p>
+  <h2>Your pictures</h2>
+  <label for="file" class="btn" style="display:block;text-align:center">+ Add pictures, GIFs or videos</label>
+  <input type="file" id="file" accept="image/*,video/*" multiple>
+  <div class="progress" id="upBar" hidden><i></i></div>
+  <p class="hint" style="margin:6px 0 10px">Photos, GIFs and phone videos (the first 20 seconds play). <b>Check</b> the ones for the slideshow; tap <b>Edit</b> to pick how one fits the strip.</p>
+  <div id="pics"></div>
+  <button class="btn" id="playShow">Play slideshow</button>
+
+  <h2 class="sect">Slideshow</h2>
+  <div class="seg" id="picSecs"><span class="segLabel">Each stays</span>
+    <button data-s="5">5 s</button><button data-s="10">10 s</button><button data-s="20">20 s</button><button data-s="60">1 min</button></div>
+  <div class="seg" id="picOrder"><span class="segLabel">Order</span>
+    <button data-o="inorder">In order</button><button data-o="shuffle">Shuffle</button></div>
+  <div class="seg" id="picFx"><span class="segLabel">Change</span>
+    <button data-f="fade">Fade</button><button data-f="slide">Slide</button><button data-f="cut">Cut</button></div>
+  <p class="hint">GIFs and videos play all the way through before the next one comes up.</p>
+
+  <h2 class="sect">In the ticker</h2>
+  <div class="chips wrap" id="picEvery">
+    <button data-e="0">Off</button><button data-e="-1">After each lap</button><button data-e="2">Every 2 min</button>
+    <button data-e="5">Every 5 min</button><button data-e="10">Every 10 min</button></div>
+  <p class="hint" id="picEveryHint" style="margin:0"></p>
+
+  <h2 class="sect">Look</h2>
+  <div class="switch" style="margin-top:0"><span>LED color boost <small class="dim">(richer color, crisper edges)</small></span><input type="checkbox" id="picBoost"></div>
+  <p class="hint">LEDs wash out soft colors and crush dark ones; this makes photos pop. To put a message on top of a picture, turn on <b>Over the picture</b> on the Message tab.</p>
 </div>
 
 <div class="card panel" data-panel="message">
@@ -265,7 +299,7 @@ function render() {
   document.querySelectorAll("#fit button").forEach(b => b.classList.toggle("on", b.dataset.fit === S.fit));
   if (!$("#msg").dataset.loaded) { $("#msg").value = S.message || ""; $("#msg").dataset.loaded = 1; }
   document.querySelectorAll("#colors button").forEach(b => b.classList.toggle("on", b.dataset.c === S.color));
-  $("#showImage").style.display = S.has_image ? "" : "none";
+  renderPics();
   document.querySelectorAll("#effect button").forEach(b => b.classList.toggle("on", b.dataset.e === (S.effect || "steady")));
   $("#mixMsg").checked = !!S.msg_in_scroll;
   $("#imgMsg").checked = !!S.msg_on_image;
@@ -447,15 +481,128 @@ $("#oddsPick").onclick = e => {
   const on = new Set(S.odds || []); on.has(b.dataset.o) ? on.delete(b.dataset.o) : on.add(b.dataset.o);
   save({odds:[...on], odds_on:true}, on.size ? "Odds updated" : "Scores only, no odds");
 };
-$("#fit").onclick = e => { const b = e.target.closest("button"); if (b) save({fit:b.dataset.fit}); };
-$("#showImage").onclick = () => save({mode:"image"}, "Showing your picture");
 $("#demoTests").onclick = e => { const b = e.target.closest("button"); if (b) Demo.testAlert(b.dataset.test); };
+// ---------- picture library
+let openPic = null;                                  // the picture whose settings are open
+const FIT_HINT = {contain:"The whole picture, with black bars at the sides.",
+                  fill:"Fills the strip edge to edge. Slide to pick which part shows.",
+                  pan:"Fills the strip and slowly glides across the whole picture, then back."};
+const picURL = (id, q = "") => DEMO ? Demo.thumb(id, q) : `/api/pictures/${id}.png?v=${S.pic_version || 0}${q ? "&" + q : ""}`;
+const readyPics = () => (S.pictures || []).filter(p => p.status === "ready");
+const picChecked = p => !(S.pic_ids || []).length || S.pic_ids.includes(p.id);
+const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function renderPics() {
+  const list = S.pictures || [];
+  document.querySelectorAll("#picSecs button").forEach(b => b.classList.toggle("on", +b.dataset.s === S.pic_secs));
+  document.querySelectorAll("#picOrder button").forEach(b => b.classList.toggle("on", b.dataset.o === S.pic_order));
+  document.querySelectorAll("#picFx button").forEach(b => b.classList.toggle("on", b.dataset.f === S.pic_fx));
+  document.querySelectorAll("#picEvery button").forEach(b => b.classList.toggle("on", +b.dataset.e === (S.pic_every || 0)));
+  $("#picEveryHint").textContent = !S.pic_every ? "Pop a checked picture into the ticker now and then. The scores pick up right where they left off."
+    : `A checked picture comes up for ${S.pic_secs} seconds ${S.pic_every < 0 ? "each time the ticker finishes a lap" : "every " + S.pic_every + " minutes"}, then the scores pick up right where they left off.`;
+  $("#picBoost").checked = S.pic_boost !== false;
+  const showing = S.mode === "image" && !S.pic_solo;
+  $("#playShow").textContent = showing ? "Slideshow is playing" : "Play slideshow";
+  $("#playShow").classList.toggle("ghost", showing);
+  $("#playShow").hidden = !readyPics().length;
+  const key = JSON.stringify([list.map(p => [p.id, p.status, p.fit, p.focus, p.name]), S.pic_ids, S.pic_solo, S.mode, openPic, S.pic_version, S.pic_boost]);
+  if (key === renderPics.key) return;               // no flicker on every poll
+  renderPics.key = key;
+  if (!list.length) { $("#pics").innerHTML = '<p class="empty">No pictures yet. Add one above.</p>'; return; }
+  $("#pics").innerHTML = list.map(p => {
+    const ready = p.status === "ready", open = openPic === p.id, still = p.kind === "image";
+    const badge = p.kind === "video" ? `VIDEO${p.seconds ? " " + Math.round(p.seconds) + "s" : ""}` : p.kind === "gif" ? "GIF" : p.fit === "pan" ? "PAN" : "";
+    const now = S.mode === "image" && S.pic_solo === p.id;
+    const wide = p.w && p.h && p.w / p.h > 10;
+    const body = ready ? `<img class="thumb" alt="" src="${picURL(p.id, "t=1")}">`
+      : p.status === "converting" ? `<div class="wait">Getting your video ready for the ticker…<br>(about a minute)</div>`
+      : `<div class="wait err">That one didn't work: ${esc(p.error || "unknown problem")}</div>`;
+    const editor = !open ? "" : `<div class="edit">
+      ${ready ? `<div class="seg fitSeg">
+        <button data-fit="contain" class="${p.fit === "contain" ? "on" : ""}">Whole picture</button>
+        <button data-fit="fill" class="${p.fit === "fill" || (!still && p.fit === "pan") ? "on" : ""}">Fill</button>
+        ${still ? `<button data-fit="pan" class="${p.fit === "pan" ? "on" : ""}">Slow pan</button>` : ""}</div>
+      ${p.fit === "fill" || (!still && p.fit === "pan") ? `<label class="row"><span>Which part shows</span><span>${wide ? "left ↔ right" : "top ↔ bottom"}</span></label>
+        <input type="range" class="focus" min="0" max="100" value="${Math.round((p.focus ?? 0.5) * 100)}">` : ""}
+      <p class="hint">${FIT_HINT[still ? p.fit : (p.fit === "contain" ? "contain" : "fill")]}</p>` : ""}
+      <div class="actions">${ready ? `<button class="btn showNow">Show this now</button>` : "<span></span>"}<button class="btn danger del">Delete</button></div>
+    </div>`;
+    return `<div class="pic ${ready && picChecked(p) ? "sel" : ""}" data-id="${p.id}">
+      <div class="top">${ready ? '<span class="check">✓</span>' : ""}<span class="name">${esc(p.name)}</span>
+        ${now ? '<span class="kind now">ON NOW</span>' : ""}${badge ? `<span class="kind">${badge}</span>` : ""}
+        <button class="ed">${open ? "Done" : "Edit"}</button></div>${body}${editor}</div>`;
+  }).join("");
+}
+async function picEdit(id, patch) {
+  try { await api(`/api/pictures/${id}`, {method:"POST", body:JSON.stringify(patch)}); await poll(); }
+  catch (e) { toast("Couldn't change that picture"); }
+}
+$("#pics").onclick = async e => {
+  const card = e.target.closest(".pic"); if (!card) return;
+  const id = card.dataset.id, p = (S.pictures || []).find(z => z.id === id); if (!p) return;
+  if (e.target.closest(".ed") || e.target.closest(".thumb") || e.target.closest(".wait")) { openPic = openPic === id ? null : id; return renderPics(); }
+  const fb = e.target.closest(".fitSeg button");
+  if (fb) return picEdit(id, {fit: fb.dataset.fit});
+  if (e.target.closest(".showNow")) { openPic = null; return save({mode:"image", pic_solo:id}, `Showing ${p.name}`); }
+  if (e.target.closest(".del")) {
+    if (!confirm(`Delete "${p.name}" from the ticker?`)) return;
+    try { await api(`/api/pictures/${id}/delete`, {method:"POST", body:"{}"}); openPic = null; await poll(); toast("Deleted"); }
+    catch { toast("Couldn't delete it"); }
+    return;
+  }
+  if (e.target.closest(".top") && p.status === "ready") {        // check / uncheck for the slideshow
+    const all = readyPics().map(z => z.id);
+    let ids = (S.pic_ids || []).length ? S.pic_ids.filter(i => all.includes(i)) : all.slice();
+    ids = ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id];
+    if (!ids.length) return toast("Keep at least one picture checked");
+    if (all.every(i => ids.includes(i))) ids = [];                  // all checked = all (new ones join too)
+    save({pic_ids: ids}, picChecked(p) ? "Left out of the slideshow" : "Added to the slideshow");
+  }
+};
+let tFocus;
+$("#pics").oninput = e => {                             // live preview while sliding "which part shows"
+  if (!e.target.classList.contains("focus")) return;
+  const card = e.target.closest(".pic"), id = card.dataset.id, f = e.target.value / 100;
+  clearTimeout(tFocus);
+  tFocus = setTimeout(() => { const im = card.querySelector(".thumb"); if (im) im.src = picURL(id, `fit=fill&focus=${f}&t=1`); }, 90);
+};
+$("#pics").onchange = e => {
+  if (!e.target.classList.contains("focus")) return;
+  picEdit(e.target.closest(".pic").dataset.id, {focus: e.target.value / 100});
+};
+$("#playShow").onclick = () => save({mode:"image", pic_solo:""}, "Playing the slideshow");
+$("#picSecs").onclick = e => { const b = e.target.closest("button"); if (b) save({pic_secs:+b.dataset.s}); };
+$("#picOrder").onclick = e => { const b = e.target.closest("button"); if (b) save({pic_order:b.dataset.o}); };
+$("#picFx").onclick = e => { const b = e.target.closest("button"); if (b) save({pic_fx:b.dataset.f}); };
+$("#picEvery").onclick = e => { const b = e.target.closest("button"); if (b) save({pic_every:+b.dataset.e},
+  +b.dataset.e ? "Pictures will pop up in the ticker" : "No pictures in the ticker"); };
+$("#picBoost").onchange = e => save({pic_boost:e.target.checked}, e.target.checked ? "Color boost on" : "Color boost off");
+function sendFile(f, show, onProgress) {               // XHR so big videos show upload progress
+  const url = `/api/pictures?name=${encodeURIComponent(f.name || "Picture")}${show ? "&show=1" : ""}`;
+  if (DEMO) return Demo.api(url, {method:"POST", body:f});
+  return new Promise((ok, bad) => {
+    const x = new XMLHttpRequest(); x.open("POST", url);
+    x.setRequestHeader("Content-Type", f.type || "application/octet-stream");
+    x.upload.onprogress = ev => ev.lengthComputable && onProgress(ev.loaded / ev.total);
+    x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch {}
+      x.status === 200 ? ok(j) : bad(new Error(j.error || x.status)); };
+    x.onerror = () => bad(new Error("couldn't reach the ticker"));
+    x.send(f);
+  });
+}
 $("#file").onchange = async e => {
-  const f = e.target.files[0]; if (!f) return;
-  toast("Sending…");
-  try { S = Object.assign(S, await api("/api/image?fit=" + S.fit, {method:"POST", body:f})); S.has_image = true; render(); toast("Picture is up"); }
-  catch (err) { toast("That file didn't work: " + err.message); }
-  e.target.value = "";
+  const files = [...e.target.files]; e.target.value = ""; if (!files.length) return;
+  const bar = $("#upBar"), fill = bar.querySelector("i"); bar.hidden = false;
+  let added = 0, video = false;
+  for (const [i, f] of files.entries()) {
+    toast(files.length > 1 ? `Sending ${i + 1} of ${files.length}…` : "Sending…");
+    try {
+      const it = await sendFile(f, files.length === 1, p => fill.style.width = Math.round(((i + p) / files.length) * 100) + "%");
+      added++; video = video || it.kind === "video";
+    } catch (err) { toast(`${f.name || "That file"} didn't work: ${err.message}`); await new Promise(r => setTimeout(r, 1800)); }
+  }
+  fill.style.width = "100%"; setTimeout(() => { bar.hidden = true; fill.style.width = "0"; }, 600);
+  await poll();
+  if (added) toast(video ? "Video added. It's being made ready for the ticker" : files.length === 1 ? "It's on the ticker" : `${added} added to your pictures`);
 };
 let t1; $("#bright").oninput = e => { $("#brightV").textContent = e.target.value + "%"; clearTimeout(t1); t1 = setTimeout(() => save({brightness:+e.target.value}), 200); };
 let t2; $("#delay").oninput = e => { $("#delayV").textContent = +e.target.value ? e.target.value + " sec" : "Off"; clearTimeout(t2); t2 = setTimeout(() => save({tv_delay:+e.target.value}), 300); };
@@ -586,9 +733,10 @@ const Demo = (() => {
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
            group:"league", days:"week", pl_parts:["record","parlays","props"],
-           speed:80, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide", ranks:true, game_speed:80, msg_on_image:false, pin:"off"};
+           speed:80, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide", ranks:true, game_speed:80, msg_on_image:false, pin:"off",
+           pic_ids:[], pic_solo:"", pic_secs:10, pic_order:"inorder", pic_fx:"fade", pic_every:0, pic_boost:true};
   const picks = () => S.odds_on === false ? [] : (S.odds || []);
-  let games = SAMPLE, pl = PL_SAMPLE, live = false, image = null, alerts = [], showing = null;
+  let games = SAMPLE, pl = PL_SAMPLE, live = false, alerts = [], showing = null;
   const cv = $("#sim"), g = cv.getContext("2d");
   const team = (x, side) => { const r = side === "away" ? x.arank : x.hrank; return r && S.ranks !== false ? `#${r} ${x[side]}` : x[side]; };
   const mine = x => MY[`${x.league}|${x.away}`] ? x.away : MY[`${x.league}|${x.home}`] ? x.home : null;
@@ -1049,6 +1197,113 @@ const Demo = (() => {
     return lay ? 0 : tw;
   }
 
+  // ---- picture library (demo: kept in this page only, gone on reload)
+  const lib = [];                                   // {id, name, kind, fit, focus, status, w, h, seconds, el}
+  let libVer = 1;
+  const hold = document.createElement("div");     // GIFs/videos animate only while they're on the page
+  hold.style.cssText = "position:fixed;left:-9999px;top:0;width:4px;height:4px;overflow:hidden;opacity:0;pointer-events:none";
+  document.body.appendChild(hold);
+  async function addPic(src, name, type) {
+    const kind = /^video/.test(type) || /\.(mp4|mov|m4v|webm)$/i.test(name) ? "video" : /gif/i.test(type) || /\.gif$/i.test(name) ? "gif" : "image";
+    let el, w, h, seconds;
+    if (kind === "video") {
+      el = document.createElement("video"); el.muted = true; el.loop = true; el.playsInline = true; el.autoplay = true; el.src = src;
+      hold.appendChild(el);
+      await new Promise((ok, bad) => { el.onloadeddata = ok; el.onerror = () => bad(new Error("can't play that video here")); });
+      el.play().catch(() => {});
+      w = el.videoWidth; h = el.videoHeight; seconds = Math.min(20, el.duration || 0);
+    } else {
+      el = new Image(); el.src = src; hold.appendChild(el);
+      try { await el.decode(); } catch { throw new Error("can't read that picture"); }
+      w = el.naturalWidth; h = el.naturalHeight;
+    }
+    let fit = "fill";
+    if (kind === "image" && h > w) fit = "pan";              // tall phone photos: glide top to bottom
+    if (kind === "gif" && h <= 80) fit = "contain";          // little pixel-art GIFs: whole thing
+    const it = {id: Math.random().toString(16).slice(2, 10), name: name.replace(/\.[^.]+$/, "") || "Picture",
+                kind, fit, focus: 0.5, status: "ready", w, h, seconds, el};
+    lib.push(it); libVer++;
+    return it;
+  }
+  const meta = p => { const {el, ...m} = p; return m; };
+  const cover = (w, h) => { const s = Math.max(W / w, H / h); return [Math.max(W, w * s), Math.max(H, h * s)]; };
+  function renderPic(p, c, t, fit = p.fit, focus = p.focus) {        // same fitting as pictures.py
+    const w = p.w, h = p.h, still = p.kind === "image";
+    if (!still && fit === "pan") fit = "fill";
+    c.fillStyle = "#000"; c.fillRect(0, 0, W, H);
+    c.imageSmoothingEnabled = !(h <= 128 && w * Math.min(W / w, H / h) > w * 1.4);   // pixel art stays crisp
+    if (S.pic_boost !== false) c.filter = "saturate(1.35) contrast(1.12)";
+    if (fit === "contain") {
+      const sc = Math.min(W / w, H / h); c.drawImage(p.el, (W - w * sc) / 2, (H - h * sc) / 2, w * sc, h * sc);
+    } else {
+      const [cw, ch] = cover(w, h);
+      let ox = (cw - W) * focus, oy = (ch - H) * focus;
+      if (fit === "pan") {
+        const period = Math.max(6, S.pic_secs || 10), ph = (t % (2 * period)) / period;
+        const q = 0.5 - 0.5 * Math.cos(Math.PI * (ph <= 1 ? ph : 2 - ph));
+        ox = (cw - W) * q; oy = (ch - H) * q;
+      }
+      c.drawImage(p.el, -ox, -oy, cw, ch);
+    }
+    c.filter = "none"; c.imageSmoothingEnabled = true;
+  }
+  const thumbCanvas = document.createElement("canvas"); thumbCanvas.width = W; thumbCanvas.height = H;
+  function thumb(id, q = "") {
+    const p = lib.find(z => z.id === id); if (!p) return "";
+    const o = Object.fromEntries(q.split("&").filter(Boolean).map(kv => kv.split("=")));
+    renderPic(p, thumbCanvas.getContext("2d"), p.fit === "pan" && !o.fit ? 5 : 0, o.fit || p.fit, o.focus !== undefined ? +o.focus : p.focus);
+    return thumbCanvas.toDataURL();
+  }
+  function picPlaylist() {
+    const ready = lib.map(p => p.id);
+    if (S.pic_solo && ready.includes(S.pic_solo)) return [S.pic_solo];
+    const sel = (S.pic_ids || []).filter(i => ready.includes(i));
+    return sel.length ? sel : ready;
+  }
+  function picDur(p) {                              // videos play through at least once (up to 30 s)
+    const secs = S.pic_secs || 10, L = p.kind === "video" ? p.seconds : 0;
+    if (!L) return secs;
+    return Math.min(L < secs ? L * Math.ceil(secs / L) : L, Math.max(secs, 30));
+  }
+  const prevCanvas = document.createElement("canvas"); prevCanvas.width = W; prevCanvas.height = H;
+  const nextCanvas = document.createElement("canvas"); nextCanvas.width = W; nextCanvas.height = H;
+  const show = {key: "", order: [], i: 0, start: 0, prev: false};
+  function drawSlideshow(now) {
+    const ids = picPlaylist(), key = ids.join() + S.pic_order;
+    if (key !== show.key) {
+      show.key = key; show.order = S.pic_order === "shuffle" ? ids.slice().sort(() => Math.random() - 0.5) : ids.slice();
+      show.i = 0; show.start = now; show.prev = false;
+    }
+    let p = lib.find(z => z.id === show.order[show.i % show.order.length]);
+    if (!p) { show.key = ""; return clear(); }
+    let t = (now - show.start) / 1000;
+    if (show.order.length > 1 && t >= picDur(p)) {
+      prevCanvas.getContext("2d").drawImage(nextCanvas, 0, 0); show.prev = true;
+      show.i = (show.i + 1) % show.order.length; show.start = now; t = 0;
+      p = lib.find(z => z.id === show.order[show.i]);
+      if (p.kind === "video") { p.el.currentTime = 0; p.el.play().catch(() => {}); }
+    }
+    renderPic(p, nextCanvas.getContext("2d"), t);
+    clear();
+    const k = t / 0.6;
+    if (show.prev && k < 1 && S.pic_fx !== "cut") {
+      if (S.pic_fx === "slide") {
+        const off = W * (1 - (1 - k) ** 2);
+        g.drawImage(prevCanvas, -off, 0); g.drawImage(nextCanvas, W - off, 0);
+      } else { g.drawImage(prevCanvas, 0, 0); g.globalAlpha = k; g.drawImage(nextCanvas, 0, 0); g.globalAlpha = 1; }
+    } else g.drawImage(nextCanvas, 0, 0);
+  }
+  let inter = null, lastPic = performance.now(), lapDone = false, interN = 0;
+  function drawInterlude(now) {                     // a picture popping up in the ticker; false when it's over
+    const p = lib.find(z => z.id === inter.id); if (!p) return false;
+    const t = (now - inter.start) / 1000, dur = picDur(p);
+    if (t >= dur) return false;
+    renderPic(p, nextCanvas.getContext("2d"), t); clear(); g.drawImage(nextCanvas, 0, 0);
+    if (t < 0.5) { g.globalAlpha = 1 - t / 0.5; g.drawImage(prevCanvas, 0, 0); g.globalAlpha = 1; }
+    else if (dur - t < 0.4) { g.fillStyle = `rgba(0,0,0,${1 - (dur - t) / 0.4})`; g.fillRect(0, 0, W, H); }
+    return true;
+  }
+
   let msg = null, last = performance.now(), frameIdx = 0, seen = "";
   function tick(now) {
     const dt = (now - last) / 1000; last = now;
@@ -1061,10 +1316,23 @@ const Demo = (() => {
       showing = null; x = W;
     }
     const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin]);
-    if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; }
-    if (S.mode === "image" && image) {
-      clear(); const sc = S.fit === "fill" ? Math.max(W / image.width, H / image.height) : Math.min(W / image.width, H / image.height);
-      const w = image.width * sc, h = image.height * sc; g.drawImage(image, (W - w) / 2, (H - h) / 2, w, h);
+    if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; inter = null; lastPic = now; lapDone = false; }
+    if (S.mode === "scroll" && !inter && +S.pic_every && lib.length) {     // time for a picture in the ticker?
+      if (S.pic_every < 0 ? lapDone : now - lastPic >= S.pic_every * 60000) {
+        const ids = picPlaylist();
+        const id = S.pic_order === "shuffle" ? ids[Math.floor(Math.random() * ids.length)] : ids[interN++ % ids.length];
+        prevCanvas.getContext("2d").drawImage(cv, 0, 0);
+        const p = lib.find(z => z.id === id); if (p.kind === "video") { p.el.currentTime = 0; p.el.play().catch(() => {}); }
+        inter = {id, start: now};
+      }
+      lapDone = false;
+    }
+    if (inter) {
+      if (drawInterlude(now)) return requestAnimationFrame(tick);
+      inter = null; lastPic = now;
+    }
+    if (S.mode === "image" && lib.length) {
+      drawSlideshow(now);
       if (S.msg_on_image && (S.message || "").trim()) {      // message over the picture
         const tw = drawMessage(S.message.trim(), now / 1000, true);
         if (tw) { x -= S.speed * dt; if (x < -tw) x = W; }
@@ -1079,10 +1347,10 @@ const Demo = (() => {
       clear(); drawPinned(pinned, t);
       if (x < -bottom.width || x > W) x = W;
       g.drawImage(b, Math.round(x), H - BOTTOM_H); x -= S.speed * dt;
-      if (x < -bottom.width) { x = W; buildStrip(); }
+      if (x < -bottom.width) { x = W; buildStrip(); lapDone = true; }
     } else if ((S.motion || "scroll") !== "scroll" && cards.length) {
       let c = cards[cardI % cards.length], len = cardLength(c), t = (now - cardT0) / 1000;
-      if (t >= len) { cardI = (cardI + 1) % cards.length; cardT0 = now; if (cardI === 0) buildStrip(); c = cards[cardI % cards.length]; len = cardLength(c); t = 0; }
+      if (t >= len) { cardI = (cardI + 1) % cards.length; cardT0 = now; if (cardI === 0) { buildStrip(); lapDone = true; } c = cards[cardI % cards.length]; len = cardLength(c); t = 0; }
       drawWithMotion(drawCard(c, t), t, len);
     } else {
       const t = now / 1000, s2 = stripOff && blinkOff(t) ? stripOff : strip, xi = Math.round(x);
@@ -1090,7 +1358,7 @@ const Demo = (() => {
       if (S.msg_in_scroll && S.effect === "fireworks")
         for (const [a, b] of strip.spans) if (a + xi < W && b + xi > 0) fireworks(g, t, a + xi, b + xi);
       g.drawImage(s2, xi, 0); x -= S.speed * dt;
-      if (x < -strip.width) { x = W; buildStrip(); }
+      if (x < -strip.width) { x = W; buildStrip(); lapDone = true; }
     }
     requestAnimationFrame(tick);
   }
@@ -1109,15 +1377,32 @@ const Demo = (() => {
   async function api(path, opts = {}) {
     if (path.startsWith("/api/state") && opts.method === "POST") {
       Object.assign(S, JSON.parse(opts.body || "{}"));
-    } else if (path.startsWith("/api/image")) {
-      const f = opts.body;
-      try { image = await createImageBitmap(f); }
-      catch { throw new Error("couldn't open that picture"); }
-      S.mode = "image"; S.fit = path.includes("fit=fill") ? "fill" : "contain";
-      if (/gif/i.test(f.type)) setTimeout(() => toast("GIFs animate on the real ticker"), 1900);
+    } else if (path.startsWith("/api/pictures") || path.startsWith("/api/image")) {
+      const q = Object.fromEntries((path.split("?")[1] || "").split("&").filter(Boolean).map(kv => kv.split("=")));
+      const parts = path.split("?")[0].split("/");             // ["", "api", "pictures", id, "delete"]
+      if (parts.length === 3) {                                // add a picture / GIF / video
+        const f = opts.body;
+        const it = await addPic(URL.createObjectURL(f), decodeURIComponent(q.name || f.name || "Picture"), f.type || "");
+        if (q.show === "1" || path.startsWith("/api/image")) Object.assign(S, {mode: "image", pic_solo: it.id});
+        return meta(it);
+      }
+      const p = lib.find(z => z.id === parts[3]);
+      if (!p) throw new Error("no such picture");
+      if (parts[4] === "delete") {
+        lib.splice(lib.indexOf(p), 1); p.el.remove(); libVer++;
+        S.pic_ids = (S.pic_ids || []).filter(i => i !== p.id);
+        if (S.pic_solo === p.id) S.pic_solo = "";
+        if (!lib.length && S.mode === "image") S.mode = "scroll";
+      } else {
+        const d = JSON.parse(opts.body || "{}");
+        if (["contain", "fill", "pan"].includes(d.fit)) p.fit = d.fit;
+        if (d.focus !== undefined) p.focus = Math.max(0, Math.min(1, +d.focus));
+        libVer++;
+      }
     }
     return Object.assign({}, S, {games: games.map(z => Object.assign({mine: !!mine(z), close: isClose(z)}, z)),
-                                 has_image: !!image, feed_ok: true, last_ok: 0});
+                                 pictures: lib.map(meta), pic_version: libVer,
+                                 has_image: lib.length > 0, feed_ok: true, last_ok: 0});
   }
 
   $("#refreshBtn").onclick = async () => {
@@ -1136,9 +1421,12 @@ async function start() {
     $("#frame").hidden = true; cv.hidden = false;
     buildStrip(); requestAnimationFrame(tick);
     loadLive().then(() => { if (live) toast("Showing today's real games"); });
+    for (const n of ["sunset.jpg", "skyline.jpg", "gameday.gif", "football.gif", "fractal-zoom.mp4"])   // sample pictures
+      try { await addPic("demo/pics/" + n, n, ""); } catch {}
+    poll();
   }
   async function refresh() { await loadLive(); buildStrip(); }
-  return {start, api, testAlert, refresh};
+  return {start, api, testAlert, refresh, thumb};
 })();
 
 async function start() {

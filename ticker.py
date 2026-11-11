@@ -15,10 +15,11 @@ Try it on a PC:     python3 ticker.py --sim --demo        (control page at http:
 Scroll GIF:         python3 ticker.py --preview
 Alert GIF:          python3 ticker.py --test-alert td     (td / win / close)
 """
-import argparse, colorsys, io, json, math, os, random, time, threading, urllib.request
+import argparse, colorsys, io, json, math, os, random, tempfile, time, threading, urllib.parse, urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageSequence
+import pictures
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -47,7 +48,9 @@ FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_SIZE     = 36         # one-line text (headers, ParlayLabs, messages)
 LINE_SIZE     = 25         # each line of a two-line game (away team on top, home underneath)
 SETTINGS_FILE = os.path.join(HERE, "settings.json")
-IMAGE_FILE    = os.path.join(HERE, "custom_image")
+IMAGE_FILE    = os.path.join(HERE, "custom_image")      # the single picture from before the library (imported once)
+PIC_DIR       = os.path.join(HERE, "pictures")          # your picture library (pictures, GIFs, videos)
+PIC_EVERY     = [0, -1, 2, 5, 10]                       # pictures in the ticker: off / after each lap / every N minutes
 
 # My teams, per league (DET in the NHL/MLB is the Red Wings/Tigers, so leagues matter)
 #   (league, ESPN abbreviation): (name on the alert, main color, second color)
@@ -116,23 +119,29 @@ class Control:
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
-            "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off"}
+            "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off",
+            # pictures: which ones (empty = all), one played on its own, seconds each, order, change style,
+            # how often one pops up in the ticker, LED color boost
+            "pic_ids": [], "pic_solo": "", "pic_secs": 10, "pic_order": "inorder", "pic_fx": "fade",
+            "pic_every": 0, "pic_boost": True}
 
     def __init__(self):
         self.__dict__.update(self.KEYS)
-        self.frames = []            # picture / GIF frames: [(Image, ms), ...]
+        self.lib = pictures.Library(PIC_DIR, W, ROWS)
         self.last_frame = Image.new("RGB", (W, ROWS))
         self.version = 0            # bumps on every change so the display redraws
         try:
             self.update(json.load(open(SETTINGS_FILE)), save=False)
         except (OSError, ValueError):
             pass
-        if os.path.exists(IMAGE_FILE):
+        if os.path.exists(IMAGE_FILE):                 # picture from before the library: becomes its first entry
             try:
-                self.set_image(open(IMAGE_FILE, "rb").read(), save=False)
+                it = self.lib.import_legacy(IMAGE_FILE, self.fit)
+                if self.mode == "image":
+                    self.pic_solo = it["id"]
             except Exception:
                 pass
-        if self.mode == "image" and not self.frames:
+        if self.mode == "image" and not self.lib.ready_ids():
             self.mode = "scroll"
 
     def update(self, d, save=True):
@@ -158,6 +167,13 @@ class Control:
         self.hold = max(2, min(15, int(self.hold)))
         self.ranks = bool(self.ranks)
         self.pin = self.pin if self.pin in PIN_CHOICES else "off"
+        self.pic_ids = [str(i) for i in (self.pic_ids or [])][:200]
+        self.pic_solo = str(self.pic_solo or "")
+        self.pic_secs = max(3, min(120, int(self.pic_secs)))
+        self.pic_order = "shuffle" if self.pic_order == "shuffle" else "inorder"
+        self.pic_fx = self.pic_fx if self.pic_fx in ("fade", "slide", "cut") else "fade"
+        self.pic_every = int(self.pic_every) if int(self.pic_every) in PIC_EVERY else 0
+        self.pic_boost = bool(self.pic_boost)
         SHOW_RANKS["on"] = self.ranks
         self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push", "scroll") else "slide"
         self.game_speed = max(20, min(200, int(self.game_speed)))
@@ -177,33 +193,15 @@ class Control:
         """The odds to show right now: the picks, unless the master switch is off."""
         return self.odds if self.odds_on else []
 
-    def set_image(self, data, fit=None, save=True):
-        fit = fit or self.fit
-        src = Image.open(io.BytesIO(data))
-        frames = []
-        for i, fr in enumerate(ImageSequence.Iterator(src)):
-            if i >= 300:
-                break
-            frames.append((fit_image(fr.convert("RGB"), fit), max(30, fr.info.get("duration", 100))))
-        self.frames = frames
-        if save:
-            open(IMAGE_FILE, "wb").write(data)
-            self.update({"mode": "image", "fit": fit})
+    def playlist(self):
+        """Pictures to show: the one you're playing on its own, else the ones you checked (none checked = all)."""
+        ready = self.lib.ready_ids()
+        if self.pic_solo in ready:
+            return [self.pic_solo]
+        return [i for i in self.pic_ids if i in ready] or ready
 
     def as_dict(self):
         return {k: getattr(self, k) for k in self.KEYS}
-
-def fit_image(img, fit):
-    out = Image.new("RGB", (W, ROWS))
-    if fit == "fill":                            # crop to fill the whole strip
-        s = max(W / img.width, ROWS / img.height)
-        r = img.resize((max(1, int(img.width * s)), max(1, int(img.height * s))), Image.LANCZOS)
-        out.paste(r, ((W - r.width) // 2, (ROWS - r.height) // 2))
-    else:                                        # fit inside, black bars
-        s = min(W / img.width, ROWS / img.height)
-        r = img.resize((max(1, int(img.width * s)), max(1, int(img.height * s))), Image.LANCZOS)
-        out.paste(r, ((W - r.width) // 2, (ROWS - r.height) // 2))
-    return out
 
 def hex_rgb(h):
     h = (h or "#ffffff").lstrip("#")
@@ -1457,29 +1455,81 @@ def make_handler(ctl, feed):
                           if g["id"] not in ids]    # my teams' next games further out
                 stale = time.time() - feed.last_ok           # nothing from ESPN for a while = likely blocked
                 feed_ok = feed.demo or stale < max(90, 6 * ctl.refresh)
-                self.send(200, dict(ctl.as_dict(), games=games, has_image=bool(ctl.frames),
+                self.send(200, dict(ctl.as_dict(), games=games, has_image=bool(ctl.lib.ready_ids()),
+                                    pictures=ctl.lib.list(), pic_version=ctl.lib.version,
                                     feed_ok=feed_ok, feed_error=feed.last_error,
                                     last_ok=int(stale)))
             elif path == "/api/frame.png":
                 buf = io.BytesIO(); ctl.last_frame.save(buf, "PNG")
                 self.send(200, buf.getvalue(), "image/png")
+            elif path == "/api/pictures":
+                self.send(200, ctl.lib.list())
+            elif path.startswith("/api/pictures/") and path.endswith(".png"):
+                # a 640 x 64 preview of one picture as the ticker shows it; ?fit=&focus=&t= try settings without saving
+                q = dict(kv.split("=", 1) for kv in self.path.split("?", 1)[1].split("&") if "=" in kv) if "?" in self.path else {}
+                pid = path[len("/api/pictures/"):-4]
+                try:
+                    r = ctl.lib.rendered(pid, ctl.pic_boost, q.get("fit"), q.get("focus"))
+                except Exception as e:
+                    return self.send(400, {"error": str(e)})
+                if r is None:
+                    return self.send(404, {"error": "not ready"})
+                t = float(q.get("t", 0) or 0)
+                img = r.frame(t if r.pan is None else 0, W, ROWS) if r.pan is None else pictures.pan_window(r.pan, t or 5, 10, W, ROWS)
+                buf = io.BytesIO(); img.save(buf, "PNG")
+                self.send(200, buf.getvalue(), "image/png")
             else:
                 self.send(404, {"error": "not found"})
+
+        def upload(self, n):
+            """Saves an uploaded file straight to disk in pieces (videos can be 100+ MB)."""
+            if n > pictures.MAX_UPLOAD:
+                self.rfile.read(n)
+                raise ValueError("that file is too big (250 MB max)")
+            fd, tmp = tempfile.mkstemp(dir=PIC_DIR, suffix=".upload")
+            with os.fdopen(fd, "wb") as f:
+                left = n
+                while left > 0:
+                    chunk = self.rfile.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    f.write(chunk); left -= len(chunk)
+            return tmp
 
         def do_POST(self):
             path = self.path.split("?")[0]
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 15_000_000:
-                return self.send(413, {"error": "file too big (15 MB max)"})
+            q = dict(kv.split("=", 1) for kv in self.path.split("?", 1)[1].split("&") if "=" in kv) if "?" in self.path else {}
+            if path in ("/api/pictures", "/api/image"):     # add a picture, GIF or video to the library
+                try:
+                    tmp = self.upload(n)
+                    name = urllib.parse.unquote(q.get("name", "")) or "Picture"
+                    fit = q.get("fit") if q.get("fit") in pictures.FITS else "fill"
+                    it = ctl.lib.add_file(tmp, name, self.headers.get("Content-Type", ""), fit)
+                    if path == "/api/image" or q.get("show") == "1":      # show it right away
+                        ctl.update({"mode": "image", "pic_solo": it["id"]})
+                    else:
+                        ctl.update({})
+                except Exception as e:
+                    return self.send(400, {"error": str(e)})
+                return self.send(200, it)
+            if n > 2_000_000:
+                return self.send(413, {"error": "too big"})
             body = self.rfile.read(n)
             try:
                 if path == "/api/state":
                     ctl.update(json.loads(body or b"{}"))
                 elif path == "/api/refresh":                 # the phone's refresh button: pull everything now
                     feed.force = True
-                elif path == "/api/image":
-                    fit = "fill" if "fit=fill" in self.path else "contain"
-                    ctl.set_image(body, fit)
+                elif path.startswith("/api/pictures/") and path.endswith("/delete"):
+                    pid = path.split("/")[3]
+                    ctl.lib.delete(pid)
+                    ctl.update({"pic_ids": [i for i in ctl.pic_ids if i != pid],
+                                "pic_solo": "" if ctl.pic_solo == pid else ctl.pic_solo,
+                                "mode": "scroll" if ctl.mode == "image" and not ctl.lib.ready_ids() else ctl.mode})
+                elif path.startswith("/api/pictures/"):      # change a picture's fit / focus / name
+                    ctl.lib.edit(path.split("/")[3], json.loads(body or b"{}"))
+                    ctl.update({})
                 else:
                     return self.send(404, {"error": "not found"})
             except Exception as e:
@@ -1575,28 +1625,61 @@ def run_display(ctl, feed, matrix):
 
     x, seen, img_i = W, -1, 0
     card_i, card_t0 = 0, time.time()
+    player = pictures.Player(ctl.lib, W, ROWS)          # Picture mode: one picture or the slideshow
+    inter, lap, last_pic, pic_n = None, False, time.time(), 0   # pictures popping up in the ticker
+    inter_last = None
     while True:
         al = feed.next_alert()
         if al:                                    # takeover, then go back to whatever was showing
             start = time.time()
             while (t := time.time() - start) < ALERT_SECONDS:
                 show(alert_frame(al, t)); time.sleep(1 / 30)
-            x = W
+            x, inter, last_pic = W, None, time.time()
         if ctl.version != seen:                   # something changed on the phone
             seen, x, img_i = ctl.version, W, 0
             card_i, card_t0 = 0, time.time()
+            inter, lap, last_pic = None, False, time.time()
             feed.build_strip()                    # league picks may have changed
 
         mode = ctl.mode
-        if mode == "image" and ctl.frames:
-            # GIF frames go by the clock, so a message on top can move smoothly
-            total = sum(ms for _, ms in ctl.frames) or 100
-            pos, img = (time.time() * 1000) % total, ctl.frames[0][0]
-            for fr, ms in ctl.frames:
-                if pos < ms:
-                    img = fr
-                    break
-                pos -= ms
+        shuffle = ctl.pic_order == "shuffle"
+
+        # ---- a picture popping up in the ticker (after each lap, or every few minutes)
+        if mode == "scroll" and inter is None and ctl.pic_every and ctl.lib.ready_ids():
+            due = lap if ctl.pic_every < 0 else time.time() - last_pic >= ctl.pic_every * 60
+            if due:
+                ids = ctl.playlist()
+                pid = random.choice([i for i in ids if i != inter_last] or ids) if shuffle and len(ids) > 1 \
+                    else ids[pic_n % len(ids)]
+                pic_n += 1
+                inter = {"id": pid, "start": time.time(), "from": frame.copy()}
+            lap = False
+        if inter is not None:
+            r = ctl.lib.rendered_async(inter["id"], ctl.pic_boost)
+            now = time.time()
+            if r is None:                         # still being prepared: keep the ticker going meanwhile
+                if now - inter["start"] > 20:
+                    inter, last_pic = None, now
+            else:
+                if "t0" not in inter:
+                    inter["t0"] = now
+                t = now - inter["t0"]
+                dur = player.duration(r, ctl.pic_secs)
+                if t >= dur:
+                    inter_last, inter, last_pic, x = inter["id"], None, now, x
+                else:
+                    img = r.frame(t, W, ROWS, period=max(6, ctl.pic_secs))
+                    if t < 0.5:                   # fade in from the ticker
+                        img = Image.blend(inter["from"], img, t / 0.5)
+                    elif dur - t < 0.4:           # fade out to black, then the ticker picks up where it was
+                        img = Image.blend(img, Image.new("RGB", (W, ROWS)), 1 - (dur - t) / 0.4)
+                    show(img)
+                    time.sleep(1 / 30)
+                    continue
+
+        if mode == "image" and ctl.lib.ready_ids():
+            player.set_playlist(ctl.playlist(), shuffle)
+            img = player.frame(ctl.pic_secs, ctl.pic_fx, ctl.pic_boost, shuffle) or Image.new("RGB", (W, ROWS))
             if ctl.msg_on_image and (ctl.message or "").strip():   # message over the picture
                 img, scrolling, w = message_frame(ctl, time.time(), x, background=img)
                 step = speed_step(ctl.speed)
@@ -1604,7 +1687,7 @@ def run_display(ctl, feed, matrix):
                     x = W if x < -w else x - step
                 show(img); time.sleep(step / ctl.speed)
             else:
-                show(img); time.sleep(1 / 30 if len(ctl.frames) > 1 else 0.25)
+                show(img); time.sleep(1 / 30)
         elif mode == "message":
             img, scrolling, w = message_frame(ctl, time.time(), x)
             show(img)
@@ -1621,7 +1704,7 @@ def run_display(ctl, feed, matrix):
             img.paste(pinned_frame(feed.pinned, t, ctl), (0, 0))
             ImageDraw.Draw(img).line([(0, TOP_H), (W, TOP_H)], fill=(35, 35, 50))
             if x < -bottom.width or x > W:
-                x = W
+                x, lap = W, True
             img.paste(bottom, (x, ROWS - BOTTOM_H))
             show(img)
             step = speed_step(ctl.speed)
@@ -1633,6 +1716,7 @@ def run_display(ctl, feed, matrix):
             length, t = card_length(card, ctl), time.time() - card_t0
             if t >= length:
                 card_i, card_t0 = (card_i + 1) % len(cards), time.time()
+                lap = lap or card_i == 0
                 continue
             show(with_motion(card_frame(card, t, ctl), t, length, ctl.motion))
             time.sleep(1 / 40)
@@ -1654,7 +1738,7 @@ def run_display(ctl, feed, matrix):
             step = speed_step(ctl.speed)
             x -= step
             if x < -strip.width:
-                x = W
+                x, lap = W, True
             time.sleep(step / ctl.speed)
 
 # ------------------------------------------------------------------ test helpers
@@ -1693,6 +1777,12 @@ if __name__ == "__main__":
         run_test_alert(args.test_alert)
     else:
         ctl = Control()
+        if args.demo and not ctl.lib.items:          # sample pictures, GIFs and a video to try the Picture tab
+            folder = os.path.join(HERE, "demo", "pics")
+            for name in sorted(os.listdir(folder)):
+                tmp = tempfile.mkstemp(dir=PIC_DIR, suffix=".upload")[1]
+                import shutil; shutil.copy(os.path.join(folder, name), tmp)
+                ctl.lib.add_file(tmp, name, "video/mp4" if name.endswith(".mp4") else "")
         feed = Feed(ctl, demo=args.demo or args.preview)
         if args.preview:
             run_preview(feed)

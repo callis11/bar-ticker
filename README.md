@@ -64,13 +64,18 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
   - **Odds**: Show odds switch, plus Moneyline, Over/Under and Spread picks, for games that haven't started
   - **How it moves**: **Scroll** (the classic crawl) or one item at a time with **Cut**, **Fade**, **Flash**, **Slide up** or **Slide left**. In one-at-a-time styles, games show as a big scoreboard and ParlayLabs items as a card with a small label on top. **Speed** slider for crawling, and **Each item stays** 3, 5, 8 or 15 sec
   - **Hold on top** (split screen): **Off**, **My teams**, **Live games** or **Picked games**. Those games stay put on the top row (one line each: teams, scores, clock; several side by side, taking turns if they don't all fit) while everything else crawls along the bottom row on one line. When none of them are live it goes back to the full-height ticker by itself. My teams and Live games keep a game on 15 min after it ends
-- **Picture**: send a photo or GIF from your phone (GIFs animate). Pick "Fit whole picture" or "Fill the strip"
+- **Picture**: your own picture library, saved on the Pi
+  - **Add** photos, GIFs and phone videos (several at once). Videos (MP4/MOV, up to 250 MB) are shrunk once on the Pi with ffmpeg (first 20 seconds, no sound), which takes about a minute, then play as a loop
+  - **Edit** each one: **Whole picture** (black bars), **Fill** (edge to edge, with a **Which part shows** slider: top↔bottom, or left↔right for wide panoramas, with a live preview) or **Slow pan** (fills the strip and glides across the whole photo and back). Tall phone photos start on Slow pan; little pixel-art GIFs stay crisp and blocky. **Show this now** plays just that one; **Delete** removes it
+  - **Slideshow**: check the ones you want (none unchecked = all, and new ones join automatically), then **Play slideshow**. Each stays 5 s, 10 s, 20 s or 1 min (GIFs and videos play all the way through), in order or shuffled, changing with a fade, slide or cut
+  - **In the ticker**: a checked picture pops up **after each lap** of the ticker, or every 2, 5 or 10 minutes, for the slideshow time, then the scores pick up where they left off
+  - **LED color boost**: a little more color, contrast and sharpness so photos pop on LEDs (on by default)
 - **Message**: type anything, pick a color and a style (Steady, Scroll, Blink, Rainbow, Fireworks), then where it shows, in any mix: **on its own**, **with the ticker** (comes around between leagues) and/or **over the picture** (on top of your photo or GIF with a black outline). Typing a new message updates it everywhere it's showing
 - **Brightness**, **TV delay** (holds alerts so they line up with your TV), **score update speed**, **team alerts on/off** and **college rankings on/off**
 - Your choices are saved, so the ticker comes back the same way after a power cut
 - It only works on your home network. Reaching it from away would need something like Tailscale on the Pi
 
-**Try it before the Pi arrives:** open the page from GitHub Pages (https://callis11.github.io/bar-ticker/, can also be added to the home screen) and it runs in demo mode with a pretend ticker drawn on the page. Every button works, there are test buttons for the touchdown, win and close-game alerts, and it shows today's real games when ESPN allows it. You can also run `python3 ticker.py --sim --demo` on a computer and open http://localhost:8080.
+**Try it before the Pi arrives:** open the page from GitHub Pages (https://callis11.github.io/bar-ticker/, can also be added to the home screen) and it runs in demo mode with a pretend ticker drawn on the page. Every button works (the Picture tab comes with sample pictures, GIFs and a video, and you can add your own; they stay only until you reload), there are test buttons for the touchdown, win and close-game alerts, and it shows today's real games when ESPN allows it. You can also run `python3 ticker.py --sim --demo` on a computer and open http://localhost:8080.
 
 ## What the script does now
 - Scrolls every game today in the NFL, NBA, college football, college hoops (ranked teams + MSU), NHL and MLB, using ESPN's free scoreboard feed. Everything refreshes every 5 seconds by default. The Lions, Pistons, MSU and any games you picked always refresh every 5 seconds while live; the rest can be slowed on the phone page (5–60 sec). If ESPN stops answering for a while, the phone page shows a red warning so you know to slow it down
@@ -91,6 +96,6 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
 
 ## Ideas for next scripts
 - Leg tracker: show each live parlay leg turning green or red as games go final
-- Team logo animations and short GIF clips between rotations (on a 640 x 64 strip, videos get cropped to a 10:1 band, so loops built for this shape look better)
+- Team logo animations and celebration GIFs on touchdown and win alerts
 - Two-line ParlayLabs in the scroll: parlay name and payout on top, legs underneath
 - Night mode: dim or turn off at closing time

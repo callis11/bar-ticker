@@ -3,7 +3,7 @@
 #   git clone https://github.com/callis11/bar-ticker.git /home/pi/bar-ticker
 #   sudo bash /home/pi/bar-ticker/pi/install.sh
 set -e
-apt-get install -y python3-pil fonts-dejavu git
+apt-get install -y python3-pil fonts-dejavu git ffmpeg
 cp /home/pi/bar-ticker/pi/ticker.service        /etc/systemd/system/
 cp /home/pi/bar-ticker/pi/ticker-update.service /etc/systemd/system/
 cp /home/pi/bar-ticker/pi/ticker-update.timer   /etc/systemd/system/

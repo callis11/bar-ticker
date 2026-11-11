@@ -5,6 +5,8 @@ cd /home/pi/bar-ticker || exit 1
 before=$(git rev-parse HEAD)
 git pull --ff-only -q || exit 1
 after=$(git rev-parse HEAD)
+# anything new the ticker needs (ffmpeg turns phone videos into ticker loops)
+command -v ffmpeg >/dev/null || apt-get install -y -q ffmpeg
 if [ "$before" != "$after" ]; then
     echo "updated $before -> $after, restarting ticker"
     systemctl restart ticker
