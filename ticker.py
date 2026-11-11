@@ -689,7 +689,7 @@ def clean_themes(themes):
         if "score" in th: t["score"] = bool(th["score"])
         if th.get("word_fx") in WORD_FX: t["word_fx"] = th["word_fx"]
         if th.get("word_bg") in WORD_BG: t["word_bg"] = th["word_bg"]
-        if th.get("side") in ("left", "right"): t["side"] = th["side"]
+        if th.get("side") in ("left", "right", "both"): t["side"] = th["side"]
         if "side_w" in th:
             t["side_w"] = min(SIDE_W, key=lambda v: abs(v - float(th["side_w"])))
         for c in ("c1", "c2"):
@@ -783,7 +783,8 @@ def score_frame(al, t, c1, c2):
     return img
 
 def side_width(th):
-    return int(round(W * th.get("side_w", 0.4)))
+    """Width of the picture on each side (with pictures on both sides, the size is split between them)."""
+    return int(round(W * th.get("side_w", 0.4) / (2 if th.get("side") == "both" else 1)))
 
 def word_phase_len(th, word, region_w):
     """How long one word gets: the switch time, or long enough to scroll all the way across."""
@@ -889,12 +890,12 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
         th = dict(th, style="words", word_bg="black" if th["word_bg"] == "black" else "color")
     side = th["style"] == "side"
     pw = side_width(th) if side else 0
-    words_x0, words_x1 = (pw, W) if side and th["side"] == "left" else (0, W - pw) if side else (0, W)
+    words_x0, words_x1 = ((pw, W - pw) if th["side"] == "both" else (pw, W) if th["side"] == "left" else (0, W - pw)) if side else (0, W)
     kind, wi, pi, start, length = phase_at(th, t, words, words_x1 - words_x0)
     word = words[wi % len(words)]
 
-    def picture(size=None):
-        r = lib.rendered_async(pics[pi % len(pics)], boost, size) if pics else None
+    def picture(size=None, nxt=0):
+        r = lib.rendered_async(pics[(pi + nxt) % len(pics)], boost, size) if pics else None
         if r is None:
             return None
         return r.frame(t, *(size or (W, ROWS)), period=6).copy()
@@ -903,9 +904,11 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
     if kind == "pic":
         return picture() or draw_words(img, 0, W, word, dict(th, word_bg="color"), al.kind, t - start, length, t, c1)
     if kind == "side":
-        pic = picture((pw, ROWS))
-        if pic is not None:
-            img.paste(pic, (0 if th["side"] == "left" else W - pw, 0))
+        spots = [(0, 0), (W - pw, 1)] if th["side"] == "both" else [(0 if th["side"] == "left" else W - pw, 0)]
+        for x, nxt in spots:                             # picture words picture: two picked = one each side
+            pic = picture((pw, ROWS), nxt)
+            if pic is not None:
+                img.paste(pic, (x, 0))
         bg = th["word_bg"] if th["word_bg"] != "gif" else "color"
         return draw_words(img, words_x0, words_x1, word, dict(th, word_bg=bg), al.kind, t - start, length, t, c1)
     if kind == "over" or th["word_bg"] == "gif":           # words coming across the GIF, which keeps playing

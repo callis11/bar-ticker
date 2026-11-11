@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261111172345">
+<meta name="build" content="20261111182217">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -514,7 +514,7 @@ const SPORT_LABEL = {NFL:"NFL", CFB:"College FB", NBA:"NBA", CBB:"College BB", N
 const STYLE_LABEL = [["switch", "GIF ↔ words"], ["over", "Words on the GIF"], ["side", "Side by side"], ["pics", "GIF only"], ["words", "Words only"]];
 const STYLE_HINT = {switch:"Your GIF plays, then the words, back and forth for the whole alert.",
                     over:"Your GIF keeps playing with the words coming across it.",
-                    side:"Your picture or GIF on one side, the words on the other.",
+                    side:"Your picture or GIF on one side, the words on the other. Both sides = picture, words, picture (pick 2 for a different one each side).",
                     pics:"Just your GIFs (they take turns if you pick more than one).", words:"Just the words, in your colors."};
 const FX_LABEL = [["flash", "Flash"], ["scroll", "Scroll across"], ["slide", "Slide in"], ["pop", "Pop"], ["blink", "Blink"], ["rainbow", "Rainbow"], ["fade", "Fade"]];
 const BG_LABEL = [["color", "Team color"], ["black", "Black"], ["gif", "The GIF"]];
@@ -557,7 +557,7 @@ function renderAlerts() {
     <h2 class="sect">Style</h2>
     <div class="chips wrap alStyle">${STYLE_LABEL.map(([k, n]) => `<button data-s="${k}" class="${th.style === k ? "on" : ""}">${n}</button>`).join("")}</div>
     <p class="hint" style="margin-top:0">${sel.length || th.style === "words" ? STYLE_HINT[th.style] : "Pick a GIF above for this style; until then it shows the flashing words."}</p>
-    ${th.style === "side" ? `<div class="seg alSide"><span class="segLabel">Picture on</span>${[["left", "Left"], ["right", "Right"]].map(([k, n]) =>
+    ${th.style === "side" ? `<div class="seg alSide"><span class="segLabel">Picture on</span>${[["left", "Left"], ["right", "Right"], ["both", "Both sides"]].map(([k, n]) =>
         `<button data-v="${k}" class="${th.side === k ? "on" : ""}">${n}</button>`).join("")}</div>
       <div class="seg alSideW"><span class="segLabel">Picture size</span>${[[0.3, "Small"], [0.4, "Medium"], [0.5, "Half"]].map(([k, n]) =>
         `<button data-v="${k}" class="${th.side_w === k ? "on" : ""}">${n}</button>`).join("")}</div>` : ""}
@@ -1493,16 +1493,20 @@ const Demo = (() => {
     }
     const pics = th.pics.map(id => lib.find(p => p.id === id)).filter(Boolean);
     if (!pics.length) th = Object.assign({}, th, {style: "words", word_bg: th.word_bg === "black" ? "black" : "color"});
-    const side = th.style === "side", pw = side ? Math.round(W * (th.side_w || 0.4)) : 0;
-    const [wx0, wx1] = side ? (th.side === "left" ? [pw, W] : [0, W - pw]) : [0, W];
+    const side = th.style === "side", both = th.side === "both", pw = side ? Math.round(W * (th.side_w || 0.4) / (both ? 2 : 1)) : 0;
+    const [wx0, wx1] = side ? (both ? [pw, W - pw] : th.side === "left" ? [pw, W] : [0, W - pw]) : [0, W];
     const [kind, wi, pi, start, len] = phaseAt(th, t, words, wx1 - wx0), word = words[wi % words.length], u = t - start;
     const pic = pics.length ? pics[pi % pics.length] : null;
     clear();
     if (kind === "pic") { renderPic(pic, nextCanvas.getContext("2d"), t); g.drawImage(nextCanvas, 0, 0); return; }
     if (kind === "side") {
       if (sideCanvas.width !== pw) sideCanvas.width = pw;
-      renderPic(pic, sideCanvas.getContext("2d"), t, pic.fit, [pic.zoom, pic.fx, pic.fy], false, pw);
-      g.drawImage(sideCanvas, th.side === "left" ? 0 : W - pw, 0);
+      const spots = both ? [[0, 0], [W - pw, 1]] : [[th.side === "left" ? 0 : W - pw, 0]];
+      for (const [x, nxt] of spots) {             // picture words picture: two picked = one each side
+        const p = pics[(pi + nxt) % pics.length];
+        renderPic(p, sideCanvas.getContext("2d"), t, p.fit, [p.zoom, p.fx, p.fy], false, pw);
+        g.drawImage(sideCanvas, x, 0);
+      }
       return drawWords(wx0, wx1, word, Object.assign({}, th, {word_bg: th.word_bg === "gif" ? "color" : th.word_bg}), al.kind, u, len, t);
     }
     if (kind === "over" || th.word_bg === "gif") {      // words coming across the GIF, which keeps playing
