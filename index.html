@@ -1198,22 +1198,94 @@ const Demo = (() => {
   }
 
   // ---- picture library (demo: kept in this page only, gone on reload)
-  const lib = [];                                   // {id, name, kind, fit, focus, status, w, h, seconds, el}
+  const lib = [];                                   // {id, name, kind, fit, focus, status, w, h, seconds, el | buf}
   let libVer = 1;
-  const hold = document.createElement("div");     // GIFs/videos animate only while they're on the page
+  const hold = document.createElement("div");     // videos only play while they're on the page
   hold.style.cssText = "position:fixed;left:-9999px;top:0;width:4px;height:4px;overflow:hidden;opacity:0;pointer-events:none";
   document.body.appendChild(hold);
+
+  // GIFs are decoded here, frame by frame: browsers (Safari especially) won't animate a GIF drawn onto a canvas
+  function lzw(data, minSize, npix) {
+    const out = new Uint8Array(npix), clear = 1 << minSize, eoi = clear + 1;
+    const prefix = new Uint16Array(4096), suffix = new Uint8Array(4096), stack = new Uint8Array(4097);
+    for (let i = 0; i < clear; i++) suffix[i] = i;
+    let size = minSize + 1, mask = (1 << size) - 1, next = eoi + 1, old = -1, first = 0, bits = 0, cur = 0, dp = 0, op = 0;
+    while (op < npix) {
+      while (bits < size) { if (dp >= data.length) return out; cur |= data[dp++] << bits; bits += 8; }
+      let code = cur & mask; cur >>>= size; bits -= size;
+      if (code === clear) { size = minSize + 1; mask = (1 << size) - 1; next = eoi + 1; old = -1; continue; }
+      if (code === eoi) break;
+      if (old < 0) { out[op++] = suffix[code]; old = first = code; continue; }
+      const inCode = code; let sp = 0;
+      if (code >= next) { stack[sp++] = first; code = old; }
+      while (code > eoi) { stack[sp++] = suffix[code]; code = prefix[code]; }
+      first = suffix[code]; stack[sp++] = first;
+      while (sp && op < npix) out[op++] = stack[--sp];
+      if (next < 4096) { prefix[next] = old; suffix[next] = first; next++; if (!(next & mask) && next < 4096) { size++; mask = (1 << size) - 1; } }
+      old = inCode;
+    }
+    return out;
+  }
+  function decodeGIF(buf, onFrame, maxFrames = 400) {   // calls onFrame(canvas, ms) with each finished frame
+    const b = new Uint8Array(buf); let p = 6;
+    const u16 = () => b[p++] | (b[p++] << 8);
+    if (b[0] !== 0x47 || b[1] !== 0x49 || b[2] !== 0x46) throw new Error("not a GIF");
+    const w = u16(), h = u16(), pk = b[p++]; p += 2;
+    let gct = null; if (pk & 0x80) { const n = 3 << ((pk & 7) + 1); gct = b.subarray(p, p + n); p += n; }
+    const work = document.createElement("canvas"); work.width = w; work.height = h;
+    const wc = work.getContext("2d"), img = wc.createImageData(w, h), px = img.data;
+    let delay = 100, trans = -1, disp = 0, n = 0;
+    while (p < b.length && n < maxFrames) {
+      const c = b[p++];
+      if (c === 0x3B) break;
+      if (c === 0x21) {
+        if (b[p++] === 0xF9) { p++; const f = b[p++]; delay = u16() * 10; const ti = b[p++]; p++; trans = f & 1 ? ti : -1; disp = (f >> 2) & 7; }
+        else { while (b[p]) p += b[p] + 1; p++; }
+        continue;
+      }
+      if (c !== 0x2C) break;
+      const fx = u16(), fy = u16(), fw = u16(), fh = u16(), ip = b[p++];
+      let ct = gct; if (ip & 0x80) { const k = 3 << ((ip & 7) + 1); ct = b.subarray(p, p + k); p += k; }
+      const minSize = b[p++], chunks = []; let len = 0;
+      while (b[p]) { chunks.push(b.subarray(p + 1, p + 1 + b[p])); len += b[p]; p += b[p] + 1; }
+      p++;
+      const data = new Uint8Array(len); let o = 0; for (const ch of chunks) { data.set(ch, o); o += ch.length; }
+      const idx = lzw(data, minSize, fw * fh);
+      const saved = disp === 3 ? px.slice() : null;
+      const rows = []; if (ip & 0x40) { for (const [s0, st] of [[0, 8], [4, 8], [2, 4], [1, 2]]) for (let r = s0; r < fh; r += st) rows.push(r); }
+      for (let i = 0; i < fh; i++) {
+        const y = fy + (ip & 0x40 ? rows[i] : i); if (y >= h) continue;
+        for (let j = 0; j < fw; j++) {
+          const x = fx + j, ci = idx[i * fw + j]; if (x >= w || ci === trans || !ct) continue;
+          const q = (y * w + x) * 4; px[q] = ct[ci * 3]; px[q + 1] = ct[ci * 3 + 1]; px[q + 2] = ct[ci * 3 + 2]; px[q + 3] = 255;
+        }
+      }
+      wc.putImageData(img, 0, 0);
+      onFrame(work, delay <= 10 ? 100 : Math.max(20, delay), w, h); n++;
+      if (disp === 2) for (let y = fy; y < Math.min(h, fy + fh); y++) px.fill(0, (y * w + fx) * 4, (y * w + Math.min(w, fx + fw)) * 4);
+      else if (disp === 3 && saved) px.set(saved);
+      delay = 100; trans = -1; disp = 0;
+    }
+    return {w, h, n};
+  }
+
   async function addPic(src, name, type) {
     const kind = /^video/.test(type) || /\.(mp4|mov|m4v|webm)$/i.test(name) ? "video" : /gif/i.test(type) || /\.gif$/i.test(name) ? "gif" : "image";
-    let el, w, h, seconds;
+    let el = null, buf = null, w, h, seconds;
     if (kind === "video") {
       el = document.createElement("video"); el.muted = true; el.loop = true; el.playsInline = true; el.autoplay = true; el.src = src;
       hold.appendChild(el);
       await new Promise((ok, bad) => { el.onloadeddata = ok; el.onerror = () => bad(new Error("can't play that video here")); });
       el.play().catch(() => {});
       w = el.videoWidth; h = el.videoHeight; seconds = Math.min(20, el.duration || 0);
+    } else if (kind === "gif") {
+      buf = await (await fetch(src)).arrayBuffer();
+      let total = 0, frames = 0;
+      try { ({w, h} = decodeGIF(buf, (cv, ms) => { total += ms; frames++; })); }
+      catch { throw new Error("can't read that GIF"); }
+      seconds = frames > 1 ? total / 1000 : 0;
     } else {
-      el = new Image(); el.src = src; hold.appendChild(el);
+      el = new Image(); el.src = src;
       try { await el.decode(); } catch { throw new Error("can't read that picture"); }
       w = el.naturalWidth; h = el.naturalHeight;
     }
@@ -1221,37 +1293,67 @@ const Demo = (() => {
     if (kind === "image" && h > w) fit = "pan";              // tall phone photos: glide top to bottom
     if (kind === "gif" && h <= 80) fit = "contain";          // little pixel-art GIFs: whole thing
     const it = {id: Math.random().toString(16).slice(2, 10), name: name.replace(/\.[^.]+$/, "") || "Picture",
-                kind, fit, focus: 0.5, status: "ready", w, h, seconds, el};
+                kind, fit, focus: 0.5, status: "ready", w, h, seconds, el, buf};
     lib.push(it); libVer++;
     return it;
   }
-  const meta = p => { const {el, ...m} = p; return m; };
+  const meta = p => { const {el, buf, ...m} = p; return m; };
   const cover = (w, h) => { const s = Math.max(W / w, H / h); return [Math.max(W, w * s), Math.max(H, h * s)]; };
-  function renderPic(p, c, t, fit = p.fit, focus = p.focus) {        // same fitting as pictures.py
-    const w = p.w, h = p.h, still = p.kind === "image";
-    if (!still && fit === "pan") fit = "fill";
+  const newC = (w, h) => { const c = document.createElement("canvas"); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; };
+  // Pictures are fitted (and color-boosted) once and kept, instead of redrawing a big photo through filters 60 times a second
+  const baked = new Map();
+  function keep(key, make) {
+    if (baked.has(key)) { const v = baked.get(key); baked.delete(key); baked.set(key, v); return v; }
+    const v = make(); baked.set(key, v);
+    while (baked.size > 24) baked.delete(baked.keys().next().value);
+    return v;
+  }
+  function fitInto(c, src, w, h, fit, focus) {        // same fitting as pictures.py
     c.fillStyle = "#000"; c.fillRect(0, 0, W, H);
-    c.imageSmoothingEnabled = !(h <= 128 && w * Math.min(W / w, H / h) > w * 1.4);   // pixel art stays crisp
+    c.imageSmoothingEnabled = !(h <= 128 && Math.min(W / w, H / h) > 1.4);   // pixel art stays crisp
     if (S.pic_boost !== false) c.filter = "saturate(1.35) contrast(1.12)";
-    if (fit === "contain") {
-      const sc = Math.min(W / w, H / h); c.drawImage(p.el, (W - w * sc) / 2, (H - h * sc) / 2, w * sc, h * sc);
-    } else {
-      const [cw, ch] = cover(w, h);
-      let ox = (cw - W) * focus, oy = (ch - H) * focus;
-      if (fit === "pan") {
-        const period = Math.max(6, S.pic_secs || 10), ph = (t % (2 * period)) / period;
-        const q = 0.5 - 0.5 * Math.cos(Math.PI * (ph <= 1 ? ph : 2 - ph));
-        ox = (cw - W) * q; oy = (ch - H) * q;
-      }
-      c.drawImage(p.el, -ox, -oy, cw, ch);
-    }
+    if (fit === "contain") { const sc = Math.min(W / w, H / h); c.drawImage(src, (W - w * sc) / 2, (H - h * sc) / 2, w * sc, h * sc); }
+    else { const [cw, ch] = cover(w, h); c.drawImage(src, -(cw - W) * focus, -(ch - H) * focus, cw, ch); }
     c.filter = "none"; c.imageSmoothingEnabled = true;
   }
-  const thumbCanvas = document.createElement("canvas"); thumbCanvas.width = W; thumbCanvas.height = H;
+  function gifFrames(p, fit, focus, firstOnly = false) {
+    return keep(`${p.id}|${fit}|${focus}|${S.pic_boost !== false}|${firstOnly}`, () => {
+      const frames = [];
+      decodeGIF(p.buf, (work, ms, w, h) => { const cv = newC(W, H); fitInto(cv.getContext("2d"), work, w, h, fit, focus); frames.push({cv, ms}); },
+                firstOnly ? 1 : 400);
+      frames.total = frames.reduce((a, f) => a + f.ms, 0) || 1;
+      return frames;
+    });
+  }
+  function renderPic(p, c, t, fit = p.fit, focus = p.focus, firstOnly = false) {
+    if (p.kind !== "image" && fit === "pan") fit = "fill";
+    if (p.kind === "video") return fitInto(c, p.el, p.w, p.h, fit, focus);
+    if (p.kind === "gif") {
+      const fr = gifFrames(p, fit, focus, firstOnly);
+      let pos = (t * 1000) % fr.total, f = fr[0];
+      for (const x of fr) { if (pos < x.ms) { f = x; break; } pos -= x.ms; }
+      return c.drawImage(f.cv, 0, 0);
+    }
+    if (fit === "pan") {                              // boosted once at full cover size, then a window slides over it
+      const [cw, ch] = cover(p.w, p.h);
+      const big = keep(`${p.id}|pan|${S.pic_boost !== false}`, () => {
+        const cv = newC(cw, ch), x = cv.getContext("2d");
+        if (S.pic_boost !== false) x.filter = "saturate(1.35) contrast(1.12)";
+        x.drawImage(p.el, 0, 0, cw, ch); return cv;
+      });
+      const period = Math.max(6, S.pic_secs || 10), ph = (t % (2 * period)) / period;
+      const q = 0.5 - 0.5 * Math.cos(Math.PI * (ph <= 1 ? ph : 2 - ph));
+      c.fillStyle = "#000"; c.fillRect(0, 0, W, H);
+      return c.drawImage(big, -(big.width - W) * q, -(big.height - H) * q);
+    }
+    c.drawImage(keep(`${p.id}|${fit}|${focus}|${S.pic_boost !== false}`, () => {
+      const cv = newC(W, H); fitInto(cv.getContext("2d"), p.el, p.w, p.h, fit, focus); return cv; }), 0, 0);
+  }
+  const thumbCanvas = newC(W, H);
   function thumb(id, q = "") {
     const p = lib.find(z => z.id === id); if (!p) return "";
     const o = Object.fromEntries(q.split("&").filter(Boolean).map(kv => kv.split("=")));
-    renderPic(p, thumbCanvas.getContext("2d"), p.fit === "pan" && !o.fit ? 5 : 0, o.fit || p.fit, o.focus !== undefined ? +o.focus : p.focus);
+    renderPic(p, thumbCanvas.getContext("2d"), p.fit === "pan" && !o.fit ? 5 : 0, o.fit || p.fit, o.focus !== undefined ? +o.focus : p.focus, true);
     return thumbCanvas.toDataURL();
   }
   function picPlaylist() {
@@ -1261,7 +1363,7 @@ const Demo = (() => {
     return sel.length ? sel : ready;
   }
   function picDur(p) {                              // videos play through at least once (up to 30 s)
-    const secs = S.pic_secs || 10, L = p.kind === "video" ? p.seconds : 0;
+    const secs = S.pic_secs || 10, L = p.kind === "video" || p.kind === "gif" ? p.seconds : 0;
     if (!L) return secs;
     return Math.min(L < secs ? L * Math.ceil(secs / L) : L, Math.max(secs, 30));
   }
@@ -1389,7 +1491,7 @@ const Demo = (() => {
       const p = lib.find(z => z.id === parts[3]);
       if (!p) throw new Error("no such picture");
       if (parts[4] === "delete") {
-        lib.splice(lib.indexOf(p), 1); p.el.remove(); libVer++;
+        lib.splice(lib.indexOf(p), 1); if (p.el) p.el.remove(); libVer++;
         S.pic_ids = (S.pic_ids || []).filter(i => i !== p.id);
         if (S.pic_solo === p.id) S.pic_solo = "";
         if (!lib.length && S.mode === "image") S.mode = "scroll";
@@ -1426,7 +1528,7 @@ async function start() {
     poll();
   }
   async function refresh() { await loadLive(); buildStrip(); }
-  return {start, api, testAlert, refresh, thumb};
+  return {start, api, testAlert, refresh, thumb, decodeGIF};
 })();
 
 async function start() {
