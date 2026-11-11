@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261111182217">
+<meta name="build" content="20261111183156">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -560,7 +560,9 @@ function renderAlerts() {
     ${th.style === "side" ? `<div class="seg alSide"><span class="segLabel">Picture on</span>${[["left", "Left"], ["right", "Right"], ["both", "Both sides"]].map(([k, n]) =>
         `<button data-v="${k}" class="${th.side === k ? "on" : ""}">${n}</button>`).join("")}</div>
       <div class="seg alSideW"><span class="segLabel">Picture size</span>${[[0.3, "Small"], [0.4, "Medium"], [0.5, "Half"]].map(([k, n]) =>
-        `<button data-v="${k}" class="${th.side_w === k ? "on" : ""}">${n}</button>`).join("")}</div>` : ""}
+        `<button data-v="${k}" class="${th.side_w === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      <div class="switch"><span>Fade to a full-screen GIF in between</span><input type="checkbox" class="alFull" ${th.side_full ? "checked" : ""}></div>
+      <p class="hint" style="margin-top:0">${th.side_full ? (th.side === "both" ? "The last GIF you pick (#3) is the full-screen one; #1 and #2 go on the sides." : "The last GIF you pick (#2) is the full-screen one; #1 goes on the side.") : "Words in the middle, then the whole ticker fades into your GIF, then back."}</p>` : ""}
     ${th.style !== "pics" ? `<h2 class="sect">How the words come in</h2>
       <div class="chips wrap alFx">${FX_LABEL.map(([k, n]) => `<button data-v="${k}" class="${th.word_fx === k ? "on" : ""}">${n}</button>`).join("")}</div>
       ${th.style === "over" ? "" : `<div class="seg alBg"><span class="segLabel">Behind them</span>${BG_LABEL.filter(([k]) => k !== "gif" || th.style === "switch")
@@ -637,6 +639,7 @@ $("#alEdit").onchange = async e => {
   const th = curTheme();
   if (e.target.matches(".alOn")) return themeSave({on: e.target.checked}, e.target.checked ? "Alert on" : "Alert off");
   if (e.target.matches(".alScore")) return themeSave({score: e.target.checked});
+  if (e.target.matches(".alFull")) return themeSave({side_full: e.target.checked});
   if (e.target.matches(".alC")) return themeSave({[e.target.dataset.c]: e.target.value});
   if (e.target.matches(".alW")) {
     const words = [...document.querySelectorAll("#alEdit .alW")].map(i => i.value.trim()).filter(Boolean);
@@ -921,7 +924,7 @@ const Demo = (() => {
   }
   const defaultWords = (name, kind) => ({td:["TOUCHDOWN!", name + "!"], redzone:["RED ZONE", name + "!"], win:[name, "WIN!"], close:["CLOSE GAME", name]})[kind];
   function themeOf(key) {
-    const extra = {word_fx:"flash", word_bg:"color", side:"left", side_w:0.4};
+    const extra = {word_fx:"flash", word_bg:"color", side:"left", side_w:0.4, side_full:false};
     if (key === "ANY|ALL|close") return Object.assign({on:true, style:"words", pics:[], words:["CLOSE GAME", "{score}"], every:1.5, secs:8,
                                                       score:true, c1:"#ffaa00", c2:"#ffffff"}, extra, (S.themes || {})[key] || {});
     const [lg, ab, kind] = key.split("|"), [name, c1, c2] = MY[`${lg}|${ab}`] || ["TEAM", "#ffbe00", "#ffffff"];
@@ -1441,14 +1444,15 @@ const Demo = (() => {
 
   // ---- alerts, same as ticker.py: phases (GIF / words), how the words come in, what's behind them, side by side
   const SCROLL_PX = 260;
+  const phaseLen = (th, word, regionW) => th.word_fx === "scroll" ? Math.max(th.every, (regionW + measure(word, fit(word, regionW - 8))) / SCROLL_PX) : th.every;
   function phaseAt(th, t, words, regionW) {
     let start = 0;
     for (let i = 0; i < 500; i++) {
       let kind, wi = i, pi = i;
       if (th.style === "switch") { kind = i % 2 ? "words" : "pic"; wi = pi = Math.floor(i / 2); }
+      else if (th.style === "side" && th.side_full) { kind = i % 2 ? "full" : "side"; wi = pi = Math.floor(i / 2); }
       else kind = {pics:"pic", words:"words", over:"over", side:"side"}[th.style];
-      const word = words[wi % words.length];
-      const len = kind === "pic" ? th.every : th.word_fx === "scroll" ? Math.max(th.every, (regionW + measure(word, fit(word, regionW - 8))) / SCROLL_PX) : th.every;
+      const len = kind === "pic" ? th.every : kind === "full" ? Math.max(2, th.every) : phaseLen(th, words[wi % words.length], regionW);
       if (t < start + len) return [kind, wi, pi, start, len];
       start += len;
     }
@@ -1499,15 +1503,29 @@ const Demo = (() => {
     const pic = pics.length ? pics[pi % pics.length] : null;
     clear();
     if (kind === "pic") { renderPic(pic, nextCanvas.getContext("2d"), t); g.drawImage(nextCanvas, 0, 0); return; }
-    if (kind === "side") {
+    const nside = both ? 2 : 1, fullPic = side && th.side_full && pics.length > nside ? pics[pics.length - 1] : null;
+    const pool = pics.filter(p => p !== fullPic);       // fading to full screen: the last one you picked is the full-screen GIF
+    const wordLen = n => phaseLen(th, words[n % words.length], wx1 - wx0);
+    const sideBySide = (wi, pi, u, len) => {
+      clear();
       if (sideCanvas.width !== pw) sideCanvas.width = pw;
       const spots = both ? [[0, 0], [W - pw, 1]] : [[th.side === "left" ? 0 : W - pw, 0]];
       for (const [x, nxt] of spots) {             // picture words picture: two picked = one each side
-        const p = pics[(pi + nxt) % pics.length];
+        const p = pool[(pi + nxt) % pool.length];
         renderPic(p, sideCanvas.getContext("2d"), t, p.fit, [p.zoom, p.fx, p.fy], false, pw);
         g.drawImage(sideCanvas, x, 0);
       }
-      return drawWords(wx0, wx1, word, Object.assign({}, th, {word_bg: th.word_bg === "gif" ? "color" : th.word_bg}), al.kind, u, len, t);
+      drawWords(wx0, wx1, words[wi % words.length], Object.assign({}, th, {word_bg: th.word_bg === "gif" ? "color" : th.word_bg}), al.kind, u, len, t);
+    };
+    if (kind === "side") return sideBySide(wi, pi, u, len);
+    if (kind === "full") {                         // the GIF full screen, fading in from and back to side by side
+      const fade = Math.min(0.5, len / 3), full = fullPic || pics[(pi + nside) % pics.length];
+      renderPic(full, nextCanvas.getContext("2d"), t);
+      let a = 1;
+      if (u < fade) { const n = wordLen(wi); sideBySide(wi, pi, n, n); a = u / fade; }
+      else if (u > len - fade) { sideBySide(wi + 1, pi + 1, 0, wordLen(wi + 1)); a = 1 - (u - (len - fade)) / fade; }
+      g.globalAlpha = a; g.drawImage(nextCanvas, 0, 0); g.globalAlpha = 1;
+      return;
     }
     if (kind === "over" || th.word_bg === "gif") {      // words coming across the GIF, which keeps playing
       renderPic(pic, nextCanvas.getContext("2d"), t); g.drawImage(nextCanvas, 0, 0);

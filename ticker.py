@@ -661,11 +661,11 @@ def default_theme(league, abbr, kind):
     if league == "ANY":                              # every game: flash, the score, back to the ticker
         return {"on": True, "style": "words", "pics": [], "words": ["CLOSE GAME", "{score}"], "every": 1.5,
                 "secs": 8, "score": True, "c1": "#ffaa00", "c2": "#ffffff",
-                "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4}
+                "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False}
     name, c1, c2 = MY_TEAMS[(league, abbr)]
     return {"on": True, "style": "switch", "pics": [], "words": default_words(name, kind), "every": 1.5,
             "secs": ALERT_SECONDS, "score": True, "c1": rgb_hex(c1), "c2": rgb_hex(c2),
-            "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4}
+            "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False}
 
 def clean_themes(themes):
     out = {}
@@ -690,6 +690,7 @@ def clean_themes(themes):
         if th.get("word_fx") in WORD_FX: t["word_fx"] = th["word_fx"]
         if th.get("word_bg") in WORD_BG: t["word_bg"] = th["word_bg"]
         if th.get("side") in ("left", "right", "both"): t["side"] = th["side"]
+        if "side_full" in th: t["side_full"] = bool(th["side_full"])
         if "side_w" in th:
             t["side_w"] = min(SIDE_W, key=lambda v: abs(v - float(th["side_w"])))
         for c in ("c1", "c2"):
@@ -792,15 +793,20 @@ def word_phase_len(th, word, region_w):
         return max(th["every"], (region_w + fit_font(word, region_w - 8).getlength(word)) / SCROLL_PX)
     return th["every"]
 
+def full_len(th):
+    return max(2.0, th["every"])                         # side by side, then the GIF full screen this long
+
 def phase_at(th, t, words, region_w):
-    """Which part of the alert is on at time t: ("pic" | "words" | "over" | "side", word #, pic #, start, length)."""
+    """Which part of the alert is on at time t: ("pic" | "words" | "over" | "side" | "full", word #, pic #, start, length)."""
     style, start, i = th["style"], 0.0, 0
     while True:
         if style == "switch":
             kind, wi, pi = ("pic" if i % 2 == 0 else "words"), i // 2, i // 2
+        elif style == "side" and th.get("side_full"):  # side by side, fade to the GIF full screen, back again
+            kind, wi, pi = ("side" if i % 2 == 0 else "full"), i // 2, i // 2
         else:
             kind, wi, pi = {"pics": "pic", "words": "words", "over": "over", "side": "side"}[style], i, i
-        length = th["every"] if kind == "pic" else word_phase_len(th, words[wi % len(words)], region_w)
+        length = th["every"] if kind == "pic" else full_len(th) if kind == "full" else word_phase_len(th, words[wi % len(words)], region_w)
         if t < start + length or i > 500:
             return kind, wi, pi, start, length
         start += length
@@ -864,7 +870,7 @@ def draw_words(img, x0, x1, word, th, kind, u, length, t, c1):
 def alert_frame(al, t, th=None, lib=None, boost=True):
     """One frame of an alert, t seconds in, in its theme's style:
        switch: your GIF, then the words, back and forth     over: the words coming across your GIF
-       side:   your picture on one side, the words on the other
+       side:   your picture on one side (or both), the words in the rest; can fade to the GIF full screen and back
        pics:   just your GIFs                                words: just the words
     How the words come in (flash, scroll, slide, pop, blink, rainbow, fade) and what's behind them
     (team color, black, or the GIF still playing) are part of the theme too.
@@ -894,23 +900,44 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
     kind, wi, pi, start, length = phase_at(th, t, words, words_x1 - words_x0)
     word = words[wi % len(words)]
 
-    def picture(size=None, nxt=0):
-        r = lib.rendered_async(pics[(pi + nxt) % len(pics)], boost, size) if pics else None
+    def picture(size=None, n=None):
+        r = lib.rendered_async(pics[(pi if n is None else n) % len(pics)], boost, size) if pics else None
         if r is None:
             return None
         return r.frame(t, *(size or (W, ROWS)), period=6).copy()
+
+    nside = 2 if th["side"] == "both" else 1           # fading to full screen: the last one you picked is the full-screen GIF
+    full_id = pics[-1] if side and th.get("side_full") and len(pics) > nside else None
+    pool = [p for p in pics if p != full_id] or pics
+
+    def side_by_side(wi, pi, u, length):
+        img = Image.new("RGB", (W, ROWS))
+        spots = [(0, 0), (W - pw, 1)] if th["side"] == "both" else [(0 if th["side"] == "left" else W - pw, 0)]
+        for x, nxt in spots:                             # picture words picture: two picked = one each side
+            pic = picture((pw, ROWS), pics.index(pool[(pi + nxt) % len(pool)]))
+            if pic is not None:
+                img.paste(pic, (x, 0))
+        bg = th["word_bg"] if th["word_bg"] != "gif" else "color"
+        return draw_words(img, words_x0, words_x1, words[wi % len(words)], dict(th, word_bg=bg), al.kind, u, length, t, c1)
 
     img = Image.new("RGB", (W, ROWS))
     if kind == "pic":
         return picture() or draw_words(img, 0, W, word, dict(th, word_bg="color"), al.kind, t - start, length, t, c1)
     if kind == "side":
-        spots = [(0, 0), (W - pw, 1)] if th["side"] == "both" else [(0 if th["side"] == "left" else W - pw, 0)]
-        for x, nxt in spots:                             # picture words picture: two picked = one each side
-            pic = picture((pw, ROWS), nxt)
-            if pic is not None:
-                img.paste(pic, (x, 0))
-        bg = th["word_bg"] if th["word_bg"] != "gif" else "color"
-        return draw_words(img, words_x0, words_x1, word, dict(th, word_bg=bg), al.kind, t - start, length, t, c1)
+        return side_by_side(wi, pi, t - start, length)
+    if kind == "full":                                   # the GIF full screen, fading in from and back to side by side
+        full = picture(None, pics.index(full_id) if full_id else pi + nside)
+        if full is None:
+            return side_by_side(wi, pi, length, length)
+        u, fade = t - start, min(0.5, length / 3)
+        rw = words_x1 - words_x0
+        if u < fade:
+            n = word_phase_len(th, words[wi % len(words)], rw)
+            return Image.blend(side_by_side(wi, pi, n, n), full, u / fade)
+        if u > length - fade:
+            n = word_phase_len(th, words[(wi + 1) % len(words)], rw)
+            return Image.blend(full, side_by_side(wi + 1, pi + 1, 0, n), (u - (length - fade)) / fade)
+        return full
     if kind == "over" or th["word_bg"] == "gif":           # words coming across the GIF, which keeps playing
         base = picture()
         if base is not None:
