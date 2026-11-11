@@ -48,6 +48,9 @@ FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_SIZE     = 36         # one-line text (headers, ParlayLabs, messages)
 LINE_SIZE     = 25         # each line of a two-line game (away team on top, home underneath)
 SETTINGS_FILE = os.path.join(HERE, "settings.json")
+ALERTS_FILE = os.path.join(HERE, "alerts", "alerts.ticker")   # alerts you sent to GitHub from the laptop page
+ALERTS_LOADED = os.path.join(HERE, "alerts-loaded.json")      # which version of that file is already on here
+ALERTS_URL = "https://raw.githubusercontent.com/callis11/bar-ticker/main/alerts/alerts.ticker"
 IMAGE_FILE    = os.path.join(HERE, "custom_image")      # the single picture from before the library (imported once)
 PIC_DIR       = os.path.join(HERE, "pictures")          # your picture library (pictures, GIFs, videos)
 PIC_EVERY     = [0, -1, 2, 5, 10]                       # pictures in the ticker: off / after each lap / every N minutes
@@ -1907,6 +1910,13 @@ def make_handler(ctl, feed):
                 elif path == "/api/test-alert":              # preview an alert theme on the ticker
                     d = json.loads(body or b"{}")
                     feed.test_alert(d["team"], d["kind"])
+                elif path == "/api/load-github":             # "Load from GitHub": get alerts/alerts.ticker right now
+                    try:
+                        data = urllib.request.urlopen(ALERTS_URL + f"?t={int(time.time())}", timeout=30).read()
+                    except Exception as e:
+                        return self.send(502, {"error": f"couldn't get it from GitHub ({e})"})
+                    n, p = load_alerts_pack(ctl, data)
+                    return self.send(200, {"themes": n, "pictures": p})
                 elif path == "/api/theme":                   # save one alert theme: {"key": "NFL|DET|td", "theme": {...}}
                     d = json.loads(body or b"{}")
                     themes = dict(ctl.themes)
@@ -2157,6 +2167,67 @@ def run_test_alert(kind):
     al = Alert(kind, g, "DET", MY_TEAMS[(g["league"], "DET")])
     save_gif([alert_frame(al, i / 20) for i in range(ALERT_SECONDS * 20)], f"alert-{kind}.gif", 50)
 
+# ---- alerts made on the laptop: "Send to GitHub" puts alerts/alerts.ticker in the repo, the Pi loads it
+def load_alerts_pack(ctl, data):
+    """Adds the teams, pictures and alert looks from an alerts file. Safe to run again: pictures it
+    already brought over are reused, looks are replaced with the file's."""
+    import base64, hashlib
+    pack = json.loads(data)
+    if pack.get("kind") != "bar-ticker-alerts":
+        raise ValueError("not a Bar Ticker alerts file")
+    try:
+        done = json.load(open(ALERTS_LOADED))
+    except Exception:
+        done = {}
+    favs = list(ctl.favorites)
+    for t in pack.get("favorites") or []:
+        if not any(f["league"] == t.get("league") and f["abbr"] == t.get("abbr") for f in favs):
+            favs.append(t)
+    ctl.update({"favorites": favs})
+    pmap, have = done.get("map", {}), set(i["id"] for i in ctl.lib.list())
+    exts = {"image/gif": ".gif", "image/png": ".png", "image/jpeg": ".jpg", "video/mp4": ".mp4", "video/quicktime": ".mov"}
+    for m in pack.get("pictures") or []:
+        if pmap.get(m["id"]) in have:
+            continue
+        head, _, b64 = m["data"].partition(",")
+        mime = head[5:].split(";")[0]
+        tmp = tempfile.mkstemp(dir=PIC_DIR, suffix=".upload")[1]
+        with open(tmp, "wb") as fh:
+            fh.write(base64.b64decode(b64))
+        try:
+            it = ctl.lib.add_file(tmp, (m.get("name") or "Picture") + exts.get(mime, ""), mime, m.get("fit") if m.get("fit") in pictures.FITS else "fill")
+            ctl.lib.edit(it["id"], {k: m[k] for k in ("fit", "zoom", "fx", "fy") if m.get(k) is not None})
+            pmap[m["id"]] = it["id"]
+        except Exception as e:
+            print("alerts file: skipped a picture:", e)
+    themes = dict(ctl.themes)
+    for key, th in (pack.get("themes") or {}).items():
+        themes[key] = dict(th, pics=[pmap[i] for i in th.get("pics") or [] if i in pmap])
+    ctl.update({"themes": themes})
+    ctl.warm_themes()
+    done.update(map=pmap, hash=hashlib.sha1(data if isinstance(data, bytes) else data.encode()).hexdigest(), saved=pack.get("saved"))
+    with open(ALERTS_LOADED, "w") as fh:
+        json.dump(done, fh)
+    return len(pack.get("themes") or {}), len(pack.get("pictures") or [])
+
+def watch_alerts_file(ctl):
+    """Loads alerts/alerts.ticker whenever a new one shows up (the Pi pulls from GitHub every 2 minutes)."""
+    import hashlib
+    while True:
+        try:
+            if os.path.exists(ALERTS_FILE):
+                data = open(ALERTS_FILE, "rb").read()
+                try:
+                    old = json.load(open(ALERTS_LOADED)).get("hash")
+                except Exception:
+                    old = None
+                if hashlib.sha1(data).hexdigest() != old:
+                    n, p = load_alerts_pack(ctl, data)
+                    print(f"loaded {n} alert looks and {p} pictures from GitHub")
+        except Exception as e:
+            print("alerts file:", e)
+        time.sleep(30)
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", action="store_true", help="no LED panels: run the control page and a pretend display")
@@ -2182,5 +2253,6 @@ if __name__ == "__main__":
         if args.preview:
             run_preview(feed)
         else:
+            threading.Thread(target=watch_alerts_file, args=(ctl,), daemon=True).start()
             start_web(ctl, feed, args.port or (8080 if args.sim else WEB_PORT))
             run_display(ctl, feed, SimMatrix() if args.sim else open_matrix(ctl))

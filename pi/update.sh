@@ -8,6 +8,11 @@ after=$(git rev-parse HEAD)
 # anything new the ticker needs (ffmpeg turns phone videos into ticker loops)
 command -v ffmpeg >/dev/null || apt-get install -y -q ffmpeg
 if [ "$before" != "$after" ]; then
-    echo "updated $before -> $after, restarting ticker"
-    systemctl restart ticker
+    # alerts you send from the laptop page (alerts/) load by themselves; no restart for those
+    if git diff --name-only "$before" "$after" | grep -qv '^alerts/'; then
+        echo "updated $before -> $after, restarting ticker"
+        systemctl restart ticker
+    else
+        echo "new alerts from GitHub $before -> $after (the ticker loads them by itself)"
+    fi
 fi

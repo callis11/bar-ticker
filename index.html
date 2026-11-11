@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261111185135">
+<meta name="build" content="20261111185835">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -283,9 +283,22 @@
     <div id="alEdit"></div>
   </div>
   <h2 class="sect">Save and move your alerts</h2>
-  <div class="row3" style="grid-template-columns:1fr 1fr"><button class="btn" id="alExport">Download my alerts</button><button class="btn ghost" id="alImportBtn">Load an alerts file</button></div>
+  <button class="btn" id="alGitHub"></button>
+  <div id="ghSetup" hidden>
+    <p class="hint" style="margin-top:0">One-time setup so this page can save to your GitHub (it stays in this browser only):</p>
+    <ol class="hint" style="padding-left:20px;margin:0 0 8px">
+      <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → new fine-grained token</a></li>
+      <li>Name it <b>bar ticker</b>; Expiration: <b>No expiration</b> (or a year)</li>
+      <li>Repository access: <b>Only select repositories</b> → <b>bar-ticker</b></li>
+      <li>Permissions → Repository → <b>Contents: Read and write</b></li>
+      <li><b>Generate token</b>, copy it, paste it here</li>
+    </ol>
+    <input type="password" id="ghToken" placeholder="github_pat_…" autocomplete="off">
+    <div class="row3" style="grid-template-columns:2fr 1fr"><button class="btn" id="ghSave">Save and send</button><button class="btn ghost" id="ghCancel">Cancel</button></div>
+  </div>
+  <div class="row3" style="grid-template-columns:1fr 1fr"><button class="btn ghost" id="alExport">Download my alerts</button><button class="btn ghost" id="alImportBtn">Load an alerts file</button></div>
   <input type="file" id="alImport" accept=".ticker,.json,application/json" hidden>
-  <p class="hint">Saves all your teams and alert looks, with their pictures and GIFs, in one file. Make them on your laptop, then open this page on the ticker (<b>http://ticker.local</b>) and tap <b>Load an alerts file</b> to put them on the Pi. Also a handy backup.</p>
+  <p class="hint" id="ghHint"></p>
 </div>
 
 <div class="card">
@@ -327,9 +340,7 @@ async function save(patch, msg) {
 }
 // ---- Save and move your alerts: one file with your teams, alert looks and their pictures
 const toDataURL = blob => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(blob); });
-$("#alExport").onclick = async () => {
-  try {
-    toast("Getting your alerts ready…");
+async function buildPack() {
     const st = await api("/api/state"), themes = st.themes || {}, out = [];
     const ids = [...new Set(Object.values(themes).flatMap(t => t.pics || []))];
     let skipped = 0;
@@ -340,7 +351,12 @@ $("#alExport").onclick = async () => {
       if (blob.size > 80e6) { skipped++; continue; }   // a huge phone video: add that one on the ticker itself
       out.push({id, name: m.name, kind: m.kind, fit: m.fit, zoom: m.zoom, fx: m.fx, fy: m.fy, w: m.w, h: m.h, data: await toDataURL(blob)});
     }
-    const pack = {kind: "bar-ticker-alerts", version: 1, saved: new Date().toISOString(), favorites: st.favorites || [], themes, pictures: out};
+    return {pack: {kind: "bar-ticker-alerts", version: 1, saved: new Date().toISOString(), favorites: st.favorites || [], themes, pictures: out}, skipped};
+}
+$("#alExport").onclick = async () => {
+  try {
+    toast("Getting your alerts ready…");
+    const {pack, skipped} = await buildPack(), themes = pack.themes, out = pack.pictures;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(pack)], {type: "application/json"}));
     a.download = `bar-ticker-alerts-${new Date().toISOString().slice(0, 10)}.ticker`;
@@ -348,6 +364,50 @@ $("#alExport").onclick = async () => {
     toast(skipped ? `Saved (left out ${skipped} big video${skipped > 1 ? "s" : ""}; add those on the ticker)` : `Saved ${Object.keys(themes).length} alert looks and ${out.length} pictures`);
   } catch (e) { toast("Couldn't save: " + (e.message || e)); }
 };
+// ---- GitHub: the laptop page saves alerts/alerts.ticker in your repo; the Pi picks it up by itself
+const GH_REPO = "callis11/bar-ticker", GH_PATH = "alerts/alerts.ticker";
+const ghToken = () => { try { return localStorage.getItem("gh_token") || ""; } catch { return ""; } };
+function renderGitHub() {
+  $("#alGitHub").textContent = DEMO ? "Send my alerts to the ticker (GitHub)" : "Load the alerts I sent from my laptop";
+  $("#ghHint").innerHTML = DEMO
+    ? "<b>Send</b> saves all your teams and alert looks, with their pictures and GIFs, to your GitHub. The ticker checks GitHub every 2 minutes and loads them by itself, no restart. <b>Download</b> / <b>Load</b> do the same with a file (a handy backup)."
+    : "<b>Load the alerts I sent</b> grabs what you sent from the laptop page right now (the ticker also does it by itself within a few minutes). <b>Download</b> / <b>Load</b> move alerts with a file (a handy backup).";
+}
+const b64 = blob => toDataURL(blob).then(u => u.split(",")[1]);
+async function sendToGitHub(token) {
+  toast("Getting your alerts ready…");
+  const {pack, skipped} = await buildPack();
+  const h = {Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json"};
+  const url = `https://api.github.com/repos/${GH_REPO}/contents/${GH_PATH}`;
+  const cur = await fetch(url + "?ref=main", {headers: h, cache: "no-store"});
+  if (cur.status === 401 || cur.status === 403) throw Object.assign(new Error("GitHub didn't accept that token"), {token: true});
+  const sha = cur.ok ? (await cur.json()).sha : undefined;
+  toast("Sending to GitHub…");
+  const r = await fetch(url, {method: "PUT", headers: h, body: JSON.stringify({message: "Alerts from the laptop page", branch: "main", sha,
+    content: await b64(new Blob([JSON.stringify(pack)], {type: "application/json"}))})});
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw Object.assign(new Error(j.message || r.status), {token: r.status === 401 || r.status === 403 || r.status === 404}); }
+  toast(`Sent ${Object.keys(pack.themes).length} alert looks and ${pack.pictures.length} pictures. The ticker loads them within a few minutes` + (skipped ? ` (left out ${skipped} big video)` : ""));
+}
+$("#alGitHub").onclick = async () => {
+  if (!DEMO) {                                           // on the Pi: load what was sent, right now
+    try { toast("Getting your alerts from GitHub…"); const r = await api("/api/load-github", {method: "POST", body: "{}"});
+          await poll(); toast(`Loaded ${r.themes} alert looks and ${r.pictures} pictures`); }
+    catch (e) { toast(String(e.message || e).includes("404") ? "Nothing sent from the laptop yet" : "Couldn't load: " + (e.message || e)); }
+    return;
+  }
+  if (!ghToken()) { $("#ghSetup").hidden = false; return $("#ghToken").focus(); }
+  try { await sendToGitHub(ghToken()); }
+  catch (e) { if (e.token) { try { localStorage.removeItem("gh_token"); } catch {} $("#ghSetup").hidden = false; }
+              toast("Couldn't send: " + (e.message || e)); }
+};
+$("#ghSave").onclick = async () => {
+  const t = $("#ghToken").value.trim(); if (!t) return toast("Paste the token first");
+  try { localStorage.setItem("gh_token", t); } catch {}
+  $("#ghSetup").hidden = true; $("#ghToken").value = "";
+  $("#alGitHub").click();
+};
+$("#ghCancel").onclick = () => { $("#ghSetup").hidden = true; };
+renderGitHub();
 $("#alImportBtn").onclick = () => $("#alImport").click();
 $("#alImport").onchange = async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
@@ -381,6 +441,7 @@ $("#alImport").onchange = async e => {
 function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("on"), 1800); }
 
 function render() {
+  renderGitHub();
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.mode === (S.mode === "game" ? "scroll" : S.mode)));
   const panel = document.querySelector("#tabs button.picked")?.dataset.mode || (S.mode === "game" ? "scroll" : S.mode);
   document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.dataset.panel === panel));
