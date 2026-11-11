@@ -45,7 +45,7 @@ git clone https://github.com/callis11/bar-ticker.git /home/pi/bar-ticker
 sudo bash /home/pi/bar-ticker/pi/install.sh
 ```
 
-**Automatic updates:** the Pi checks this GitHub repo every 2 minutes. When Claude pushes a change, the Pi pulls it and restarts the ticker by itself. Your phone settings (`settings.json`) and uploaded picture stay on the Pi and aren't touched by updates.
+**Automatic updates:** the Pi checks this GitHub repo every 2 minutes. When Claude pushes a change, the Pi pulls it and restarts the ticker by itself. Your phone settings (`settings.json`) and your picture library (`pictures/`) stay on the Pi and aren't touched by updates.
 
 Handy commands on the Pi: `sudo systemctl restart ticker` (restart), `journalctl -u ticker -f` (see what it's doing), `journalctl -u ticker-update` (update history).
 
