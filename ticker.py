@@ -217,6 +217,13 @@ class Control:
             size = (side_width(full), ROWS) if full["style"] == "side" else None
             for pid in th.get("pics", []):
                 self.lib.rendered_async(pid, self.pic_boost, size)
+            for st in th.get("steps") or []:               # built alerts: each step's pictures at their size
+                sz = None
+                if st["kind"] == "side":
+                    sz = (int(round(W * st["w"] / (2 if st["side"] == "both" else 1))), ROWS)
+                for pid in (st.get("pic"), st.get("pic2")):
+                    if pid and st["kind"] != "score":
+                        self.lib.rendered_async(pid, self.pic_boost, sz)
 
     def playlist(self):
         """Pictures to show: the one you're playing on its own, else the ones you checked (none checked = all)."""
@@ -657,7 +664,30 @@ def apply_favorites(favs):
     for f in clean[:16]:
         MY_TEAMS[(f["league"], f["abbr"])] = (f["name"], hex_rgb(f["c1"]), hex_rgb(f["c2"]))
     return clean[:16]
-THEME_STYLES = ["switch", "over", "side", "pics", "words"]   # GIF <-> words / words on the GIF / side by side / GIF / words
+THEME_STYLES = ["switch", "over", "side", "pics", "words", "steps"]   # GIF <-> words / words on the GIF / side by side / GIF / words / build my own
+STEP_KINDS = ["pic", "words", "over", "side", "score"]   # build my own: picture / words / words on a picture / side by side / the score
+MAX_STEPS = 20
+
+def clean_step(st):
+    """One step of a built alert, checked: what it shows, which picture(s), the words, how long."""
+    if not isinstance(st, dict) or st.get("kind") not in STEP_KINDS:
+        return None
+    out = {"kind": st["kind"], "secs": max(0.5, min(15.0, round(float(st.get("secs") or 2) * 2) / 2)),
+           "fade": bool(st.get("fade"))}
+    for k in ("pic", "pic2"):
+        if st.get(k): out[k] = str(st[k])[:40]
+    if st.get("text") is not None: out["text"] = str(st["text"]).strip()[:40]
+    out["fx"] = st["fx"] if st.get("fx") in WORD_FX else "flash"
+    out["bg"] = st["bg"] if st.get("bg") in ("color", "black") else "color"
+    out["side"] = st["side"] if st.get("side") in ("left", "right", "both") else "left"
+    out["w"] = min(SIDE_W, key=lambda v: abs(v - float(st.get("w") or 0.4)))
+    return out
+
+def alert_len(th):
+    """How long an alert runs: built ones add up their steps."""
+    if th.get("style") == "steps" and th.get("steps"):
+        return max(1.0, min(60.0, sum(st["secs"] for st in th["steps"])))
+    return th["secs"]
 WORD_FX = ["flash", "scroll", "slide", "pop", "blink", "rainbow", "fade"]   # how the words come in
 WORD_BG = ["color", "black", "gif"]                 # behind the words: team color / black / the GIF still playing
 SIDE_W = [0.3, 0.4, 0.5]                            # side by side: share of the strip the picture gets
@@ -706,6 +736,8 @@ def clean_themes(themes):
         if th.get("word_bg") in WORD_BG: t["word_bg"] = th["word_bg"]
         if th.get("side") in ("left", "right", "both"): t["side"] = th["side"]
         if "side_full" in th: t["side_full"] = bool(th["side_full"])
+        if isinstance(th.get("steps"), list):
+            t["steps"] = [c for c in (clean_step(x) for x in th["steps"][:MAX_STEPS]) if c]
         if "side_w" in th:
             t["side_w"] = min(SIDE_W, key=lambda v: abs(v - float(th["side_w"])))
         for c in ("c1", "c2"):
@@ -923,11 +955,13 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
     short = f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}"
     words = [w.replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"])
              for w in (th["words"] or al.words)] or ["!"]
+    ready = set(lib.ready_ids()) if lib else set()
+    if th["style"] == "steps" and th.get("steps"):
+        return built_frame(al, t, th, lib, boost, ready, c1, c2, short)
     secs = th["secs"]
     tail = (4 if secs >= 8 else 2) if th["score"] else 0
     if t >= secs - tail:
         return score_frame(al, t, c1, c2)
-    ready = set(lib.ready_ids()) if lib else set()
     pics = [p for p in th["pics"] if p in ready]
     if not pics:                                         # no picture (yet): just the words, on the team color
         th = dict(th, style="words", word_bg="black" if th["word_bg"] == "black" else "color")
@@ -981,6 +1015,56 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
             return draw_words(base, 0, W, word, dict(th, word_bg="gif"), al.kind, t - start, length, t, c1)
         th = dict(th, word_bg="color")
     return draw_words(img, 0, W, word, th, al.kind, t - start, length, t, c1)
+
+def built_frame(al, t, th, lib, boost, ready, c1, c2, short):
+    """Build my own: the steps play in order, each for its own time; a step can fade in from the one before."""
+    g = al.game
+    def fill(txt):
+        return (txt or "").replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"])
+
+    def picture(pid, size=None):
+        if not pid or pid not in ready:
+            return None
+        r = lib.rendered_async(pid, boost, size)
+        return None if r is None else r.frame(t, *(size or (W, ROWS)), period=6).copy()
+
+    def step(st, u):
+        kind, secs, text = st["kind"], st["secs"], fill(st.get("text"))
+        look = dict(th, word_fx=st["fx"], word_bg=st["bg"])
+        if kind == "score":
+            return score_frame(al, t, c1, c2)
+        img = Image.new("RGB", (W, ROWS))
+        if kind == "pic":
+            return picture(st.get("pic")) or img
+        if kind == "over":
+            base = picture(st.get("pic"))
+            if base is not None:
+                return draw_words(base, 0, W, text, dict(look, word_bg="gif"), al.kind, u, secs, t, c1) if text else base
+            return draw_words(img, 0, W, text, look, al.kind, u, secs, t, c1) if text else img
+        if kind == "side":
+            both = st["side"] == "both"
+            pw = int(round(W * st["w"] / (2 if both else 1)))
+            spots = [(0, st.get("pic")), (W - pw, st.get("pic2") or st.get("pic"))] if both else \
+                    [(0 if st["side"] == "left" else W - pw, st.get("pic"))]
+            for x, pid in spots:
+                pic = picture(pid, (pw, ROWS))
+                if pic is not None:
+                    img.paste(pic, (x, 0))
+            x0, x1 = (pw, W - pw) if both else (pw, W) if st["side"] == "left" else (0, W - pw)
+            return draw_words(img, x0, x1, text, look, al.kind, u, secs, t, c1) if text else img
+        return draw_words(img, 0, W, text or "!", look, al.kind, u, secs, t, c1)
+
+    steps, start = th["steps"], 0.0
+    for i, st in enumerate(steps):
+        if t < start + st["secs"] or i == len(steps) - 1:
+            u = min(t - start, st["secs"])
+            frame = step(st, u)
+            fade = min(0.5, st["secs"] / 3)
+            if st.get("fade") and i and u < fade:          # fade in from where the step before ended
+                prev = steps[i - 1]
+                return Image.blend(step(prev, prev["secs"]), frame, u / fade)
+            return frame
+        start += st["secs"]
 
 def game_frame(g, rotate=0, odds=("ou", "ml")):
     """A single game, held on screen: away on the left, home on the right, clock in the middle.
@@ -2240,7 +2324,7 @@ def run_display(ctl, feed, matrix):
         al = feed.next_alert()
         th = ctl.theme(al.key) if al and (al.key == ANY_CLOSE or (al.game["league"], al.abbr) in MY_TEAMS) else None
         if al and (th is None or th["on"]):       # takeover, then go back to whatever was showing
-            start, secs = time.time(), th["secs"] if th else ALERT_SECONDS
+            start, secs = time.time(), alert_len(th) if th else ALERT_SECONDS
             while (t := time.time() - start) < secs:
                 show(alert_frame(al, t, th, ctl.lib, ctl.pic_boost)); time.sleep(1 / 30)
             x, inter, last_pic = W, None, time.time()
