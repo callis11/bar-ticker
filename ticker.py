@@ -119,7 +119,7 @@ class Control:
             "brightness": 60, "tv_delay": 0, "alerts": True, "fit": "contain",
             "refresh": REFRESH_SEC, "odds": ["ou", "ml"], "odds_on": True,
             "msg_in_scroll": False, "effect": "steady",
-            "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"],
+            "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"], "pl_on": False,
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
             "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off",
@@ -615,6 +615,8 @@ def parlaylabs(loader=None, sports=None, now=None):
 def pl_segments(blocks, ctl):
     """ParlayLabs part of the scroll, using the phone's picks: which parts, how many, which sports, which prop types."""
     segs = []
+    if not ctl.pl_on:                                    # ParlayLabs switched off on the phone
+        return segs
     for b in blocks:
         if ctl.pl_sports and b["sport"] not in ctl.pl_sports:
             continue

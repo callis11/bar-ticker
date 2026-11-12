@@ -60,7 +60,7 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
     - **Live games** follows every game in progress in your sports, adds games as they start and keeps each on 15 min after it ends ("ON 12 MIN")
     - **Close games** follows games that are late and within one score in your sports (football 4th qtr under 8:00 within 8, NBA 4th qtr under 5:00 within 6, college hoops 2nd half under 5:00 within 6, NHL 3rd period under 10:00 within 1, MLB 7th inning on within 2); red CLOSE tag in the list
     - **Order**: By league, or By start time (LIVE, then each slot like "SUN 1:00 PM", then FINAL). **Days**: Today or This week
-  - **ParlayLabs**: Record, Top parlays and/or Top overs (all off = left out), mixed in after the games. Pick how many (top 3/5/8), which sports and which prop types
+  - **ParlayLabs**: **Show ParlayLabs bets** switch (off to start). When on: Record, Top parlays and/or Top overs, mixed in after the games. Pick how many (top 3/5/8), which sports and which prop types
   - **Odds**: Show odds switch, plus Moneyline, Over/Under and Spread picks, for games that haven't started
   - **Look**: how the whole ticker is drawn:
     - **Classic**: two lines per game, league boxes
