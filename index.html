@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261112154250">
+<meta name="build" content="20261112154713">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -83,7 +83,12 @@
     .alCols { display:grid; grid-template-columns:1fr 1fr; gap:0 36px; align-items:start; }
     .alCol > h2.sect:first-child { border-top:none; padding-top:0; }
     .tiles { grid-template-columns:repeat(3,1fr); }
-    .panel.on:not([data-panel="alerts"]), .card:not(.panel) { max-width:760px; }
+    .card:not(.panel) { max-width:760px; }
+    .panel[data-panel="message"].on { max-width:760px; }
+    /* Ticker and Picture tabs: settings flow into two columns instead of one long strip */
+    .panel[data-panel="scroll"].on, .panel[data-panel="image"].on { column-count:2; column-gap:40px; }
+    .panel[data-panel="scroll"] > *, .panel[data-panel="image"] > * { break-inside:avoid; }
+    .panel[data-panel="scroll"] > h2.sect, .panel[data-panel="image"] > h2.sect { break-after:avoid; }
     button, label.btn, .tile { cursor:pointer; }
     .chips button:hover, .seg button:hover, .tiles .tile:hover { border-color:var(--accent); }
   }
