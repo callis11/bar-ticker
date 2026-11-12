@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261111204933">
+<meta name="build" content="20261112153605">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -43,6 +43,8 @@
   .tabs button { background:var(--card); color:var(--dim); border:1px solid var(--line);
                  border-radius:10px; padding:11px 2px; font-size:14px; font-weight:600; }
   .tabs button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .tabs button.live::after { content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:#2ecc71;
+                             margin-left:6px; vertical-align:middle; box-shadow:0 0 6px #2ecc71; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
   .card h2.sect { margin-top:18px; padding-top:14px; border-top:1px solid var(--line); }
   details.help { margin:8px 0 0; } details.help summary { color:var(--accent); font-size:14px; cursor:pointer; }
@@ -451,8 +453,12 @@ function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add
 
 function render() {
   renderGitHub();
-  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.mode === (S.mode === "game" ? "scroll" : S.mode)));
-  const panel = document.querySelector("#tabs button.picked")?.dataset.mode || (S.mode === "game" ? "scroll" : S.mode);
+  const showing = S.mode === "game" ? "scroll" : S.mode;
+  const panel = document.querySelector("#tabs button.picked")?.dataset.mode || showing;
+  document.querySelectorAll("#tabs button").forEach(b => {
+    b.classList.toggle("on", b.dataset.mode === panel);          // the page you're on
+    b.classList.toggle("live", b.dataset.mode === showing);      // what's on the ticker right now (little dot)
+  });
   document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.dataset.panel === panel));
   $("#bright").value = S.brightness; $("#brightV").textContent = S.brightness + "%";
   $("#delay").value = S.tv_delay; $("#delayV").textContent = S.tv_delay ? S.tv_delay + " sec" : "Off";
