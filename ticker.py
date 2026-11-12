@@ -264,7 +264,12 @@ def parse_game(label, ev):
     sit = comp.get("situation") or {}               # football, while it's live: down, distance, ball
     poss = str(sit.get("possession") or "")
     ids = lambda c: {str(c.get("id") or ""), str((c.get("team") or {}).get("id") or "")} - {""}
+    lp = sit.get("lastPlay") or {}                  # the play that just happened (sacks, picks, field goals...)
+    lp_team = str((lp.get("team") or {}).get("id") or "")
     return dict(
+        play_id=str(lp.get("id") or ""), play_type=str((lp.get("type") or {}).get("text") or ""),
+        play_text=str(lp.get("text") or ""), play_yds=lp.get("statYardage"),
+        play_team="away" if lp_team and lp_team in ids(a) else "home" if lp_team and lp_team in ids(h) else "",
         down=sit.get("shortDownDistanceText") or "", spot=sit.get("possessionText") or "",
         redzone=bool(sit.get("isRedZone")),
         poss="away" if poss and poss in ids(a) else "home" if poss and poss in ids(h) else "",
@@ -642,7 +647,7 @@ def pl_segments(blocks, ctl):
 
 # ------------------------------------------------------------------ alerts
 # ---- alert themes: your own look for each team's touchdown / red zone / win / close-game alert
-ALERT_KINDS = {"NFL": ["td", "redzone", "win", "close"], "CFB": ["td", "redzone", "win", "close"],
+ALERT_KINDS = {"NFL": ["td", "sack", "int", "fumble", "fg", "big", "redzone", "win", "close"], "CFB": ["td", "sack", "int", "fumble", "fg", "big", "redzone", "win", "close"],
                "NBA": ["win", "close"], "CBB": ["win", "close"], "NHL": ["win", "close"], "MLB": ["win", "close"]}
 
 def apply_favorites(favs):
@@ -700,7 +705,9 @@ def rgb_hex(c):
 
 def default_words(name, kind):
     return {"td": ["TOUCHDOWN!", f"{name}!"], "redzone": ["RED ZONE", f"{name}!"],
-            "win": [name, "WIN!"], "close": ["CLOSE GAME", name]}[kind]
+            "win": [name, "WIN!"], "close": ["CLOSE GAME", name],
+            "sack": ["SACK!", f"{name} D!"], "int": ["INTERCEPTION!", f"{name}!"], "fumble": ["FUMBLE!", f"{name} BALL!"],
+            "fg": ["FIELD GOAL!", f"{name}!"], "big": ["BIG PLAY!", f"{name}!"]}[kind]
 
 def default_theme(league, abbr, kind):
     if league == "ANY":                              # every game: flash, the score, back to the ticker
@@ -754,6 +761,29 @@ class Alert:
         self.score = f"{team(g, 'away')} {g['ascore']}  {team(g, 'home')} {g['hscore']}  {g['detail']}"
         self.words = default_words(self.name, kind)
 
+BIG_PLAY_YARDS = {"NFL": 25, "CFB": 30}
+
+def play_alert(g, old):
+    """What ESPN's newest play was, and which side it's good for: ("sack", "home") / (None, None)."""
+    t = (g.get("play_type") or "").lower()
+    other = lambda s: {"away": "home", "home": "away"}.get(s, "")
+    offense = old.get("poss") or g.get("play_team") or ""   # who had the ball before the play
+    if "sack" in t:
+        return "sack", other(offense)
+    if "interception" in t:
+        return "int", other(offense)
+    if "fumble" in t and ("opponent" in t or "return" in t):
+        return "fumble", other(offense)
+    if "field goal good" in t:
+        return "fg", offense or g.get("play_team")
+    try:
+        yds = int(g.get("play_yds") or 0)
+    except (TypeError, ValueError):
+        yds = 0
+    if ("rush" in t or "reception" in t or t == "pass") and "touchdown" not in t and yds >= BIG_PLAY_YARDS.get(g["league"], 25):
+        return "big", offense or g.get("play_team")
+    return None, None
+
 class AlertWatcher:
     """Compares each refresh with the last one and queues alerts for my teams."""
     def __init__(self):
@@ -793,6 +823,11 @@ class AlertWatcher:
             if g["league"] in ("NFL", "CFB") and rz_now and not rz_old and time.time() - self.rz_at.get(g["id"], 0) > 120:
                 self.rz_at[g["id"]] = time.time()
                 self.queue.append(Alert("redzone", g, abbr, team))
+            # big plays from ESPN's last play: sack / interception / fumble recovery / field goal / long gain
+            if g["league"] in ("NFL", "CFB") and g.get("play_id") and g["play_id"] != old.get("play_id"):
+                kind, who = play_alert(g, old)
+                if kind and who == side:
+                    self.queue.append(Alert(kind, g, abbr, team))
             # win: game just went final with my team ahead
             if old["state"] == "in" and g["state"] == "post" and my_now > opp:
                 self.queue.append(Alert("win", g, abbr, team))
@@ -859,7 +894,7 @@ def side_width(th):
 def word_phase_len(th, word, region_w):
     """How long one word gets: the switch time, or long enough to scroll all the way across."""
     if th.get("word_fx") == "scroll":
-        return max(th["every"], (region_w + fit_font(word, region_w - 8).getlength(word)) / SCROLL_PX)
+        return max(th["every"], (region_w + font(28 * K).getlength(word)) / SCROLL_PX)
     return th["every"]
 
 def full_len(th):
@@ -901,7 +936,7 @@ def draw_words(img, x0, x1, word, th, kind, u, length, t, c1):
         col = (dark if on else hot) if bg == "color" else (hot if on else WHITE)
     else:
         col = dark if bg == "color" else (hot if bg == "black" else WHITE)
-    f = fit_font(word, w - 8)
+    f = font(28 * K) if fx == "scroll" else fit_font(word, w - 8)   # scrolling words stay full size, however long
     if fx == "pop":                                        # grows in with a little bounce
         p = min(1.0, u / 0.35)
         k = 0.3 + 0.7 * p + 0.12 * math.sin(math.pi * p)
@@ -953,7 +988,7 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
     c1, c2 = hex_rgb(th["c1"]), hex_rgb(th["c2"])
     g = al.game                                          # {score} / {clock} / {league} fill in from the game
     short = f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}"
-    words = [w.replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"])
+    words = [w.replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"]).replace("{play}", g.get("play_text") or "")
              for w in (th["words"] or al.words)] or ["!"]
     ready = set(lib.ready_ids()) if lib else set()
     if th["style"] == "steps" and th.get("steps"):
@@ -1020,7 +1055,7 @@ def built_frame(al, t, th, lib, boost, ready, c1, c2, short):
     """Build my own: the steps play in order, each for its own time; a step can fade in from the one before."""
     g = al.game
     def fill(txt):
-        return (txt or "").replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"])
+        return (txt or "").replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"]).replace("{play}", g.get("play_text") or "")
 
     def picture(pid, size=None):
         if not pid or pid not in ready:
@@ -2004,6 +2039,10 @@ class Feed:
     def game(self, gid):
         return next((g for g in self.games + list(self.next_games.values()) if g["id"] == gid), None)
 
+    TEST_PLAYS = {"sack": "Sacked at {opp} 28 for -7 yards", "int": "Intercepted at {me} 40, returned 22 yards",
+                  "fumble": "Fumble recovered by {me} at {opp} 31", "fg": "48 yard field goal is GOOD",
+                  "big": "Pass complete for 41 yards to the {opp} 12"}
+
     def test_alert(self, team_key, kind):
         """The phone's Test button: a pretend alert for that team, shown right away."""
         if team_key == "ANY|ALL":
@@ -2022,6 +2061,7 @@ class Feed:
                  "Final" if kind == "win" else clock,
                  down="1st & Goal" if kind == "redzone" else "", spot=f"{opp} 9" if kind == "redzone" else "",
                  poss="home" if kind == "redzone" else "", redzone=kind == "redzone")
+        g["play_text"] = self.TEST_PLAYS.get(kind, "").format(opp=opp, me=abbr)
         al = Alert(kind, g, abbr, info)
         al.at = 0                                        # skip the TV delay
         self.watcher.queue.insert(0, al)
