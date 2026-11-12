@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261112155307">
+<meta name="build" content="20261112155925">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -124,7 +124,14 @@
   .seg button { flex:1; background:none; border:0; color:var(--dim); padding:8px; border-radius:8px; font-weight:600; }
   .seg button.on { background:#2a313c; color:#fff; }
   .switch { display:flex; justify-content:space-between; align-items:center; margin-top:12px; }
-  .switch input { width:46px; height:26px; accent-color:var(--accent); }
+  /* on/off switches: a sliding toggle, and tapping anywhere on the row flips it */
+  .switch { cursor:pointer; }
+  .switch input { -webkit-appearance:none; appearance:none; flex:0 0 auto; width:52px; height:30px; border-radius:15px;
+                  background:#3a4150; position:relative; cursor:pointer; transition:background .2s; margin:0; }
+  .switch input::after { content:""; position:absolute; top:3px; left:3px; width:24px; height:24px; border-radius:50%;
+                         background:#fff; box-shadow:0 1px 3px #0008; transition:left .2s; }
+  .switch input:checked { background:#2ecc71; }
+  .switch input:checked::after { left:25px; }
   .hint { font-size:13px; color:var(--dim); margin:4px 0 0; }
   .warn { display:none; margin-top:10px; background:#3a1414; border:1px solid #7a2a2a; color:#ffb4b4;
           border-radius:10px; padding:10px 12px; font-size:14px; }
@@ -668,6 +675,11 @@ $("#lookPick").onclick = e => { const b = e.target.closest("button"); if (b) sav
 $("#motionPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", motion:b.dataset.m}, b.textContent); };
 $("#holdPick").onclick = e => { const b = e.target.closest("button"); if (b) save({hold:+b.dataset.h}, `Each item stays ${b.dataset.h} sec`); };
 let t4; $("#speed").oninput = e => { $("#speedV").textContent = speedWord(+e.target.value); clearTimeout(t4); t4 = setTimeout(() => save({speed:+e.target.value}), 250); };
+document.addEventListener("click", e => {          // tap the words of a switch row to flip it too
+  const row = e.target.closest(".switch");
+  if (!row || e.target.matches("input")) return;
+  const box = row.querySelector("input[type=checkbox]"); if (box) box.click();
+});
 $("#plOn").onchange = e => save({pl_on: e.target.checked}, e.target.checked ? "ParlayLabs bets on" : "ParlayLabs bets off");
 $("#plParts").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
