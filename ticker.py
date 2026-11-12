@@ -127,6 +127,9 @@ class Control:
             # how often one pops up in the ticker, LED color boost
             "pic_ids": [], "pic_solo": "", "pic_secs": 10, "pic_order": "inorder", "pic_fx": "fade",
             "pic_every": 0, "pic_boost": True, "look": "classic",
+            "shows": [{"id": "golions", "name": "Go Lions", "in_ticker": False, "c1": "#0076b6", "c2": "#ffffff",
+                       "steps": [{"kind": "words", "text": "GO LIONS!", "fx": "steady", "bg": "color", "secs": 5}]}],
+            "show_id": "", "show_every": -1,
             # your own alert looks, per team and kind: {"NFL|DET|td": {...}} (see alert_theme)
             "themes": {},
             # favorite teams (gold, My teams, alerts): starts with the Lions, Pistons and MSU; add any team from the phone
@@ -183,6 +186,10 @@ class Control:
         self.pic_order = "shuffle" if self.pic_order == "shuffle" else "inorder"
         self.pic_fx = self.pic_fx if self.pic_fx in ("fade", "slide", "cut") else "fade"
         self.pic_every = int(self.pic_every) if int(self.pic_every) in PIC_EVERY else 0
+        self.shows = clean_shows(self.shows)
+        self.show_every = int(self.show_every) if int(self.show_every) in PIC_EVERY else -1
+        if self.mode == "show" and not any(sh["id"] == self.show_id for sh in self.shows):
+            self.mode = "scroll"
         self.pic_boost = bool(self.pic_boost)
         self.favorites = apply_favorites(self.favorites)      # before themes: themes belong to favorite teams
         self.themes = clean_themes(self.themes)
@@ -212,6 +219,12 @@ class Control:
 
     def warm_themes(self):
         """Get the alert GIFs ready ahead of time, so a touchdown never waits on them."""
+        for th in [{"steps": sh["steps"]} for sh in self.shows]:    # shows' pictures too
+            for st in th["steps"]:
+                sz = (int(round(W * st["w"] / (2 if st["side"] == "both" else 1))), ROWS) if st["kind"] == "side" else None
+                for pid in (st.get("pic"), st.get("pic2")):
+                    if pid:
+                        self.lib.rendered_async(pid, self.pic_boost, sz)
         for key, th in self.themes.items():
             full = self.theme(key)
             size = (side_width(full), ROWS) if full["style"] == "side" else None
@@ -688,12 +701,40 @@ def clean_step(st):
     out["w"] = min(SIDE_W, key=lambda v: abs(v - float(st.get("w") or 0.4)))
     return out
 
+def clean_shows(shows):
+    """Your shows (Shows tab): a name, steps like a built alert (no score), colors, and whether it's in the ticker."""
+    out, ids = [], set()
+    for sh in (shows if isinstance(shows, list) else [])[:30]:
+        if not isinstance(sh, dict):
+            continue
+        sid = str(sh.get("id") or "")[:20] or f"s{len(out)}"
+        if sid in ids:
+            continue
+        ids.add(sid)
+        steps = [c for c in (clean_step(x) for x in (sh.get("steps") or [])[:MAX_STEPS]) if c and c["kind"] != "score"]
+        c = lambda k, d: sh[k] if isinstance(sh.get(k), str) and len(sh[k]) == 7 and sh[k].startswith("#") else d
+        out.append({"id": sid, "name": str(sh.get("name") or "Show").strip()[:24] or "Show", "steps": steps,
+                    "in_ticker": bool(sh.get("in_ticker")), "c1": c("c1", "#0076b6"), "c2": c("c2", "#ffffff")})
+    return out
+
+def show_len(sh):
+    return max(1.0, sum(st["secs"] for st in sh["steps"])) if sh.get("steps") else 1.0
+
+def show_frame(sh, t, lib, boost=True):
+    """One frame of a show, t seconds in (it loops)."""
+    if not sh.get("steps"):
+        return Image.new("RGB", (W, ROWS))
+    th = {"style": "steps", "steps": sh["steps"], "c1": sh["c1"], "c2": sh["c2"], "every": 1.5, "words": [], "text_rgb": hex_rgb(sh["c2"]),
+          "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False}
+    ready = set(lib.ready_ids()) if lib else set()
+    return built_frame(None, t % show_len(sh), th, lib, boost, ready, hex_rgb(sh["c1"]), hex_rgb(sh["c2"]), "")
+
 def alert_len(th):
     """How long an alert runs: built ones add up their steps."""
     if th.get("style") == "steps" and th.get("steps"):
         return max(1.0, min(60.0, sum(st["secs"] for st in th["steps"])))
     return th["secs"]
-WORD_FX = ["flash", "scroll", "slide", "pop", "blink", "rainbow", "fade"]   # how the words come in
+WORD_FX = ["flash", "scroll", "slide", "pop", "blink", "rainbow", "fade", "steady"]   # how the words come in
 WORD_BG = ["color", "black", "gif"]                 # behind the words: team color / black / the GIF still playing
 SIDE_W = [0.3, 0.4, 0.5]                            # side by side: share of the strip the picture gets
 SCROLL_PX = 260                                     # pixels a second for words scrolling across
@@ -931,7 +972,7 @@ def draw_words(img, x0, x1, word, th, kind, u, length, t, c1):
         fireworks(d, t, x0, x1)
     if fx == "blink" and blink_off(u):
         return img
-    dark = (0, 0, 0) if kind == "close" else WHITE
+    dark = th.get("text_rgb") or ((0, 0, 0) if kind == "close" else WHITE)   # shows: your second color
     if fx == "flash":
         col = (dark if on else hot) if bg == "color" else (hot if on else WHITE)
     else:
@@ -1052,10 +1093,15 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
     return draw_words(img, 0, W, word, th, al.kind, t - start, length, t, c1)
 
 def built_frame(al, t, th, lib, boost, ready, c1, c2, short):
-    """Build my own: the steps play in order, each for its own time; a step can fade in from the one before."""
-    g = al.game
+    """Build my own: the steps play in order, each for its own time; a step can fade in from the one before.
+    Shows use it too, with no game (al is None)."""
+    g = al.game if al else None
+    kind_of = al.kind if al else "show"
     def fill(txt):
-        return (txt or "").replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"]).replace("{play}", g.get("play_text") or "")
+        txt = (txt or "").replace("{time}", time.strftime("%I:%M").lstrip("0"))
+        if g is None:
+            return txt
+        return txt.replace("{score}", short).replace("{clock}", g["detail"]).replace("{league}", g["league"]).replace("{play}", g.get("play_text") or "")
 
     def picture(pid, size=None):
         if not pid or pid not in ready:
@@ -1067,15 +1113,15 @@ def built_frame(al, t, th, lib, boost, ready, c1, c2, short):
         kind, secs, text = st["kind"], st["secs"], fill(st.get("text"))
         look = dict(th, word_fx=st["fx"], word_bg=st["bg"])
         if kind == "score":
-            return score_frame(al, t, c1, c2)
+            return score_frame(al, t, c1, c2) if al else Image.new("RGB", (W, ROWS))
         img = Image.new("RGB", (W, ROWS))
         if kind == "pic":
             return picture(st.get("pic")) or img
         if kind == "over":
             base = picture(st.get("pic"))
             if base is not None:
-                return draw_words(base, 0, W, text, dict(look, word_bg="gif"), al.kind, u, secs, t, c1) if text else base
-            return draw_words(img, 0, W, text, look, al.kind, u, secs, t, c1) if text else img
+                return draw_words(base, 0, W, text, dict(look, word_bg="gif"), kind_of, u, secs, t, c1) if text else base
+            return draw_words(img, 0, W, text, look, kind_of, u, secs, t, c1) if text else img
         if kind == "side":
             both = st["side"] == "both"
             pw = int(round(W * st["w"] / (2 if both else 1)))
@@ -1086,8 +1132,8 @@ def built_frame(al, t, th, lib, boost, ready, c1, c2, short):
                 if pic is not None:
                     img.paste(pic, (x, 0))
             x0, x1 = (pw, W - pw) if both else (pw, W) if st["side"] == "left" else (0, W - pw)
-            return draw_words(img, x0, x1, text, look, al.kind, u, secs, t, c1) if text else img
-        return draw_words(img, 0, W, text or "!", look, al.kind, u, secs, t, c1)
+            return draw_words(img, x0, x1, text, look, kind_of, u, secs, t, c1) if text else img
+        return draw_words(img, 0, W, text or "!", look, kind_of, u, secs, t, c1)
 
     steps, start = th["steps"], 0.0
     for i, st in enumerate(steps):
@@ -2360,6 +2406,7 @@ def run_display(ctl, feed, matrix):
     player = pictures.Player(ctl.lib, W, ROWS)          # Picture mode: one picture or the slideshow
     inter, lap, last_pic, pic_n = None, False, time.time(), 0   # pictures popping up in the ticker
     inter_last = None
+    show_t0, show_n, show_inter = time.time(), 0, None  # Shows: on their own, or popping up in the ticker
     while True:
         al = feed.next_alert()
         th = ctl.theme(al.key) if al and (al.key == ANY_CLOSE or (al.game["league"], al.abbr) in MY_TEAMS) else None
@@ -2372,10 +2419,36 @@ def run_display(ctl, feed, matrix):
             seen, x, img_i = ctl.version, W, 0
             card_i, card_t0 = 0, time.time()
             inter, lap, last_pic = None, False, time.time()
+            show_t0, show_inter = time.time(), None
             feed.build_strip()                    # league picks may have changed
 
         mode = ctl.mode
         shuffle = ctl.pic_order == "shuffle"
+
+        # ---- a show popping up in the ticker (after each lap, or every few minutes); they take turns
+        tick_shows = [sh for sh in ctl.shows if sh["in_ticker"] and sh["steps"]]
+        if mode == "scroll" and show_inter is None and inter is None and ctl.show_every and tick_shows:
+            due = lap if ctl.show_every < 0 else time.time() - last_pic >= ctl.show_every * 60
+            if due:
+                show_inter = {"show": tick_shows[show_n % len(tick_shows)], "start": time.time(), "from": frame.copy()}
+                show_n += 1
+                lap = False
+        if show_inter is not None:
+            t = time.time() - show_inter["start"]
+            sh = show_inter["show"]
+            if t >= show_len(sh):
+                show_inter, last_pic = None, time.time()
+            else:
+                img = show_frame(sh, t, ctl.lib, ctl.pic_boost)
+                if t < 0.4:                       # fade in from the ticker
+                    img = Image.blend(show_inter["from"], img, t / 0.4)
+                show(img); time.sleep(1 / 30)
+                continue
+        if mode == "show":                        # a show on its own, looping
+            sh = next((z for z in ctl.shows if z["id"] == ctl.show_id), None)
+            if sh:
+                show(show_frame(sh, time.time() - show_t0, ctl.lib, ctl.pic_boost)); time.sleep(1 / 30)
+                continue
 
         # ---- a picture popping up in the ticker (after each lap, or every few minutes)
         if mode == "scroll" and inter is None and ctl.pic_every and ctl.lib.ready_ids():
