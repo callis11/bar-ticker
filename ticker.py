@@ -699,6 +699,9 @@ def clean_step(st):
     out["bg"] = st["bg"] if st.get("bg") in ("color", "black") else "color"
     out["side"] = st["side"] if st.get("side") in ("left", "right", "both") else "left"
     out["w"] = min(SIDE_W, key=lambda v: abs(v - float(st.get("w") or 0.4)))
+    out["cmode"] = "custom" if st.get("cmode") == "custom" else "same"   # this step's own colors, or the alert's / show's
+    for c, d in (("tc", "#ffffff"), ("bc", "#0076b6")):
+        out[c] = st[c] if isinstance(st.get(c), str) and len(st[c]) == 7 and st[c].startswith("#") else d
     return out
 
 def clean_shows(shows):
@@ -724,8 +727,10 @@ def show_frame(sh, t, lib, boost=True):
     """One frame of a show, t seconds in (it loops)."""
     if not sh.get("steps"):
         return Image.new("RGB", (W, ROWS))
-    th = {"style": "steps", "steps": sh["steps"], "c1": sh["c1"], "c2": sh["c2"], "every": 1.5, "words": [], "text_rgb": hex_rgb(sh["c2"]),
-          "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False}
+    th = {"style": "steps", "steps": sh["steps"], "c1": sh["c1"], "c2": sh["c2"], "every": 1.5, "words": [], "custom_cols": True,
+          "text_rgb": hex_rgb(sh["c2"]), "bg_rgb": hex_rgb(sh["c1"]),
+          "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False,
+            "color_mode": "team", "word_col": "#ffffff", "bg_col": "#0076b6"}
     ready = set(lib.ready_ids()) if lib else set()
     return built_frame(None, t % show_len(sh), th, lib, boost, ready, hex_rgb(sh["c1"]), hex_rgb(sh["c2"]), "")
 
@@ -754,11 +759,13 @@ def default_theme(league, abbr, kind):
     if league == "ANY":                              # every game: flash, the score, back to the ticker
         return {"on": True, "style": "words", "pics": [], "words": ["CLOSE GAME", "{score}"], "every": 1.5,
                 "secs": 8, "score": True, "c1": "#ffaa00", "c2": "#ffffff",
-                "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False}
+                "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False,
+            "color_mode": "team", "word_col": "#ffffff", "bg_col": "#0076b6"}
     name, c1, c2 = MY_TEAMS[(league, abbr)]
     return {"on": True, "style": "switch", "pics": [], "words": default_words(name, kind), "every": 1.5,
             "secs": ALERT_SECONDS, "score": True, "c1": rgb_hex(c1), "c2": rgb_hex(c2),
-            "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False}
+            "word_fx": "flash", "word_bg": "color", "side": "left", "side_w": 0.4, "side_full": False,
+            "color_mode": "team", "word_col": "#ffffff", "bg_col": rgb_hex(c1)}
 
 def clean_themes(themes):
     out = {}
@@ -784,6 +791,9 @@ def clean_themes(themes):
         if th.get("word_bg") in WORD_BG: t["word_bg"] = th["word_bg"]
         if th.get("side") in ("left", "right", "both"): t["side"] = th["side"]
         if "side_full" in th: t["side_full"] = bool(th["side_full"])
+        if th.get("color_mode") in ("team", "custom"): t["color_mode"] = th["color_mode"]
+        for c in ("word_col", "bg_col"):
+            if isinstance(th.get(c), str) and len(th[c]) == 7 and th[c].startswith("#"): t[c] = th[c]
         if isinstance(th.get("steps"), list):
             t["steps"] = [c for c in (clean_step(x) for x in th["steps"][:MAX_STEPS]) if c]
         if "side_w" in th:
@@ -961,7 +971,8 @@ def draw_words(img, x0, x1, word, th, kind, u, length, t, c1):
     """Draws one word into the strip between x0 and x1, the way the theme says it comes in.
     u = seconds into this word's turn, length = how long the turn lasts."""
     w, fx, bg = x1 - x0, th.get("word_fx", "flash"), th.get("word_bg", "color")
-    hot = (255, 170, 0) if kind == "close" else (255, 30, 30) if kind == "redzone" else c1
+    custom = bool(th.get("custom_cols"))                   # your own word / background colors (else team colors)
+    hot = th.get("bg_rgb") if custom else (255, 170, 0) if kind == "close" else (255, 30, 30) if kind == "redzone" else c1
     on = int(t * 4) % 2 == 0                               # 4 flashes a second
     d = ImageDraw.Draw(img)
     if bg == "color":
@@ -972,11 +983,11 @@ def draw_words(img, x0, x1, word, th, kind, u, length, t, c1):
         fireworks(d, t, x0, x1)
     if fx == "blink" and blink_off(u):
         return img
-    dark = th.get("text_rgb") or ((0, 0, 0) if kind == "close" else WHITE)   # shows: your second color
+    dark = th.get("text_rgb") if custom else (0, 0, 0) if kind == "close" else WHITE
     if fx == "flash":
-        col = (dark if on else hot) if bg == "color" else (hot if on else WHITE)
+        col = (dark if on else hot) if bg == "color" else ((dark if on else WHITE) if custom else (hot if on else WHITE))
     else:
-        col = dark if bg == "color" else (hot if bg == "black" else WHITE)
+        col = dark if bg == "color" or custom else (hot if bg == "black" else WHITE)
     f = font(28 * K) if fx == "scroll" else fit_font(word, w - 8)   # scrolling words stay full size, however long
     if fx == "pop":                                        # grows in with a little bounce
         p = min(1.0, u / 0.35)
@@ -1026,6 +1037,8 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
             default_theme(lg, al.abbr, al.kind) if (lg, al.abbr) in MY_TEAMS else \
             dict(default_theme("ANY", "ALL", "close"), words=al.words, c1=rgb_hex(al.c1), c2=rgb_hex(al.c2), secs=ALERT_SECONDS)
     th = dict(default_theme("ANY", "ALL", "close"), **th)  # older saved themes: fill in the new settings
+    if th.get("color_mode") == "custom":                 # your own word and background colors everywhere there are words
+        th = dict(th, custom_cols=True, text_rgb=hex_rgb(th.get("word_col") or "#ffffff"), bg_rgb=hex_rgb(th.get("bg_col") or th["c1"]))
     c1, c2 = hex_rgb(th["c1"]), hex_rgb(th["c2"])
     g = al.game                                          # {score} / {clock} / {league} fill in from the game
     short = f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}"
@@ -1112,6 +1125,8 @@ def built_frame(al, t, th, lib, boost, ready, c1, c2, short):
     def step(st, u):
         kind, secs, text = st["kind"], st["secs"], fill(st.get("text"))
         look = dict(th, word_fx=st["fx"], word_bg=st["bg"])
+        if st.get("cmode") == "custom":                    # this step's own colors
+            look.update(custom_cols=True, text_rgb=hex_rgb(st["tc"]), bg_rgb=hex_rgb(st["bc"]))
         if kind == "score":
             return score_frame(al, t, c1, c2) if al else Image.new("RGB", (W, ROWS))
         img = Image.new("RGB", (W, ROWS))

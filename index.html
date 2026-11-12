@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261112160857">
+<meta name="build" content="20261112162731">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -821,14 +821,17 @@ function stepsEditor(th, ready, opt = {score: true, colors: true}) {
           <div class="seg stW"><span class="segLabel">Size</span>${[[0.3, "Small"], [0.4, "Medium"], [0.5, "Half"]].map(([v, n]) => `<button data-v="${v}" class="${st.w === v ? "on" : ""}">${n}</button>`).join("")}</div>` : ""}
         ${["words", "over", "side"].includes(k) ? `<input type="text" class="stText" maxlength="40" value="${esc(st.text || "")}" placeholder="${k === "words" ? "Words, like TOUCHDOWN!" : "Words (optional)"}">
           <div class="chips wrap stFx">${FX_LABEL.map(([v, n]) => `<button data-v="${v}" class="${st.fx === v ? "on" : ""}">${n}</button>`).join("")}</div>
-          ${k === "over" ? "" : `<div class="seg stBg"><span class="segLabel">Behind</span>${[["color", "Team color"], ["black", "Black"]].map(([v, n]) => `<button data-v="${v}" class="${st.bg === v ? "on" : ""}">${n}</button>`).join("")}</div>`}` : ""}
+          <div class="seg stCM"><span class="segLabel">Colors</span>${[["same", opt.score ? "Same as alert" : "Same as show"], ["custom", "My own"]].map(([v, n]) =>
+            `<button data-v="${v}" class="${(st.cmode || "same") === v ? "on" : ""}">${n}</button>`).join("")}</div>
+          ${st.cmode === "custom" ? `<div class="colors2"><label>Words <input type="color" class="stTC" value="${st.tc || "#ffffff"}"></label>${k === "over" ? "" : `<label>Background <input type="color" class="stBC" value="${st.bc || "#0076b6"}"></label>`}</div>` : ""}
+          ${k === "over" ? "" : `<div class="seg stBg"><span class="segLabel">Behind</span>${[["color", "Color"], ["black", "Black"]].map(([v, n]) => `<button data-v="${v}" class="${st.bg === v ? "on" : ""}">${n}</button>`).join("")}</div>`}` : ""}
         <div class="seg stSecs"><span class="segLabel">Seconds</span>${[1, 1.5, 2, 3, 4, 5, 8].map(v => `<button data-v="${v}" class="${+st.secs === v ? "on" : ""}">${v}</button>`).join("")}</div>
         ${i ? `<div class="switch stFadeRow"><span>Fade in from the step before</span><input type="checkbox" class="stFade" ${st.fade ? "checked" : ""}></div>` : ""}
       </div>`; }).join("")}</div>
     <button class="btn ghost" id="stAdd">+ Add a step</button>
     <p class="hint" style="margin-top:0">${opt.score ? `Steps play top to bottom, each for its seconds; the whole alert lasts ${stepsTotal(steps)} s. Use <b>{score}</b>, <b>{clock}</b>, <b>{league}</b> or <b>{play}</b> (what happened) in the words.`
       : `Steps play top to bottom, each for its seconds (${stepsTotal(steps)} s in all), then it starts over. Use <b>{time}</b> in the words for the time.`} Tap a picture in a step to swap it, ↑ ↓ to move a step, ⧉ to copy it.</p>
-    ${opt.colors ? `<div class="colors2"><label>Color 1 <input type="color" class="alC" data-c="c1" value="${th.c1}"></label><label>Color 2 <input type="color" class="alC" data-c="c2" value="${th.c2}"></label></div>` : ""}`;
+`;
 }
 // what a tap or edit did to a list of steps (alerts and shows share this); null = not a step thing
 function stepsClick(e, list, firstWords = "TOUCHDOWN!") {
@@ -855,21 +858,25 @@ function stepsClick(e, list, firstWords = "TOUCHDOWN!") {
   else if (box.classList.contains("stSide")) sp.side = b.dataset.v;
   else if (box.classList.contains("stW")) sp.w = +b.dataset.v;
   else if (box.classList.contains("stSecs")) sp.secs = +b.dataset.v;
+  else if (box.classList.contains("stCM")) sp.cmode = b.dataset.v;
   else return null;
   return steps;
 }
 function stepsChange(e, list) {
-  if (!e.target.matches(".stText, .stFade")) return null;
+  if (!e.target.matches(".stText, .stFade, .stTC, .stBC")) return null;
   const i = +e.target.closest(".step").dataset.i, steps = (list || []).map(x => Object.assign({}, x));
   if (!steps[i]) return null;
-  if (e.target.matches(".stText")) steps[i].text = e.target.value; else steps[i].fade = e.target.checked;
+  if (e.target.matches(".stText")) steps[i].text = e.target.value;
+  else if (e.target.matches(".stTC")) steps[i].tc = e.target.value;
+  else if (e.target.matches(".stBC")) steps[i].bc = e.target.value;
+  else steps[i].fade = e.target.checked;
   return steps;
 }
 const newStep = list => { const last = (list || [])[list.length - 1] || {}, first = (S.pictures || []).find(p => p.status === "ready");
   return {kind: "pic", pic: last.pic || (first && first.id), secs: 2, fx: last.fx || "flash", bg: "color", side: "left", w: 0.4, fade: false}; };
 const saveSteps = (steps, msg) => themeSave({steps, secs: Math.max(4, Math.min(30, Math.round(stepsTotal(steps))))}, msg);
 const FX_LABEL = [["steady", "Steady"], ["flash", "Flash"], ["scroll", "Scroll across"], ["slide", "Slide in"], ["pop", "Pop"], ["blink", "Blink"], ["rainbow", "Rainbow"], ["fade", "Fade"]];
-const BG_LABEL = [["color", "Team color"], ["black", "Black"], ["gif", "The GIF"]];
+const BG_LABEL = [["color", "Color"], ["black", "Black"], ["gif", "The GIF"]];
 let alSel = {team: null, kind: "td"}, alEditPic = null;
 const teamLabel = t => t.league === "ANY" ? "Every game" : `${t.name.charAt(0) + t.name.slice(1).toLowerCase()} · ${SPORT_LABEL[t.league]}`;
 function renderAlerts() {
@@ -929,12 +936,17 @@ function renderAlerts() {
     <h2 class="sect">Words</h2>
     ${[0, 1, 2].map(i => `<input type="text" class="alW" data-i="${i}" maxlength="24" value="${esc(w[i] || "")}" placeholder="${i < 2 ? "" : "Third word (optional)"}">`).join("")}
     <p class="hint" style="margin:0">Use <b>{score}</b> for the game's score, <b>{clock}</b> for the time left, <b>{league}</b> for the sport, <b>{play}</b> for what happened (sacks, picks, field goals; best with Scroll across).</p>
-    <div class="colors2"><label>Color 1 <input type="color" class="alC" data-c="c1" value="${th.c1}"></label><label>Color 2 <input type="color" class="alC" data-c="c2" value="${th.c2}"></label></div>
     <h2 class="sect">Timing</h2>
     <div class="seg alEvery"><span class="segLabel">Switch every</span>${[1, 1.5, 2, 3].map(v => `<button data-v="${v}" class="${th.every === v ? "on" : ""}">${v} s</button>`).join("")}</div>
     <div class="seg alSecs"><span class="segLabel">Alert lasts</span>${[6, 10, 15, 20].map(v => `<button data-v="${v}" class="${th.secs === v ? "on" : ""}">${v} s</button>`).join("")}</div>
     <div class="switch"><span>End on the score</span><input type="checkbox" class="alScore" ${th.score ? "checked" : ""}></div>
     `}
+    <h2 class="sect">Colors</h2>
+    <div class="seg alCM"><span class="segLabel">Words</span>${[["team", "Team colors"], ["custom", "My own"]].map(([v, n]) =>
+      `<button data-v="${v}" class="${(th.color_mode || "team") === v ? "on" : ""}">${n}</button>`).join("")}</div>
+    ${th.color_mode === "custom" ? `<div class="colors2"><label>Words <input type="color" class="alC" data-c="word_col" value="${th.word_col || "#ffffff"}"></label><label>Background <input type="color" class="alC" data-c="bg_col" value="${th.bg_col || th.c1}"></label></div>
+      <p class="hint" style="margin-top:0">Used everywhere this alert has words (each ★ step can still pick its own).</p>`
+      : `<p class="hint" style="margin-top:0">${esc(tm.name || "Team")} colors: white words on the team color.</p>`}
     <div class="row3" style="grid-template-columns:1fr 1fr"><button class="btn ghost" id="alPrev">▶ Preview here</button><button class="btn" id="alTest">${DEMO ? "Test it" : "Test it on the ticker"}</button></div>
     <div class="row3" style="grid-template-columns:1fr 1fr;margin-top:6px">
       <button class="btn ghost" id="alReset" ${custom ? "" : "disabled"}>${custom ? "Back to default" : "Using the default"}</button>${any ? "<span></span>" : `<button class="btn danger" id="alRemove">Remove ${esc(tm.name.toLowerCase())}</button>`}</div>
@@ -997,6 +1009,12 @@ $("#alEdit").onclick = async e => {
     try { await api("/api/test-alert", {method:"POST", body: JSON.stringify({team: alSel.team, kind: alSel.kind})}); toast("Here it comes"); }
     catch { toast("Couldn't reach the ticker"); }
     return;
+  }
+  const cm = e.target.closest(".alCM button");
+  if (cm) {
+    const tm = (S.alert_teams || []).find(t => t.key === alSel.team) || {};
+    return themeSave(cm.dataset.v === "team" ? {color_mode: "team", c1: tm.c1 || th.c1, c2: tm.c2 || th.c2}
+                                             : {color_mode: "custom", word_col: th.word_col || "#ffffff", bg_col: th.bg_col || th.c1});
   }
   if (e.target.closest("#alPrev")) {
     const tm = (S.alert_teams || []).find(t => t.key === alSel.team) || {};
@@ -1306,12 +1324,12 @@ const Demo = (() => {
   const TEST_PLAYS = {sack:"Sacked at {opp} 28 for -7 yards", int:"Intercepted at {me} 40, returned 22 yards", fumble:"Fumble recovered by {me} at {opp} 31",
                       fg:"48 yard field goal is GOOD", big:"Pass complete for 41 yards to the {opp} 12"};
   function themeOf(key) {
-    const extra = {word_fx:"flash", word_bg:"color", side:"left", side_w:0.4, side_full:false};
+    const extra = {word_fx:"flash", word_bg:"color", side:"left", side_w:0.4, side_full:false, color_mode:"team", word_col:"#ffffff"};
     if (key === "ANY|ALL|close") return Object.assign({on:true, style:"words", pics:[], words:["CLOSE GAME", "{score}"], every:1.5, secs:8,
                                                       score:true, c1:"#ffaa00", c2:"#ffffff"}, extra, (S.themes || {})[key] || {});
     const [lg, ab, kind] = key.split("|"), [name, c1, c2] = MY[`${lg}|${ab}`] || ["TEAM", "#ffbe00", "#ffffff"];
     return Object.assign({on:true, style:"switch", pics:[], words:defaultWords(name, kind), every:1.5, secs:10, score:true, c1, c2},
-                         extra, (S.themes || {})[key] || {});
+                         extra, {bg_col: c1}, (S.themes || {})[key] || {});
   }
   const fake = (league, away, home, a, h, state, detail, spread, total, mla, mlh, hours = 0, arank = null, hrank = null) => {
     const m = /(\d+)(?:st|nd|rd|th)\s+(\d+):(\d+)/.exec(detail || "");
@@ -1968,14 +1986,16 @@ const Demo = (() => {
   }
   function drawWords(x0, x1, word, th, kind, u, len, t) {
     const w = x1 - x0, fx = th.word_fx || "flash", bg = th.word_bg || "color";
-    const hot = kind === "close" ? "#ffaa00" : kind === "redzone" ? "#ff1e1e" : th.c1, on = Math.floor(t * 4) % 2 === 0;
+    const custom = !!th.custom_cols;             // your own word / background colors (else team colors)
+    const hot = custom ? th.bg_col : kind === "close" ? "#ffaa00" : kind === "redzone" ? "#ff1e1e" : th.c1, on = Math.floor(t * 4) % 2 === 0;
     g.save(); g.beginPath(); g.rect(x0, 0, w, H); g.clip();
     if (bg === "color") { g.fillStyle = fx !== "flash" || on ? hot : "#000"; g.fillRect(x0, 0, w, H); }
     else if (bg === "black") { g.fillStyle = "#000"; g.fillRect(x0, 0, w, H); }
     if (kind === "win" && bg !== "gif") fireworks(g, t, x0, x1);
     if (fx === "blink" && blinkOff(u)) { g.restore(); return; }
-    const dark = th.text_col || (kind === "close" ? "#000" : "#fff");   // shows: your second color
-    const col = fx === "flash" ? (bg === "color" ? (on ? dark : hot) : (on ? hot : "#fff")) : bg === "color" ? dark : bg === "black" ? hot : "#fff";
+    const dark = custom ? th.text_col : kind === "close" ? "#000" : "#fff";
+    const col = fx === "flash" ? (bg === "color" ? (on ? dark : hot) : custom ? (on ? dark : "#fff") : (on ? hot : "#fff"))
+                               : bg === "color" || custom ? dark : bg === "black" ? hot : "#fff";
     let n = fx === "scroll" ? 28 * K : fit(word, w - 8);   // scrolling words stay full size, however long
     if (fx === "pop") { const p = Math.min(1, u / 0.35); n = Math.max(10, Math.floor(n * Math.min(1.12, 0.3 + 0.7 * p + 0.12 * Math.sin(Math.PI * p)))); }
     g.font = font(n); const tw = g.measureText(word).width;
@@ -2006,6 +2026,7 @@ const Demo = (() => {
     const P = id => lib.find(p => p.id === id);
     const step = (st, u) => {
       const k = st.kind, text = fill(st.text), look = Object.assign({}, th, {word_fx: st.fx || "flash", word_bg: st.bg || "color"}), secs = +st.secs || 2;
+      if (st.cmode === "custom") Object.assign(look, {custom_cols: true, text_col: st.tc || "#ffffff", bg_col: st.bc || "#0076b6"});   // this step's own colors
       if (k === "score") return gm ? drawScore(al, th, t) : clear();
       clear();
       if (k === "pic") { const p = P(st.pic); if (p) { renderPic(p, nextCanvas.getContext("2d"), t); g.drawImage(nextCanvas, 0, 0); } return; }
@@ -2046,11 +2067,12 @@ const Demo = (() => {
   const showLen = sh => Math.max(1, (sh.steps || []).reduce((a, s) => a + (+s.secs || 0), 0));
   function drawShow(sh, t) {                    // a show: its steps, looping
     if (!(sh.steps || []).length) return clear();
-    drawBuilt({kind: "show", game: null}, t % showLen(sh), {style: "steps", steps: sh.steps, c1: sh.c1, c2: sh.c2, text_col: sh.c2,
+    drawBuilt({kind: "show", game: null}, t % showLen(sh), {style: "steps", steps: sh.steps, c1: sh.c1, c2: sh.c2, custom_cols: true, text_col: sh.c2, bg_col: sh.c1,
                                                             every: 1.5, word_fx: "flash", word_bg: "color"});
   }
   function drawAlert(al, t, thIn) {
     let th = thIn || themeOf(al.key);
+    if (th.color_mode === "custom") th = Object.assign({}, th, {custom_cols: true, text_col: th.word_col || "#ffffff", bg_col: th.bg_col || th.c1});
     if (th.style === "steps" && (th.steps || []).length) return drawBuilt(al, t, th);
     const gm = al.game, short = `${gm.away} ${gm.ascore}  ${gm.home} ${gm.hscore}`;
     const words = (th.words.length ? th.words : al.words).map(w => w.replace("{score}", short).replace("{clock}", gm.detail).replace("{league}", gm.league).replace("{play}", gm.play_text || ""));
