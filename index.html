@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261112162731">
+<meta name="build" content="20261113001654">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -77,7 +77,9 @@
   .stNum { display:inline-grid; place-items:center; width:26px; height:26px; border-radius:50%; background:var(--accent); color:#fff; }
   .stBtns button { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:8px; width:34px; height:30px; margin-left:4px; font-size:15px; }
   .stBtns button:disabled { opacity:.3; }
-  .stPics { display:flex; gap:6px; overflow-x:auto; padding:2px 0 8px; align-items:center; }
+  .stPics { display:flex; gap:6px; overflow-x:auto; padding:2px 0 8px; align-items:center; max-width:100%; }
+  .steps, .step, .showCard, .alCol, #alEdit, .panel { min-width:0; }          /* long picture rows never stretch the page */
+  html, body { overflow-x:hidden; }
   .stPics button { flex:0 0 136px; background:#000; border:2px solid var(--line); border-radius:8px; padding:3px; color:var(--dim); }
   .stPics button.on { border-color:var(--accent); color:#fff; }
   .stPics img { display:block; width:100%; aspect-ratio:10/1; object-fit:cover; border-radius:4px; }
@@ -89,7 +91,10 @@
     .screen { position:sticky; top:0; z-index:5; box-shadow:0 8px 18px #000c; }
     .tabs { max-width:640px; }
     .card { padding:18px 22px; }
-    .alCols { display:grid; grid-template-columns:1fr 1fr; gap:0 36px; align-items:start; }
+    .alCols { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:0 36px; align-items:start; }
+    .stPics { flex-wrap:wrap; overflow:visible; }                      /* laptop: picture choices wrap into rows, no side-scrolling */
+    .stPics button { flex:0 0 118px; }
+    .stPics .segLabel { flex:0 0 100%; }
     .alCol > h2.sect:first-child { border-top:none; padding-top:0; }
     .tiles { grid-template-columns:repeat(3,1fr); }
     .card:not(.panel) { max-width:760px; }
