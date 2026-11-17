@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261113001654">
+<meta name="build" content="20261117152838">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -255,6 +255,7 @@
     <button data-l="stadium">Stadium</button><button data-l="big">Big &amp; bold</button>
   </div>
   <p class="hint" style="margin-top:0" id="lookHint"></p>
+  <div class="switch"><span>Team logos <small class="dim">(next to the team names)</small></span><input type="checkbox" id="logosOn"></div>
 
   <h2 class="sect">How it moves</h2>
   <div class="chips wrap" id="motionPick">
@@ -539,6 +540,7 @@ function render() {
     PROP_TYPES.map(([k, n]) => `<button data-t="${k}" class="${pt.includes(k) ? "on" : ""}">${n}</button>`).join("");
   document.querySelectorAll("#lookPick button").forEach(b => b.classList.toggle("on", b.dataset.l === (S.look || "classic")));
   $("#lookHint").textContent = LOOK_HINT[S.look || "classic"] || "";
+  $("#logosOn").checked = S.logos !== false;
   document.querySelectorAll("#motionPick button").forEach(b => b.classList.toggle("on", b.dataset.m === (S.motion || "scroll")));
   document.querySelectorAll("#holdPick button").forEach(b => b.classList.toggle("on", +b.dataset.h === S.hold));
   $("#holdPick").style.display = (S.motion || "scroll") === "scroll" ? "none" : "";
@@ -759,6 +761,7 @@ const LOOK_HINT = {classic: "Two lines per game with a league-colored edge and c
   team: "Each team in a pill of its own team colors, two lines per game.",
   stadium: "Old stadium scoreboard: everything amber, each score in its own box, live clock in red.",
   big: "One line, extra big letters and numbers, easy to read from across the room. Leading score in yellow."};
+$("#logosOn").onchange = e => save({logos: e.target.checked}, e.target.checked ? "Team logos on" : "Team logos off");
 $("#lookPick").onclick = e => { const b = e.target.closest("button"); if (b) save({look:b.dataset.l}, b.textContent + " look"); };
 $("#motionPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", motion:b.dataset.m}, b.textContent); };
 $("#holdPick").onclick = e => { const b = e.target.closest("button"); if (b) save({hold:+b.dataset.h}, `Each item stays ${b.dataset.h} sec`); };
@@ -1397,7 +1400,7 @@ const Demo = (() => {
 
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
-           group:"league", days:"week", pl_parts:["record","parlays","props"], pl_on:false, show_every:-1, show_id:"",
+           group:"league", days:"week", pl_parts:["record","parlays","props"], pl_on:false, logos:true, show_every:-1, show_id:"",
            shows:[{id:"golions", name:"Go Lions", in_ticker:false, c1:"#0076b6", c2:"#ffffff",
                    steps:[{kind:"words", text:"GO LIONS!", fx:"steady", bg:"color", secs:5, side:"left", w:0.4, fade:false}]}],
            speed:80, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide", ranks:true, game_speed:80, msg_on_image:false, pin:"off",
@@ -1433,7 +1436,8 @@ const Demo = (() => {
                          ev.status.type.state, ev.status.type.shortDetail, (comp.odds || [{}])[0].details, (comp.odds || [{}])[0].overUnder,
                          espnML((comp.odds || [{}])[0], "away"), espnML((comp.odds || [{}])[0], "home"));
           x.start = Date.parse(ev.date) / 1000 || 0;
-          Object.assign(x, {acolor: hexrgb(t.away.team.color), hcolor: hexrgb(t.home.team.color),
+          Object.assign(x, {alogo: t.away.team.logo || "", hlogo: t.home.team.logo || "", aid: String(t.away.team.id || ""), hid: String(t.home.team.id || ""),
+                            acolor: hexrgb(t.away.team.color), hcolor: hexrgb(t.home.team.color),
                             aalt: hexrgb(t.away.team.alternateColor), halt: hexrgb(t.home.team.alternateColor)});
           x.period = ev.status.period || 0;
           const rk = c => { const r = (c.curatedRank || {}).current; return r >= 1 && r <= 25 ? r : null; };
@@ -1594,6 +1598,34 @@ const Demo = (() => {
     }
     return [[x.detail, "#969696"]];
   }
+  // ---- team logos: ESPN's own logo pictures, loaded straight from ESPN (nothing stored on GitHub)
+  const LOGO_LG = {NFL:"nfl", NBA:"nba", NHL:"nhl", MLB:"mlb", CFB:"ncaa", CBB:"ncaa"}, LOGOS = {};
+  const DEMO_IDS = {MSU:"127", IOWA:"2294", DUKE:"150", MICH:"130", OSU:"194", UNC:"153"};
+  function logoUrl(x, side) {
+    const u = x[side === "away" ? "alogo" : "hlogo"]; if (u) return u;
+    const lg = LOGO_LG[x.league]; if (!lg) return "";
+    if (lg === "ncaa") { const id = x[side === "away" ? "aid" : "hid"] || DEMO_IDS[x[side]]; return id ? `https://a.espncdn.com/i/teamlogos/ncaa/500/${id}.png` : ""; }
+    return `https://a.espncdn.com/i/teamlogos/${lg}/500/${x[side].toLowerCase()}.png`;
+  }
+  function teamLogo(x, side) {                    // the loaded logo picture, or null (logos off / still loading / none)
+    if (S.logos === false) return null;
+    const url = logoUrl(x, side); if (!url) return null;
+    let e = LOGOS[url];
+    if (!e) {
+      e = LOGOS[url] = {img: new Image(), ok: false};
+      const tries = [url.replace("/500/", "/500-dark/"), url];   // the version made for dark screens first
+      e.img.onload = () => { e.ok = true; fontsReady++; };
+      e.img.onerror = () => { if (tries.length) e.img.src = tries.shift(); };
+      e.img.src = tries.shift();
+    }
+    return e.ok ? e.img : null;
+  }
+  const logosReady = x => !!(teamLogo(x, "away") && teamLogo(x, "home"));
+  function drawLogo(c, img, x, cy, size) {        // fitted in a size x size box
+    if (!img) return;
+    const k = size / Math.max(img.naturalWidth || 1, img.naturalHeight || 1), w = img.naturalWidth * k, h = img.naturalHeight * k;
+    c.drawImage(img, x + (size - w) / 2, cy - h / 2, w, h);
+  }
   function gameBlock(x) {
     const pre = x.state === "pre", my = mine(x), showMl = pre && picks().includes("ml") && x.mla && x.mlh;
     const rows = [["away", "ascore", "mla"], ["home", "hscore", "mlh"]].map(([side, sc, ml]) => {
@@ -1605,12 +1637,14 @@ const Demo = (() => {
     const nw = Math.max(...rows.map(r => measure(r[0], LINE_PX))), sw = Math.max(...rows.map(r => measure(r[1], LINE_PX)));
     const stw = Math.max(...status.map(([t]) => measure(t, STATUS_PX)));
     const ballCol = x.state === "in" && x.poss;
-    const xName = ballCol ? 26 : 10, xScoreR = xName + nw + (sw ? 14 + sw : 0), xDiv = xScoreR + 12, xStat = xDiv + 12;
+    const LS = 28, logo = logosReady(x), xLogo = ballCol ? 26 : 10;
+    const xName = xLogo + (logo ? LS + 6 : 0), xScoreR = xName + nw + (sw ? 14 + sw : 0), xDiv = xScoreR + 12, xStat = xDiv + 12;
     const cnv = newCanvas(xStat + stw + 8), c = cnv.getContext("2d");
     c.fillStyle = LEAGUE_COLORS[x.league] || C.gray; c.fillRect(0, 4, 4, H - 8);
     const cys = [H * 0.25, H * 0.75];
     rows.forEach(([name, right, col, rcol], i) => {
       if (ballCol && x.poss === (i ? "home" : "away")) drawBall(c, 9, cys[i], 1.3);
+      if (logo) drawLogo(c, teamLogo(x, i ? "home" : "away"), xLogo, cys[i], LS);
       textAt(c, xName, cys[i], name, LINE_PX, col);
       if (right) { c.font = font(LINE_PX); textAt(c, xScoreR - c.measureText(right).width, cys[i], right, LINE_PX, rcol); }
     });
@@ -1628,12 +1662,13 @@ const Demo = (() => {
     return color;
   }
   function linePiece(parts, pad = 14) {           // [text, color, px] / ["ball", size] / ["live"] / ["gap", px]
-    const ws = parts.map(p => p[0] === "gap" ? p[1] : p[0] === "ball" ? 16 : p[0] === "live" ? 14 : measure(p[0], p[2]));
+    const ws = parts.map(p => p[0] === "gap" ? p[1] : p[0] === "ball" ? 16 : p[0] === "live" ? 14 : p[0] === "logo" ? p[3] + 8 : measure(p[0], p[2]));
     const cnv = newCanvas(ws.reduce((a, b) => a + b, 0) + 2 * pad), c = cnv.getContext("2d");
     let x = pad;
     parts.forEach((p, i) => {
       if (p[0] === "ball") drawBall(c, x + 1, H / 2, p[1]);
       else if (p[0] === "live") { c.fillStyle = C.red; c.beginPath(); c.arc(x + 6, H / 2, 4, 0, 7); c.fill(); }
+      else if (p[0] === "logo") drawLogo(c, teamLogo(p[1], p[2]), x, H / 2, p[3]);
       else if (p[0] !== "gap") textAt(c, x, H / 2, p[0], p[2], p[1]);
       x += ws[i];
     });
@@ -1653,6 +1688,7 @@ const Demo = (() => {
     for (const [side, sc, ml] of [["away", "ascore", "mla"], ["home", "hscore", "mlh"]]) {
       if (side === "home") parts.push(["gap", 10], ["@", "#969696", 32], ["gap", 10]);
       if (x.state === "in" && x.poss === side) parts.push(["ball", 1.3], ["gap", 4]);
+      if (logosReady(x)) parts.push(["logo", x, side, 40]);
       parts.push([team(x, side), x[side] === my ? BC_GOLD : C.white, 38]);
       const right = pre ? (showMl ? x[ml] : "") : String(x[sc]);
       if (right) {
@@ -1669,6 +1705,7 @@ const Demo = (() => {
     const pre = x.state === "pre", my = mine(x), parts = [];
     for (const [side, sc] of [["away", "ascore"], ["home", "hscore"]]) {
       if (side === "home") parts.push(["gap", 26]);
+      if (logosReady(x)) parts.push(["logo", x, side, 50]);
       parts.push([team(x, side), x[side] === my ? C.gold : C.white, 52]);
       if (!pre) { const other = side === "away" ? x.hscore : x.ascore; parts.push(["gap", 12], [String(x[sc]), x[sc] > other ? "#ffe13c" : C.white, 52]); }
     }
@@ -1692,10 +1729,11 @@ const Demo = (() => {
     const rights = [pre ? (showMl ? x.mla : "") : String(x.ascore), pre ? (showMl ? x.mlh : "") : String(x.hscore)];
     const sw = Math.max(...rights.map(r => measure(r, LINE_PX))), status = gameStatus(x);
     const stw = Math.max(...status.map(([t]) => measure(t, STATUS_PX)));
-    const xPill = 8, xScoreR = 8 + pw + 12 + sw, ball = x.state === "in" && x.poss, xStat = xScoreR + (ball ? 32 : 18);
+    const logo = logosReady(x), xPill = 8 + (logo ? 34 : 0), xScoreR = xPill + pw + 12 + sw, ball = x.state === "in" && x.poss, xStat = xScoreR + (ball ? 32 : 18);
     const cnv = newCanvas(xStat + stw + 12), c = cnv.getContext("2d");
     ["away", "home"].forEach((side, i) => {
       const cy = i ? H * 0.75 : H * 0.25, [fill, tc] = teamColors(x, side);
+      if (logo) drawLogo(c, teamLogo(x, side), 6, cy, 28);
       c.fillStyle = fill; c.beginPath(); (c.roundRect ? c.roundRect(xPill, cy - 13, pw, 25, 6) : c.rect(xPill, cy - 13, pw, 25)); c.fill();
       if (x[side] === my) { c.strokeStyle = C.gold; c.lineWidth = 2; c.stroke(); }
       textAt(c, xPill + (pw - measure(names[i], PP)) / 2, cy, names[i], PP, tc);
@@ -1744,17 +1782,22 @@ const Demo = (() => {
   function gameLine(x, h = BOTTOM_H, size = HALF_PX) {      // one game on one line, for a half-height row
     const pre = x.state === "pre", my = mine(x), small = Math.max(10, size - 4);
     const tcol = (side, sc, other) => x[side] === my ? C.gold : pre || x[sc] >= other ? C.white : "#969696";
-    const ball = side => x.state === "in" && x.poss === side ? [["@BALL", null, size]] : [];
+    const lg = logosReady(x), LH = h - 6;
+    const ball = side => (x.state === "in" && x.poss === side ? [["@BALL", null, size]] : []).concat(lg ? [["@LOGO" + side, null, size]] : []);
     const parts = pre
       ? [[team(x, "away"), tcol("away", "ascore", 0), size], [" @ ", C.gray, size], [team(x, "home"), tcol("home", "hscore", 0), size],
          ["  " + shortTime(x.detail), "#aaa", small], ...(oddsText(x) ? [["  " + oddsText(x), C.odds, small]] : [])]
       : [...ball("away"), [`${team(x, "away")} ${x.ascore}`, tcol("away", "ascore", x.hscore), size], ["  ", C.white, size],
          ...ball("home"), [`${team(x, "home")} ${x.hscore}`, tcol("home", "hscore", x.ascore), size], ["  " + x.detail, x.state === "in" ? C.red : "#969696", small],
          ...(downs(x) ? [["  " + downs(x), downColor(x), small]] : [])];
-    const bs = size / 22, plen = (t, n) => t === "@BALL" ? 11 * bs + 5 : measure(t, n);
+    const bs = size / 22, plen = (t, n) => t === "@BALL" ? 11 * bs + 5 : t.startsWith("@LOGO") ? LH + 4 : measure(t, n);
     const cnv = newCanvasH(9 + parts.reduce((a, [t, , n]) => a + plen(t, n), 0) + 6, h), c = cnv.getContext("2d");
     c.fillStyle = LEAGUE_COLORS[x.league] || C.gray; c.fillRect(0, 3, 3, h - 6);
-    let px = 9; for (const [t, col, n] of parts) px += t === "@BALL" ? drawBall(c, px, h / 2, bs) + 5 : textAt(c, px, h / 2, t, n, col);
+    let px = 9;
+    for (const [t, col, n] of parts) {
+      if (t.startsWith("@LOGO")) { drawLogo(c, teamLogo(x, t.slice(5)), px, h / 2, LH); px += LH + 4; }
+      else px += t === "@BALL" ? drawBall(c, px, h / 2, bs) + 5 : textAt(c, px, h / 2, t, n, col);
+    }
     return cnv;
   }
   function pinnedGames() {                        // games held on the top row (split screen), or none
@@ -1944,21 +1987,23 @@ const Demo = (() => {
     const mid2 = !pre ? downs(x) : (picks().includes("ou") && x.total ? `O/U ${x.total}` : "") ||
                              (picks().includes("spread") && x.spread ? x.spread : "");
     let big = 24 * K, small;
+    const LS = logosReady(x) ? 56 : 0, E = LS ? LS + 6 : 0;   // team logos at both ends
     const mparts = mid1.includes(" ") && !mid2 ? [mid1.slice(0, mid1.indexOf(" ")), mid1.slice(mid1.indexOf(" ") + 1)] : [mid1];
     for (; big > 9; big--) {
       small = Math.max(9, (big >> 1) + 1);
       g.font = font(big); const lw = g.measureText(left).width + g.measureText(right).width;
       g.font = font(small); const mw = Math.max(...mparts.map(p => g.measureText(p).width), g.measureText(mid2).width);
-      if (lw + mw + 20 * K + (x.poss ? 30 * K : 0) <= W) break;
+      if (lw + mw + 20 * K + (x.poss ? 30 * K : 0) + 2 * E <= W) break;
     }
+    if (LS) { drawLogo(g, teamLogo(x, "away"), 4, H / 2, LS); drawLogo(g, teamLogo(x, "home"), W - 4 - LS, H / 2, LS); }
     const my = mine(x);
     g.font = font(big); const lw = g.measureText(left).width, rw = g.measureText(right).width;
-    center(left, big, x.away === my ? C.gold : C.white, 4 + lw / 2);
-    center(right, big, x.home === my ? C.gold : C.white, W - 4 - rw / 2);
+    center(left, big, x.away === my ? C.gold : C.white, 4 + E + lw / 2);
+    center(right, big, x.home === my ? C.gold : C.white, W - 4 - E - rw / 2);
     g.fillStyle = C.green;
-    if (!pre && x.ascore > x.hscore) g.fillRect(4, H - 3 * K, lw, 2 * K);
-    if (!pre && x.hscore > x.ascore) g.fillRect(W - 4 - rw, H - 3 * K, rw, 2 * K);
-    const mx = ((4 + lw) + (W - 4 - rw)) / 2, gap = (W - 4 - rw) - (4 + lw) - 6;   // middle of the space between the teams
+    if (!pre && x.ascore > x.hscore) g.fillRect(4 + E, H - 3 * K, lw, 2 * K);
+    if (!pre && x.hscore > x.ascore) g.fillRect(W - 4 - E - rw, H - 3 * K, rw, 2 * K);
+    const mx = ((4 + E + lw) + (W - 4 - E - rw)) / 2, gap = (W - 4 - E - rw) - (4 + E + lw) - 6;   // middle of the space between the teams
     const yT = Math.round(H * 0.29), yB = Math.round(H * 0.71);
     if (mid2 && x.state === "in") { center(mid1, small, C.red, mx, yT); center(mid2, small, downColor(x), mx, yB); }
     else if (mid2) { center(mid1, small, C.odds, mx, yT); center(mid2, small, C.odds, mx, yB); }
@@ -1969,7 +2014,7 @@ const Demo = (() => {
     }
     if (x.state === "in" && x.poss) {                   // little football next to the team with the ball
       const bs = big / 22;
-      drawBall(g, x.poss === "away" ? 4 + lw + 5 : W - 4 - rw - 5 - 11 * bs, H / 2, bs);
+      drawBall(g, x.poss === "away" ? 4 + E + lw + 5 : W - 4 - E - rw - 5 - 11 * bs, H / 2, bs);
     }
   }
 
@@ -2381,7 +2426,7 @@ const Demo = (() => {
       if (t < alertLen(themeOf(showing.key))) { drawAlert(showing, t); return requestAnimationFrame(tick); }
       showing = null; x = W;
     }
-    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.pl_on, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin, S.look, fontsReady, S.show_id]);
+    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.pl_on, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin, S.look, fontsReady, S.show_id, S.logos]);
     if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; inter = null; lastPic = now; lapDone = false; showInter = null; showT0 = now; }
     const tickShows = (S.shows || []).filter(z => z.in_ticker && (z.steps || []).length);
     if (S.mode === "scroll" && !inter && !showInter && +(S.show_every ?? -1) && tickShows.length) {   // a show between laps

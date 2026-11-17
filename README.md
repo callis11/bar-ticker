@@ -70,6 +70,7 @@ On your home Wi-Fi, open **http://ticker.local** on your phone. In Safari, tap S
     - **Big & bold**: one line, extra big, readable from across the room
 
     Fonts: Barlow Condensed and Oswald (free, SIL Open Font License, in `fonts/`)
+  - **Team logos** switch (on to start): each team's logo next to its name in every look except Stadium, on the big one-at-a-time scoreboard (both ends) and in Hold on top. The logos are ESPN's own pictures, downloaded by the Pi once and kept in `logos/` on the Pi (never put on GitHub); the demo page shows them straight from ESPN. Team logos are trademarks of the teams and leagues: fine on your own ticker at home, not for anything you sell or show commercially
   - **How it moves**: **Scroll** (the classic crawl) or one item at a time with **Cut**, **Fade**, **Flash**, **Slide up** or **Slide left**. In one-at-a-time styles, games show as a big scoreboard and ParlayLabs items as a card with a small label on top. **Speed** slider for crawling, and **Each item stays** 3, 5, 8 or 15 sec
   - **Hold on top** (split screen): **Off**, **My teams**, **Live games** or **Picked games**. Those games stay put on the top row (one line each: teams, scores, clock; several side by side, taking turns if they don't all fit) while everything else crawls along the bottom row on one line. When none of them are live it goes back to the full-height ticker by itself. My teams and Live games keep a game on 15 min after it ends
 - **Shows** (pictures, GIFs and messages in one place, built like alerts):

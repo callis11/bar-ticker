@@ -129,7 +129,7 @@ class Control:
             "pic_every": 0, "pic_boost": True, "look": "classic",
             "shows": [{"id": "golions", "name": "Go Lions", "in_ticker": False, "c1": "#0076b6", "c2": "#ffffff",
                        "steps": [{"kind": "words", "text": "GO LIONS!", "fx": "steady", "bg": "color", "secs": 5}]}],
-            "show_id": "", "show_every": -1,
+            "show_id": "", "show_every": -1, "logos": True,
             # your own alert looks, per team and kind: {"NFL|DET|td": {...}} (see alert_theme)
             "themes": {},
             # favorite teams (gold, My teams, alerts): starts with the Lions, Pistons and MSU; add any team from the phone
@@ -180,6 +180,7 @@ class Control:
         self.ranks = bool(self.ranks)
         self.pin = self.pin if self.pin in PIN_CHOICES else "off"
         self.look = set_look(self.look)
+        set_logos(self.logos)
         self.pic_ids = [str(i) for i in (self.pic_ids or [])][:200]
         self.pic_solo = str(self.pic_solo or "")
         self.pic_secs = max(3, min(120, int(self.pic_secs)))
@@ -289,6 +290,8 @@ def parse_game(label, ev):
         id=f"{label}-{ev['id']}", league=label,
         away=a["team"]["abbreviation"], home=h["team"]["abbreviation"],
         acolor=_hexrgb(a["team"].get("color")), hcolor=_hexrgb(h["team"].get("color")),
+        alogo=str(a["team"].get("logo") or ""), hlogo=str(h["team"].get("logo") or ""),
+        aid=str(a["team"].get("id") or ""), hid=str(h["team"].get("id") or ""),
         aalt=_hexrgb(a["team"].get("alternateColor")), halt=_hexrgb(h["team"].get("alternateColor")),
         ascore=_score(a), hscore=_score(h),
         state=st["type"]["state"], detail=st["type"]["shortDetail"],
@@ -1177,23 +1180,28 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     if pre:
         mid2 = (f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or \
                (g.get("spread") or "" if "spread" in odds else "")
+    LS = 56 if logos_ready(g) else 0                     # team logos at both ends
     for size in range(24 * K, 9, -1):                    # shrink until everything fits
         big, small = font(size), font(max(9, size // 2 + 1))
         parts = mid1.split(" ", 1) if " " in mid1 and not mid2 else [mid1]
         mid_w = max([small.getlength(x) for x in parts] + [small.getlength(mid2)])
-        if big.getlength(left) + big.getlength(right) + mid_w + 20 * K + (30 * K if g.get("poss") else 0) <= W:
+        if big.getlength(left) + big.getlength(right) + mid_w + 20 * K + (30 * K if g.get("poss") else 0) + 2 * (LS + 6 if LS else 0) <= W:
             break
+    if LS:
+        paste_logo(img, team_logo(g, "away", LS), 4, ROWS / 2, LS)
+        paste_logo(img, team_logo(g, "home", LS), W - 4 - LS, ROWS / 2, LS)
+    E = LS + 6 if LS else 0                              # where the names start / end
     my = mine(g)[0]
     col = lambda team: GOLD if team == my else WHITE
     lead_a = not pre and g["ascore"] > g["hscore"]
     lead_h = not pre and g["hscore"] > g["ascore"]
     lw = big.getlength(left)
-    centered(d, left,  big, col(g["away"]), cx=4 + lw // 2)
-    centered(d, right, big, col(g["home"]), cx=W - 4 - big.getlength(right) // 2)
-    if lead_a: d.rectangle([4, ROWS - 3 * K, 4 + lw, ROWS - K - 1], fill=GREEN)
-    if lead_h: d.rectangle([W - 4 - big.getlength(right), ROWS - 3 * K, W - 4, ROWS - K - 1], fill=GREEN)
+    centered(d, left,  big, col(g["away"]), cx=4 + E + lw // 2)
+    centered(d, right, big, col(g["home"]), cx=W - 4 - E - big.getlength(right) // 2)
+    if lead_a: d.rectangle([4 + E, ROWS - 3 * K, 4 + E + lw, ROWS - K - 1], fill=GREEN)
+    if lead_h: d.rectangle([W - 4 - E - big.getlength(right), ROWS - 3 * K, W - 4 - E, ROWS - K - 1], fill=GREEN)
     live = g["state"] == "in"
-    gap_l, gap_r = 4 + lw, W - 4 - big.getlength(right)
+    gap_l, gap_r = 4 + E + lw, W - 4 - E - big.getlength(right)
     mx = int((gap_l + gap_r) / 2)                        # middle of the space between the teams
     gap = gap_r - gap_l - 6
     top, bot = int(ROWS * 0.29), int(ROWS * 0.71)
@@ -1319,6 +1327,85 @@ def game_status(g, odds):
         return [(p, RED) for p in parts]
     return [(g["detail"], (150, 150, 150))]
 
+# ---- team logos (from ESPN's own logo pictures; downloaded once, kept in logos/ on the Pi, never put on GitHub)
+LOGO_DIR = os.path.join(HERE, "logos")
+SHOW_LOGOS = True
+_logo_src, _logo_sized, _logo_lock = {}, {}, threading.Lock()
+ESPN_LOGO_LEAGUE = {"NFL": "nfl", "NBA": "nba", "NHL": "nhl", "MLB": "mlb", "CFB": "ncaa", "CBB": "ncaa"}
+
+def set_logos(on):
+    global SHOW_LOGOS
+    SHOW_LOGOS = bool(on)
+
+def logo_url(g, side):
+    url = g.get("alogo" if side == "away" else "hlogo")
+    if url:
+        return url
+    lg = ESPN_LOGO_LEAGUE.get(g["league"])
+    if lg == "ncaa":
+        tid = g.get("aid" if side == "away" else "hid")
+        return f"https://a.espncdn.com/i/teamlogos/ncaa/500/{tid}.png" if tid else ""
+    return f"https://a.espncdn.com/i/teamlogos/{lg}/500/{g[side].lower()}.png" if lg else ""
+
+def _fetch_logo(url):
+    """Background download; the dark-background version first (made for black screens), then the normal one."""
+    import hashlib
+    os.makedirs(LOGO_DIR, exist_ok=True)
+    path = os.path.join(LOGO_DIR, hashlib.sha1(url.encode()).hexdigest()[:16] + ".png")
+    img = None
+    try:
+        if os.path.exists(path):
+            img = Image.open(path).convert("RGBA")
+        else:
+            for u in ([url.replace("/500/", "/500-dark/")] if "/500/" in url else []) + [url]:
+                try:
+                    data = urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "bar-ticker"}), timeout=15).read()
+                    img = Image.open(io.BytesIO(data)).convert("RGBA")
+                    break
+                except Exception:
+                    continue
+            if img is not None:
+                img.thumbnail((160, 160), Image.LANCZOS)
+                img.save(path)
+    except Exception as e:
+        print("logo:", e)
+    with _logo_lock:
+        _logo_src[url] = img or False
+
+def team_logo(g, side, size):
+    """The team's logo fitted in a size x size box (RGBA), or None (logos off / not downloaded yet)."""
+    if not SHOW_LOGOS:
+        return None
+    url = logo_url(g, side)
+    if not url:
+        return None
+    with _logo_lock:
+        src = _logo_src.get(url)
+        if src is None:                                   # not asked for yet: get it in the background
+            _logo_src[url] = "loading"
+            threading.Thread(target=_fetch_logo, args=(url,), daemon=True).start()
+            return None
+    if not isinstance(src, Image.Image):
+        return None
+    key = (url, size)
+    if key not in _logo_sized:
+        im = src.copy()
+        bbox = im.getbbox()                               # trim empty edges so the logo fills its box
+        if bbox:
+            im = im.crop(bbox)
+        im.thumbnail((size, size), Image.LANCZOS)
+        im = ImageEnhance.Color(im).enhance(1.25)         # a bit punchier on LEDs
+        _logo_sized[key] = im
+    return _logo_sized[key]
+
+def paste_logo(img, logo, x, cy, size):
+    """Pastes a logo centered in a size-wide slot at x, centered on height cy."""
+    if logo is not None:
+        img.paste(logo, (int(x + (size - logo.width) / 2), int(cy - logo.height / 2)), logo)
+
+def logos_ready(g):
+    return SHOW_LOGOS and team_logo(g, "away", 8) is not None and team_logo(g, "home", 8) is not None
+
 def game_block(g, odds=("ou", "ml")):
     """One game as a two-line block for the 64-tall strip:
          | DET  24 |  4th
@@ -1343,7 +1430,10 @@ def game_block(g, odds=("ou", "ml")):
     sw = max(f.getlength(r[1]) for r in rows)
     stw = max(fs.getlength(t) for t, _ in status)
     ball_col = g["state"] == "in" and g.get("poss")
-    x_name = 26 if ball_col else 10                                  # room for the little football
+    LS = 28                                                          # logo size (each row is 32 tall)
+    logo = logos_ready(g)
+    x_logo = 26 if ball_col else 10                                  # room for the little football
+    x_name = x_logo + (LS + 6 if logo else 0)
     x_score_r = x_name + nw + (14 + sw if sw else 0)
     x_div = x_score_r + 12
     x_stat = x_div + 12
@@ -1356,6 +1446,8 @@ def game_block(g, odds=("ou", "ml")):
     for (name, right, col, rcol), cy, side in zip(rows, cys, ("away", "home")):
         if ball_col and g["poss"] == side:
             draw_ball(d, 9, cy, 1.3)
+        if logo:
+            paste_logo(img, team_logo(g, side, LS), x_logo, cy, LS)
         text_at(d, x_name, cy, name, f, col)
         if right:
             text_at(d, x_score_r - f.getlength(right), cy, right, f, rcol)
@@ -1381,7 +1473,8 @@ def line_piece(parts, pad=14):
     """Draws a game on one line from parts: (text, color, font) / ("ball", side-size) / ("live",) / ("gap", px)."""
     widths = []
     for p in parts:
-        widths.append(p[1] if p[0] == "gap" else 16 if p[0] == "ball" else 14 if p[0] == "live" else p[2].getlength(p[0]))
+        widths.append(p[1] if p[0] == "gap" else 16 if p[0] == "ball" else 14 if p[0] == "live" else p[3] + 8 if p[0] == "logo"
+                      else p[2].getlength(p[0]))
     img = Image.new("RGB", (int(sum(widths) + 2 * pad), ROWS))
     d = ImageDraw.Draw(img)
     x = pad
@@ -1390,6 +1483,8 @@ def line_piece(parts, pad=14):
             draw_ball(d, x + 1, ROWS / 2, p[1])
         elif p[0] == "live":
             d.ellipse([x + 2, ROWS / 2 - 4, x + 10, ROWS / 2 + 4], fill=RED)
+        elif p[0] == "logo":
+            paste_logo(img, team_logo(p[1], p[2], p[3]), x, ROWS / 2, p[3])
         elif p[0] != "gap":
             text_at(d, x, ROWS / 2, p[0], p[2], p[1])
         x += w
@@ -1416,6 +1511,8 @@ def game_broadcast(g, odds):
             parts += [("gap", 10), ("@", (150, 150, 150), fs), ("gap", 10)]
         if g["state"] == "in" and g.get("poss") == side:
             parts += [("ball", 1.3), ("gap", 4)]
+        if logos_ready(g):
+            parts.append(("logo", g, side, 40))
         parts.append((team(g, side), BC_GOLD if g[side] == my else WHITE, f))
         right = (g[ml] if show_ml else "") if pre else str(g[sc])
         if right:
@@ -1437,6 +1534,8 @@ def game_big(g, odds):
     for side, sc in (("away", "ascore"), ("home", "hscore")):
         if side == "home":
             parts.append(("gap", 26))
+        if logos_ready(g):
+            parts.append(("logo", g, side, 50))
         parts.append((team(g, side), GOLD if g[side] == my else WHITE, f))
         if not pre:
             other = g["hscore"] if side == "away" else g["ascore"]
@@ -1470,13 +1569,17 @@ def game_team(g, odds):
     sw = max(f.getlength(r) for r in rights)
     status = game_status(g, odds)
     stw = max(fs.getlength(t) for t, _ in status)
-    x_pill, x_score_r = 8, 8 + pw + 12 + sw
+    logo = logos_ready(g)
+    x_pill = 8 + (34 if logo else 0)
+    x_score_r = x_pill + pw + 12 + sw
     ball = g["state"] == "in" and g.get("poss")
     x_stat = x_score_r + (32 if ball else 18)
     img = Image.new("RGB", (int(x_stat + stw + 12), ROWS))
     d = ImageDraw.Draw(img)
     for i, (side, cy) in enumerate((("away", ROWS * 0.25), ("home", ROWS * 0.75))):
         fill, tc = team_colors(g, side)
+        if logo:
+            paste_logo(img, team_logo(g, side, 28), 6, cy, 28)
         d.rounded_rectangle([x_pill, cy - 13, x_pill + pw, cy + 12], radius=6, fill=fill,
                             outline=GOLD if g[side] == my else None, width=2)
         text_at(d, x_pill + (pw - fp.getlength(names[i])) / 2, cy, names[i], fp, tc)
@@ -1545,13 +1648,16 @@ def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE):
             parts.append(("  " + line, ODDS_COLOR, fs))
     else:
         ball = lambda side: [("@BALL", None, f)] if g["state"] == "in" and g.get("poss") == side else []
+        if logos_ready(g):
+            ball = (lambda b: lambda side: b(side) + [("@LOGO" + side, None, f)])(ball)
         parts += ball("away") + [(f"{team(g, 'away')} {g['ascore']}", tcol("away", "ascore", g["hscore"]), f), ("  ", WHITE, f)] \
                  + ball("home") + [(f"{team(g, 'home')} {g['hscore']}", tcol("home", "hscore", g["ascore"]), f),
                                    ("  " + g["detail"], RED if g["state"] == "in" else (150, 150, 150), fs)]
         if downs(g):
             parts.append(("  " + downs(g), down_color(g), fs))
     bsize = size / 22
-    plen = lambda t, pf: 11 * bsize + 5 if t == "@BALL" else pf.getlength(t)
+    LH = h - 6                                            # logo size on a half-height row
+    plen = lambda t, pf: 11 * bsize + 5 if t == "@BALL" else LH + 4 if t.startswith("@LOGO") else pf.getlength(t)
     width = int(9 + sum(plen(t, pf) for t, _, pf in parts) + 6)
     img = Image.new("RGB", (width, h))
     d = ImageDraw.Draw(img)
@@ -1561,6 +1667,9 @@ def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE):
     for t, c, pf in parts:
         if t == "@BALL":
             x += draw_ball(d, x, h / 2, bsize) + 5
+        elif t.startswith("@LOGO"):
+            paste_logo(img, team_logo(g, t[5:], LH), x, h / 2, LH)
+            x += LH + 4
         else:
             x += text_at(d, x, h / 2, t, pf, c)
     return img
