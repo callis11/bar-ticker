@@ -14,7 +14,7 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 | 5 V 30 A power supply (150 W, e.g. Mean Well LRS-150-5) + 3-prong cord | 1 | ~$25 | **Bought** (cord: have it). Powers the panels (up to ~4 A each on full white; far less for a ticker). Make sure it's **5 V** out and 110 V in |
 | USB-C pigtail cable (USB-C male to bare red/black wire, 3 A) | 1 | ~$6–8 | **Bought.** Powers the Pi from the same 5 V supply as the panels, so no separate Pi adapter |
 | Multimeter | 1 | — | **Have it.** To set the supply to 5.1–5.2 V and check the wiring |
-| 32 GB microSD card (SanDisk Ultra or Samsung EVO Select, A1) | 1 | ~$8 | **Not bought yet.** Setting up on an 8 GB card for now (fine: about 3–4 GB stays free); move to the 32 GB later |
+| 32 GB microSD card (A1 rated is best, e.g. SanDisk Ultra or Samsung EVO Select) | 1 | ~$8 | **Have one** (a spare 32 GB) |
 | 18 AWG red/black wire + Wago lever nuts | 1 | — | **Have it.** Each panel comes with its own ribbon cable and power pigtail |
 | Longer HUB75 ribbon cables (16-pin, 1 m) | 3 | ~$6–10 | **Ordered.** From the Bonnet (behind the middle) out to panels 1, 3 and 5. The short cables that come with the panels link 1→2 and 3→4 |
 | 1x4 board or aluminum flat bar to mount on | 1 | ~$10 | |
