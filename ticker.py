@@ -2458,7 +2458,11 @@ class SimMatrix:
     def SwapOnVSync(self, c): return c
 
 def open_matrix(ctl):
-    from rgbmatrix import RGBMatrix, RGBMatrixOptions
+    try:
+        from rgbmatrix import RGBMatrix, RGBMatrixOptions
+    except ImportError:                                  # LED library not installed yet: run anyway, the page preview still works
+        print("LED library (rgbmatrix) not found; running without the LEDs. Install it with README step 3.")
+        return SimMatrix()
     o = RGBMatrixOptions()
     o.rows, o.cols = ROWS, COLS
     o.chain_length = max(spot for _, spot, _ in PANEL_MAP) + 1
