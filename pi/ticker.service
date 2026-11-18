@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 WorkingDirectory=/home/pi/bar-ticker
-ExecStart=/usr/bin/python3 /home/pi/bar-ticker/ticker.py
+# the LED library's Python part lives in /home/pi/env (Adafruit's installer); fall back to the system Python without it
+ExecStart=/bin/sh -c 'if [ -x /home/pi/env/bin/python3 ]; then exec /home/pi/env/bin/python3 ticker.py; else exec /usr/bin/python3 ticker.py; fi'
 Restart=always
 RestartSec=5
 

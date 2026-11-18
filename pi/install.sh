@@ -10,5 +10,10 @@ cp /home/pi/bar-ticker/pi/ticker-update.timer   /etc/systemd/system/
 git config --global --add safe.directory /home/pi/bar-ticker
 systemctl daemon-reload
 systemctl enable --now ticker.service ticker-update.timer
+PY=/usr/bin/python3; [ -x /home/pi/env/bin/python3 ] && PY=/home/pi/env/bin/python3
+if ! $PY -c "import rgbmatrix" 2>/dev/null; then
+    echo "NOTE: the LED library isn't installed yet (step 3 in the README). The control page works anyway;"
+    echo "      the ticker draws on the page's preview until the library and panels are in."
+fi
 echo "Ticker is running and checks GitHub for updates every 2 minutes."
 echo "Control page: http://ticker.local"

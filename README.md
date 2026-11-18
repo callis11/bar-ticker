@@ -33,17 +33,26 @@ Backup plan if a panel batch ever comes with a chip the Pi can't drive (ICN2053,
 4. Power the Pi from the same supply with the USB-C pigtail: red to **+V**, black to **−V/COM**, a short wire straight from the supply's terminals. Turn the supply's **V-ADJ** screw so a multimeter reads **5.1–5.2 V** (the Pi 4 complains of low voltage at a plain 5.0 V; the panels are fine at 5.2 V). Never power the Pi through its GPIO pins. One wall plug runs everything, and the Pi boots straight into the ticker when it's switched on.
 
 ## Software setup (on the Pi)
+Works before the panels arrive: the control page and its preview run without any LEDs plugged in.
+
+1. **Flash the card** (on your laptop): install **Raspberry Pi Imager**, pick **Raspberry Pi 4**, **Raspberry Pi OS Lite (64-bit)** and the microSD card. In its settings (the gear / "Edit settings"): hostname **ticker**, username **pi** with a password you'll remember, your home **Wi-Fi** name and password, your time zone, and turn on **SSH** (password). Write it.
+2. **Boot the Pi**: card in, power with a USB-C phone charger (5 V 3 A) for now. Wait about 3 minutes. On the laptop open a terminal (Windows: **PowerShell**) and type `ssh pi@ticker.local`, answer `yes`, then your password.
+3. **Install the LED library** (Adafruit's installer; about 15 minutes):
 ```bash
-# 1. Flash Raspberry Pi OS Lite (64-bit) with Raspberry Pi Imager.
-#    In its settings: hostname "ticker", username "pi", turn on Wi-Fi (your home network) and SSH.
-# 2. Install the LED library (Adafruit's script: pick "Bonnet", then "Quality")
-curl https://raw.githubusercontent.com/adafruit/Raspberry-Pi-Installer-Scripts/main/rgb-matrix.sh > rgb-matrix.sh
-sudo bash rgb-matrix.sh
-# 3. Get the ticker and turn it on (it starts by itself on every boot after this)
-sudo apt install -y git
+sudo apt update && sudo apt install -y python3-venv wget git
+python3 -m venv env --system-site-packages
+source env/bin/activate
+pip3 install adafruit-python-shell
+wget https://github.com/adafruit/Raspberry-Pi-Installer-Scripts/raw/main/rgb-matrix.py
+sudo -E env PATH=$PATH python3 rgb-matrix.py
+```
+   When it asks: **Adafruit RGB Matrix Bonnet**, then **Quality** (the Triple Bonnet needs no soldering for it). Say **yes** to reboot at the end, then `ssh pi@ticker.local` again.
+4. **Get the ticker and turn it on** (it starts by itself on every boot after this):
+```bash
 git clone https://github.com/callis11/bar-ticker.git /home/pi/bar-ticker
 sudo bash /home/pi/bar-ticker/pi/install.sh
 ```
+5. On your phone or laptop (same Wi-Fi) open **http://ticker.local**. Then load your alerts: Alerts tab → **Load the alerts I sent from my laptop** (if you used Send), or **Load an alerts file**.
 
 **Automatic updates:** the Pi checks this GitHub repo every 2 minutes. When Claude pushes a change, the Pi pulls it and restarts the ticker by itself. Your phone settings (`settings.json`) and your picture library (`pictures/`) stay on the Pi and aren't touched by updates.
 
