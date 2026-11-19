@@ -17,6 +17,7 @@ With 64 pixels of height, games show as **two lines** (away team on top, home un
 | 32 GB microSD card (A1 rated is best, e.g. SanDisk Ultra or Samsung EVO Select) | 1 | ~$8 | **Have one** (a spare 32 GB) |
 | 18 AWG red/black wire + Wago lever nuts | 1 | — | **Have it.** Each panel comes with its own ribbon cable and power pigtail |
 | Longer HUB75 ribbon cables (16-pin, 1 m) | 3 | ~$6–10 | **Ordered.** From the Bonnet (behind the middle) out to panels 1, 3 and 5. The short cables that come with the panels link 1→2 and 3→4 |
+| 2x20 riser / stacking header | 1 | ~$3 | **Ordered** (Amazon, Nov 18). Goes between the Pi 4 and the Triple Bonnet so the Bonnet sits on top of the Pi without hitting the network jack |
 | 1x4 board or aluminum flat bar to mount on | 1 | ~$10 | |
 | Smoked or black acrylic front (optional) | 1 | ~$15 | Makes it look like a real sports ticker. The frame you can cut on the CNC |
 
