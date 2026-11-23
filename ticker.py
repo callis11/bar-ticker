@@ -24,6 +24,7 @@ import pictures
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ------------------------------------------------------------------ settings
+TIMEZONE      = "America/Detroit"   # game times and the clock always show in this time zone, whatever the Pi is set to
 PANELS        = 5          # 128x64 P2.5 panels chained left-to-right (5 x 320 mm = ~5.25 ft)
 ROWS, COLS    = 64, 128
 W             = COLS * PANELS   # 640 x 64 pixels
@@ -47,6 +48,9 @@ PANEL_MAP     = [(1, 0, False), (1, 1, False),      # output 1 -> panels 1 and 2
 if BONNET == "single":                              # one output: all 5 in a row
     PANEL_MAP = [(1, i, False) for i in range(PANELS)]
 FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+os.environ["TZ"] = TIMEZONE
+if hasattr(time, "tzset"):
+    time.tzset()
 FONT_SIZE     = 36         # one-line text (headers, ParlayLabs, messages)
 LINE_SIZE     = 25         # each line of a two-line game (away team on top, home underneath)
 SETTINGS_FILE = os.path.join(HERE, "settings.json")
