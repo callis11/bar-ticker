@@ -33,7 +33,7 @@ REFRESH_SEC   = 5          # default refresh for the whole board (changeable on 
 FAST_SEC      = 5          # leagues where my team (or the game you picked) is live: always this fast
 ALERT_SECONDS = 10         # how long an alert takes over the ticker
 WEB_PORT      = 80         # control page: http://ticker.local (set hostname "ticker" in Pi Imager)
-GPIO_SLOWDOWN = 5          # higher = slower, cleaner signal to the panels (Pi 4: 4-6). Raise it if you see sparkles/noise
+GPIO_SLOWDOWN = 8          # higher = slower, cleaner signal to the panels (Pi 4: 4-6). Raise it if you see sparkles/noise
 PWM_BITS      = 8          # color depth 1-11. Lower = faster refresh, so no smear/flicker when your eyes or a camera move
 BONNET        = "triple"   # "triple" = Adafruit Triple LED Matrix Bonnet #6358, "single" = RGB Matrix Bonnet #3211
 # Which Bonnet output drives each panel, left to right as you face the ticker:
