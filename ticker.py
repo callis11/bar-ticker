@@ -2480,7 +2480,19 @@ def open_matrix(ctl):
     except AttributeError:                # older LED library: skip it
         pass
     o.drop_privileges = False
-    return RGBMatrix(options=o)
+    try:
+        return RGBMatrix(options=o)
+    except Exception as e:                # a setting the LED library didn't like: fall back to safe defaults
+        print("LED setup failed with tuned settings:", e, "- retrying with defaults")
+        try:
+            o2 = RGBMatrixOptions()
+            o2.rows, o2.cols, o2.chain_length, o2.parallel = o.rows, o.cols, o.chain_length, o.parallel
+            o2.hardware_mapping, o2.brightness, o2.gpio_slowdown = o.hardware_mapping, ctl.brightness, 4
+            o2.drop_privileges = False
+            return RGBMatrix(options=o2)
+        except Exception as e2:           # still no LEDs: keep the control page running anyway
+            print("LED setup failed:", e2, "- running without the LEDs")
+            return SimMatrix()
 
 def to_panels(frame):
     """The 640x64 picture cut up for the LED library: each output's chain is one 64-row band,
