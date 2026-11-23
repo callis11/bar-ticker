@@ -33,6 +33,7 @@ REFRESH_SEC   = 5          # default refresh for the whole board (changeable on 
 FAST_SEC      = 5          # leagues where my team (or the game you picked) is live: always this fast
 ALERT_SECONDS = 10         # how long an alert takes over the ticker
 WEB_PORT      = 80         # control page: http://ticker.local (set hostname "ticker" in Pi Imager)
+GPIO_SLOWDOWN = 5          # higher = slower, cleaner signal to the panels (Pi 4: 4-6). Raise it if you see sparkles/noise
 BONNET        = "triple"   # "triple" = Adafruit Triple LED Matrix Bonnet #6358, "single" = RGB Matrix Bonnet #3211
 # Which Bonnet output drives each panel, left to right as you face the ticker:
 #   (output 1-3, place in that output's chain starting at 0, mounted upside down?)
@@ -2467,11 +2468,11 @@ def open_matrix(ctl):
     o.rows, o.cols = ROWS, COLS
     o.chain_length = max(spot for _, spot, _ in PANEL_MAP) + 1
     o.parallel = max(out for out, _, _ in PANEL_MAP)
-    # Triple Bonnet: output 1 uses the library's standard pinout. All 5 panels chain off output 1.
+    # Triple Bonnet: the library's standard pinout, 3 outputs in parallel.
     # Single Bonnet: "adafruit-hat" pinout (solder its "E" jumper for 64-tall panels).
     o.hardware_mapping = "regular" if BONNET == "triple" else "adafruit-hat"
     o.brightness = ctl.brightness
-    o.gpio_slowdown = 4                   # Pi 4 needs this (use 2 on a Pi 3); stops glitches
+    o.gpio_slowdown = GPIO_SLOWDOWN       # stops glitches/sparkle on the panels
     if o.chain_length > 3:                # one long chain: trade a few color steps for refresh speed
         o.pwm_bits = 9
     o.drop_privileges = False
