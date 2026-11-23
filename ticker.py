@@ -2475,7 +2475,10 @@ def open_matrix(ctl):
     o.brightness = ctl.brightness
     o.gpio_slowdown = GPIO_SLOWDOWN       # stops glitches/sparkle on the panels
     o.pwm_bits = PWM_BITS                 # fewer color steps = much faster refresh (128x64 panels need it)
-    o.pwm_dither_bits = 1                 # a bit more refresh, the eye can't see the difference
+    try:
+        o.pwm_dither_bits = 1             # a bit more refresh, the eye can't see the difference
+    except AttributeError:                # older LED library: skip it
+        pass
     o.drop_privileges = False
     return RGBMatrix(options=o)
 
