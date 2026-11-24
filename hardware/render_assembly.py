@@ -65,7 +65,7 @@ def scene(wood_opacity=1.0, size=(2400, 1100)):
 # 1) whole ticker from behind
 p = scene()
 p.camera_position = [(W / 2, -1300, 1500), (W / 2, 80, 0), (0, 0, 1)]
-p.camera.zoom(1.7)
+p.camera.zoom(1.3)
 p.add_text("Bar ticker - back, fully assembled", font_size=14, color="black")
 p.screenshot("ticker-render-full.png")
 
