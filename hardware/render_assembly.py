@@ -22,12 +22,22 @@ def add(key, mesh): groups.setdefault(key, []).append(mesh)
 
 for i in range(N):                                                    # panels (front faces -z)
     add("panel", tbox(i * PW + 0.6, 0, -15, (i + 1) * PW - 0.6, PH, 0))
-add("print", part("ticker-seam-plate.stl", PW * 1))
+LEG = 14.0
+def unflip(tm):                                                       # base halves are stored upside down for printing
+    tm.apply_transform(np.diag([1, 1, -1, 1])); tm.invert(); return tm.apply_translation([0, 0, LEG + 4])
+for sx in (PW * 1, PW * 4):                                           # plain seams: top + bottom flat straps
+    add("print", part("ticker-seam-strap.stl", sx))
+    add("print", part("ticker-seam-strap.stl", sx, flip=True))
 for h_ in ("A", "B"):
-    add("print", part(f"ticker-seam-psu-base-{h_}.stl", PW * 2))
-    add("print", part(f"ticker-psu-deck-{h_}.stl", PW * 2).apply_translation([0, 0, 18]))
-add("print", part("ticker-seam-pi-mount.stl", PW * 3))
-add("print", part("ticker-seam-plate.stl", PW * 4))
+    add("print", unflip(part(f"ticker-seam-psu-base-{h_}.stl", PW * 2)))
+    add("print", part(f"ticker-psu-deck-{h_}.stl", PW * 2).apply_translation([0, 0, LEG + 4]))
+add("print", part("ticker-seam-pi-mount.stl", PW * 3).apply_translation([0, 0, LEG]))
+for (lx, ly) in ((-15, -42), (-15, 42), (15, -42), (15, 42), (-149, -40), (-149, 40)):
+    add("print", part("ticker-leg.stl", PW * 3 + lx).apply_translation([0, ly, 0]))
+for i in range(N):                                                    # ribbon connectors + power plug on each panel
+    add("conn", tbox(i * PW + 15, 80 - 25, 0, i * PW + 40, 80 + 5, 10))
+    add("conn", tbox((i + 1) * PW - 55, 80 - 25, 0, (i + 1) * PW - 30, 80 + 5, 10))
+    add("conn", tbox(i * PW + 165, 80 - 15, 0, i * PW + 180, 80 + 5, 9))
 add("print", part("ticker-end-bracket-switch.stl", 0))
 add("print", part("ticker-end-bracket.stl", W, flip=True))
 for i in range(N):                                                    # edge clips: 1 per panel per edge
@@ -35,9 +45,9 @@ for i in range(N):                                                    # edge cli
         add("print", part("ticker-edge-clip.stl", i * PW + cx))
         add("print", part("ticker-edge-clip.stl", i * PW + cx, flip=True))
 add("psu", tbox(PW * 2 - 98.5, 80 - 49, 22, PW * 2 + 98.5, 80 + 49, 72))  # 5V 30A supply (197 x 98 x ~50) bolted to the deck
-add("pi", tbox(PW * 3 - 42.5, 80 - 28, 12, PW * 3 + 42.5, 80 + 28, 13.5))   # Pi 4
-add("fuse", tbox(PW * 3 - 105 - 44, 80 - 44, 10, PW * 3 - 105 + 44, 80 + 44, 47))  # 6-way fuse block
-add("bonnet", tbox(PW * 3 - 32.5, 80 - 28, 30, PW * 3 + 32.5, 80 + 28, 31.6))  # Triple Bonnet on the tall header
+add("pi", tbox(PW * 3 - 42.5, 80 - 28, 26, PW * 3 + 42.5, 80 + 28, 27.5))   # Pi 4
+add("fuse", tbox(PW * 3 - 105 - 44, 80 - 44, 24, PW * 3 - 105 + 44, 80 + 44, 61))  # 6-way fuse block
+add("bonnet", tbox(PW * 3 - 32.5, 80 - 28, 46, PW * 3 + 32.5, 80 + 28, 47.6))  # Triple Bonnet on the tall header
 WOOD, DEPTH = 19, 75                                                  # 3/4" boards, 75 mm deep (covers panel + parts)
 add("wood", tbox(-WOOD, -WOOD, -15, 0, PH + WOOD, DEPTH - 15))
 add("switch", trimesh.creation.cylinder(radius=12, height=24, sections=32).apply_transform(
@@ -47,7 +57,7 @@ add("wood", tbox(0, -WOOD, -15, W, 0, DEPTH - 15))
 add("wood", tbox(0, PH, -15, W, PH + WOOD, DEPTH - 15))
 
 colors = {"panel": "#2a2a2a", "print": "#4f97da", 
-          "psu": "#cfd3d8", "pi": "#2f9a45", "bonnet": "#1b1b1b", "fuse": "#e8e8e8", "switch": "#c0392b", "wood": "#c8955a"}
+          "psu": "#cfd3d8", "pi": "#2f9a45", "bonnet": "#1b1b1b", "fuse": "#e8e8e8", "conn": "#f0f0f0", "switch": "#c0392b", "wood": "#c8955a"}
 import pyvista as pv
 pv.OFF_SCREEN = True
 def scene(wood_opacity=1.0, size=(2400, 1100)):

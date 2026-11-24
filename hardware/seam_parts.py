@@ -3,8 +3,9 @@
 # (measured from the 11/23 tape photo). At a seam that's 4 inserts (2 per panel), all in the middle of the panel,
 # so the long-edge insert rows stay free for the edge clips that hang the panels from the 1x4 frame.
 #
-#   ticker-seam-plate.stl      plain joiner for a seam                      print 2
-#   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount + 6-way fuse block mount  print 1
+#   ticker-seam-strap.stl      flat joiner, top or bottom of a plain seam   print 4
+#   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount + 6-way fuse block mount (sits on 6 legs)  print 1
+#   ticker-leg.stl             14 mm leg block under the Pi mount              print 6
 #   ticker-seam-psu-base-A/B.stl  joiner with 4 posts for the power-supply deck, 2 halves (butt cut, K1C bed)  print 1 each
 #   ticker-psu-deck-A/B.stl       deck the 5V supply bolts to (2 x M4), 2 halves, each with 1 supply bolt  print 1 each
 #   ticker-edge-clip.stl       long edges: insert -> 90-degree flange screwed to the top/bottom 1x4  print 10
@@ -12,7 +13,7 @@
 #   ticker-end-bracket-switch.stl  same, with a notch in the flange for the power switch  print 1
 #   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 30
 #
-# Screws: M3 x 10 mm (+ printed washer) into every insert. Windows allow +/-6 mm along and +/-4 mm up/down,
+# Screws: M3 x 10 mm (+ printed washer) for flat parts; M3 x 25 for the raised parts (Pi mount, PSU base). Windows allow +/-6 mm along and +/-4 mm up/down,
 # so small measuring errors don't matter. x = along the ticker (0 = seam or end edge), y = up/down
 # (0 = panel center), z = away from the panel back.
 import manifold3d as m, numpy as np, trimesh
@@ -39,6 +40,28 @@ def windows(part, xs):
             part = part - rbox(x - WIN_X - 1.7, y - WIN_Y - 1.7, x + WIN_X + 1.7, y + WIN_Y + 1.7, -1, T + 2, 2.0)
     return part
 
+LEG = 14.0                         # raised parts: plate underside this high off the panel frame, so the ribbon
+                                   # connectors (IN/OUT, 1-2" in from each end, center of the panel) and the power
+                                   # plug fit underneath. Screws for raised parts: M3 x 25.
+def legs(part, xs, ys=(-INS_Y, INS_Y)):
+    """Hollow legs under a plate that sits at z=LEG..LEG+T: one around each insert, window straight through."""
+    for x in xs:
+        for y in ys:
+            part = part + box(x - WIN_X - 4.7, y - WIN_Y - 4.7, 0, x + WIN_X + 4.7, y + WIN_Y + 4.7, LEG)
+    return part
+
+def raised_windows(part, xs, ys=(-INS_Y, INS_Y)):
+    for x in xs:
+        for y in ys:
+            part = part - rbox(x - WIN_X - 1.7, y - WIN_Y - 1.7, x + WIN_X + 1.7, y + WIN_Y + 1.7, -1, LEG + T + 2, 2.0)
+    return part
+
+def feet(part, pts, size=10.0):
+    """Plain support feet (no screw) down to the panel frame."""
+    for (x, y) in pts:
+        part = part + box(x - size / 2, y - size / 2, 0, x + size / 2, y + size / 2, LEG)
+    return part
+
 def ribs(part, x0, x1, ys=(-H / 2 + 1.5, H / 2 - 1.5), h=5.0):
     for y in ys:
         part = part + box(x0, y - 1.5, T, x1, y + 1.5, T + h)
@@ -51,11 +74,14 @@ def split_x0(part, big=400.0):
 def seam_marker(part, h):
     return part - box(-0.6, -H / 2 - 1, T - 0.8, 0.6, H / 2 + 1, T + h + 1)
 
-# ---- plain seam plate
-plate = box(-30, -H / 2, 0, 30, H / 2, T)
-plate = ribs(plate, -30, 30)
-plate = seam_marker(windows(plate, (-INS_X, INS_X)), 5)
-save(plate, "ticker-seam-plate.stl")
+# ---- seam strap: flat, joins two panels at a seam using ONE end insert on each panel. Two per seam (top and
+# bottom), leaving the middle of the panel open for the ribbon connectors. Print 4 (2 plain seams).
+STRAP_Y0, STRAP_Y1 = 31.0, 54.0
+strap = box(-30, STRAP_Y0, 0, 30, STRAP_Y1, T) + box(-30, STRAP_Y1 - 3, T, 30, STRAP_Y1, T + 4)
+strap = strap - box(-0.6, STRAP_Y0 - 1, T - 0.8, 0.6, STRAP_Y1 + 1, T + 5)          # seam marker
+for x in (-INS_X, INS_X):
+    strap = strap - rbox(x - WIN_X - 1.7, INS_Y - WIN_Y - 1.7, x + WIN_X + 1.7, INS_Y + WIN_Y + 1.7, -1, T + 6, 2.0)
+save(strap, "ticker-seam-strap.stl")
 
 # ---- seam plate with the Pi 4 mount AND the 6-way fuse block (Pi centered on the seam, USB/Ethernet end
 # facing +x; fuse block on the extension toward the power supply, -x).
@@ -67,26 +93,34 @@ FB_CX = -105.0                                                     # fuse block 
 FB_DX, FB_DY = 70.1, 72.6                                          # fuse block hole spacing
 FB_BOSS_H = 6.0
 PX0 = FB_CX - 50.0                                                 # plate starts just past the fuse block
-pim = box(PX0, -H / 2, 0, 50, H / 2, T)
-pim = ribs(pim, PX0, 50)
+pim = box(PX0, -H / 2, LEG, 50, H / 2, LEG + T)
+pim = legs(pim, (-INS_X, INS_X))
+pim = feet(pim, [(PX0 + 6, -40), (PX0 + 6, 40)])
+for y in (-H / 2 + 1.5, H / 2 - 1.5):
+    pim = pim + box(PX0, y - 1.5, LEG + T, 50, y + 1.5, LEG + T + 4)
 for (hx, hy) in PI_HOLES:
-    pim = pim + cyl(hx, hy, T, SO_H, 6.5)
+    pim = pim + cyl(hx, hy, LEG + T, SO_H, 6.5)
 for sx in (-1, 1):
     for sy in (-1, 1):
-        pim = pim + cyl(FB_CX + sx * FB_DX / 2, sy * FB_DY / 2, T, FB_BOSS_H, 9.0)
+        pim = pim + cyl(FB_CX + sx * FB_DX / 2, sy * FB_DY / 2, LEG + T, FB_BOSS_H, 9.0)
 for x in np.arange(-36, 37, 8):                                    # vents under the Pi
     if abs(x) > 4:
-        pim = pim - box(x - 1.5, -18, -1, x + 1.5, 18, T + 1)
-pim = windows(pim, (-INS_X, INS_X))
+        pim = pim - box(x - 1.5, -18, LEG - 1, x + 1.5, 18, LEG + T + 1)
+pim = raised_windows(pim, (-INS_X, INS_X))
 for (hx, hy) in PI_HOLES:
-    pim = pim - cyl(hx, hy, -1, T + SO_H + 2, 2.4, 32)               # M2.5 screws thread into the plastic
+    pim = pim - cyl(hx, hy, LEG - 1, T + SO_H + 2, 2.4, 32)               # M2.5 screws thread into the plastic
 for sx in (-1, 1):
     for sy in (-1, 1):                                             # slightly slotted pilots: +/-1.5 mm for listing tolerance
         x, y = FB_CX + sx * FB_DX / 2, sy * FB_DY / 2
-        pim = pim - rbox(x - 1.65 - 1.5, y - 1.65 - 1.5, x + 1.65 + 1.5, y + 1.65 + 1.5, T + 1, FB_BOSS_H, 1.65) \
-                  - cyl(x, y, -1, T + FB_BOSS_H + 2, 3.3, 24)
-pim = seam_marker(pim, 5)
-save(pim, "ticker-seam-pi-mount.stl")
+        pim = pim - rbox(x - 1.65 - 1.5, y - 1.65 - 1.5, x + 1.65 + 1.5, y + 1.65 + 1.5, LEG + T + 1, FB_BOSS_H, 1.65) \
+                  - cyl(x, y, LEG - 1, T + FB_BOSS_H + 2, 3.3, 24)
+pim = pim - box(-0.6, -H / 2 - 1, LEG + T - 0.8, 0.6, H / 2 + 1, LEG + T + 6)      # seam marker
+# print-friendly: the plate prints flat (legs cut off) and stands on 6 separate leg blocks (ticker-leg.stl)
+pim_flat = (pim ^ box(-400, -400, LEG, 400, 400, 400)).translate([0, 0, -LEG])
+save(pim_flat, "ticker-seam-pi-mount.stl")
+leg = box(-WIN_X - 4.7, -WIN_Y - 4.7, 0, WIN_X + 4.7, WIN_Y + 4.7, LEG) \
+      - rbox(-WIN_X - 1.7, -WIN_Y - 1.7, WIN_X + 1.7, WIN_Y + 1.7, -1, LEG + 2, 2.0)
+save(leg, "ticker-leg.stl")        # 4 under the Pi mount's screw windows + 2 under its far end (glue those 2)
 
 # ---- power supply mount, 2 pieces (bolt the supply to the deck FIRST, then screw the deck onto the base):
 #   base: seam joiner (4 end inserts) with 4 posts out past the supply's ends
@@ -98,30 +132,38 @@ PSU_L = 197.0
 PSU_HOLE_DX = 119.4                       # 4.7" center to center
 PSU_HOLE_FROM_END = 18.0                  # first hole from the near end (photo estimate)
 PSU_HOLE_CX = -PSU_L / 2 + PSU_HOLE_FROM_END + PSU_HOLE_DX / 2   # midpoint of the 2 holes, supply centered at x=0
-DECK_Z = 18.0                             # underside of the deck (clears the base ribs and screw heads)
 DECK_T = 4.0
-BL = 120.0                                # base/deck half-length (240 mm long: fits a 256 mm bed)
-POST_X, POST_Y = 112.0, 30.0
-BASE_H = 104.0                            # base stays inside |y| <= 52 (edge clips start at 55)
-psub = box(-BL, -BASE_H / 2, 0, BL, BASE_H / 2, T)
-psub = ribs(psub, -BL, BL, ys=(-BASE_H / 2 + 1.5, BASE_H / 2 - 1.5))
-for px in (-POST_X, POST_X):
-    for py in (-POST_Y, POST_Y):
-        psub = psub + box(px - 5, py - 5, T, px + 5, py + 5, DECK_Z)
-        psub = psub - cyl(px, py, T, DECK_Z, 2.8, 24)          # M3 self-tapping / thread-forming screw
-psub = windows(psub, (-INS_X, INS_X))
-psub = seam_marker(psub, 0)
+BL = 120.0                                # base/deck half-length (2 x 120 mm halves for the K1C)
+DECK_X, DECK_Y = 112.0, 30.0              # deck -> base screws (M3 x 12 + nut, outside the supply's ends)
+BASE_H = 104.0
+DECK_Z = LEG + T                          # deck sits right on the raised base (= 18 mm)
+PSU_BOLT_X = (PSU_HOLE_CX - PSU_HOLE_DX / 2, PSU_HOLE_CX + PSU_HOLE_DX / 2)
+psub = box(-BL, -BASE_H / 2, LEG, BL, BASE_H / 2, LEG + T)
+psub = legs(psub, (-INS_X, INS_X))
+psub = feet(psub, [(-DECK_X, -42), (-DECK_X, 42), (DECK_X, -42), (DECK_X, 42)])
+for x in PSU_BOLT_X:                                               # room for the M4 bolt heads under the deck
+    for s_ in (-1, 1):
+        a, b = sorted((s_ * 28.0, s_ * 53.0))
+        psub = psub - rbox(x - 9, a, x + 9, b, LEG - 1, T + 2, 3.0)
+for x in (-DECK_X, DECK_X):                                        # M3 clearance + nut trap underneath
+    for y in (-DECK_Y, DECK_Y):
+        psub = psub - cyl(x, y, LEG - 1, T + 2, 3.4, 24)
+        psub = psub - Cy(2.6, 3.2, 3.2, 6).translate([x, y, LEG - 0.01])
+psub = raised_windows(psub, (-INS_X, INS_X))
+psub = psub - box(-0.6, -BASE_H / 2 - 1, LEG + T - 0.8, 0.6, BASE_H / 2 + 1, LEG + T + 1)   # seam marker
 a_, b_ = split_x0(psub)        # 2 halves: each screws to its own panel's 2 inserts; the deck + supply tie them together
-save(a_, "ticker-seam-psu-base-A.stl"); save(b_, "ticker-seam-psu-base-B.stl")
+# print these two UPSIDE DOWN (flat top on the bed, legs up): no supports needed
+flip = lambda p: p.mirror([0, 0, 1]).translate([0, 0, LEG + T])
+save(flip(a_), "ticker-seam-psu-base-A.stl"); save(flip(b_), "ticker-seam-psu-base-B.stl")
 
 deck = box(-BL, -60, 0, BL, 60, DECK_T)
 for y in (-58.5, 58.5):                                           # stiffening lips along both long edges
     deck = deck + box(-BL, y - 1.5, DECK_T, BL, y + 1.5, DECK_T + 5)
-for px in (-POST_X, POST_X):                                      # countersunk holes onto the base posts
-    for py in (-POST_Y, POST_Y):
+for px in (-DECK_X, DECK_X):                                      # countersunk holes onto the base (nut underneath)
+    for py in (-DECK_Y, DECK_Y):
         deck = deck - cyl(px, py, -1, DECK_T + 2, 3.4, 24)
         deck = deck - Cy(2.0, 1.7, 3.6, 24).translate([px, py, DECK_T - 1.99])
-for hx in (PSU_HOLE_CX - PSU_HOLE_DX / 2, PSU_HOLE_CX + PSU_HOLE_DX / 2):   # M4 windows for the supply
+for hx in PSU_BOLT_X:                                                 # M4 windows for the supply
     for s_ in (-1, 1):
         a, b = sorted((s_ * 32.0, s_ * 55.0))
         deck = deck - rbox(hx - 4.5, a, hx + 4.5, b, -1, DECK_T + 2, 2.2)
@@ -159,7 +201,8 @@ save(clip, "ticker-edge-clip.stl")
 # the end edge for the wood side board.
 L = 30.0
 eb = box(0, -PANEL_H / 2, 0, L, PANEL_H / 2, T) + box(0, -PANEL_H / 2, 0, FL_T, PANEL_H / 2, FL_H)
-for yc in (-PANEL_H / 2 + 1.5, -24.0, 24.0, PANEL_H / 2 - 1.5):
+eb = eb - box(FL_T, -30, -1, L + 1, 30, T + 1)                   # open middle: ribbon connector clearance
+for yc in (-PANEL_H / 2 + 1.5, -31.5, 31.5, PANEL_H / 2 - 1.5):
     eb = eb + m.Manifold.batch_hull([box(0, yc - 1.5, 0, FL_T, yc + 1.5, FL_H - 4), box(0, yc - 1.5, 0, L, yc + 1.5, T)])
 eb = windows(eb, (INS_X,))
 FL_HOLES = (-66.0, -36.0, -12.0, 12.0, 36.0, 66.0)
@@ -181,10 +224,10 @@ save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 3.4, 32), "ticker-end-
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-names = ["ticker-seam-plate.stl", "ticker-seam-pi-mount.stl", "ticker-seam-psu-base-A.stl", "ticker-seam-psu-base-B.stl", "ticker-psu-deck-A.stl", "ticker-psu-deck-B.stl", "ticker-end-bracket.stl", "ticker-edge-clip.stl"]
-fig = plt.figure(figsize=(30, 5))
+names = ["ticker-seam-strap.stl", "ticker-seam-pi-mount.stl", "ticker-seam-psu-base-A.stl", "ticker-seam-psu-base-B.stl", "ticker-psu-deck-A.stl", "ticker-psu-deck-B.stl", "ticker-end-bracket.stl", "ticker-edge-clip.stl", "ticker-leg.stl"]
+fig = plt.figure(figsize=(34, 5))
 for i, n in enumerate(names):
-    tm = trimesh.load(n); ax = fig.add_subplot(1, 8, i + 1, projection="3d")
+    tm = trimesh.load(n); ax = fig.add_subplot(1, 9, i + 1, projection="3d")
     ax.add_collection3d(Poly3DCollection(tm.vertices[tm.faces], facecolor="#5aa0e0", edgecolor="#1d3d5e", linewidths=0.1))
     ax.set_xlim(-140, 140); ax.set_ylim(-140, 140); ax.set_zlim(0, 70); ax.view_init(35, -60); ax.set_axis_off()
     ax.set_title(n.replace("ticker-", "").replace(".stl", ""))

@@ -28,8 +28,10 @@ def part(xc, w, color, label):
     ax.add_patch(Rectangle((xc - w / 2, PH / 2 - H / 2), w, H, facecolor=color, edgecolor="#1d3d5e", lw=1.2, zorder=4))
     if label:
         ax.text(xc, PH / 2 + H / 2 + 12, label, ha="center", fontsize=8.5, zorder=9)
-for xc in (PW * 1, PW * 4):
-    part(xc, 60, "#5aa0e0", "seam plate")
+for xc in (PW * 1, PW * 4):                     # flat straps top + bottom, middle left open for the ribbon plugs
+    for y0 in (PH / 2 - 54, PH / 2 + 31):
+        ax.add_patch(Rectangle((xc - 30, y0), 60, 23, facecolor="#5aa0e0", edgecolor="#1d3d5e", lw=1.2, zorder=4))
+    ax.text(xc, PH / 2 + H / 2 + 12, "seam straps", ha="center", fontsize=8.5, zorder=9)
 for xe in (15, W - 15):
     ax.add_patch(Rectangle((xe - 15, 0), 30, PH, facecolor="#5aa0e0", edgecolor="#1d3d5e", lw=1.2, zorder=7))
     ax.text(xe, PH + 12, "end bracket", ha="center", fontsize=8.5, zorder=9)
@@ -49,6 +51,10 @@ for i in range(N):
             ax.add_patch(Circle((i * PW + cx, yi), 3, facecolor="#f2f2f2", edgecolor="#333", lw=0.8, zorder=10))
 ax.add_patch(Rectangle((PW * 3 - 149, PH / 2 - 44), 88, 88, facecolor="#e8e8e8", edgecolor="#555", lw=1.2, zorder=8))
 ax.text(PW * 3 - 105, PH / 2, "6-way\nfuse block", ha="center", va="center", fontsize=8.5, zorder=9)
+# ribbon connectors (IN / OUT) and power plug in the middle of each panel
+for i in range(N):
+    for (x0, x1) in ((i * PW + 15, i * PW + 40), ((i + 1) * PW - 55, (i + 1) * PW - 30), (i * PW + 165, i * PW + 180)):
+        ax.add_patch(Rectangle((x0, PH / 2 - 25), x1 - x0, 30, facecolor="none", edgecolor="#f5c542", lw=1.2, ls="--", zorder=6))
 # power supply rides above the bars on the cradle; Pi on its seam mount
 ax.add_patch(FancyBboxPatch((PW * 2 - 98.5, 31), 197, 98, boxstyle="round,pad=1", facecolor="#c9ccd1", edgecolor="#555", lw=1.2, alpha=0.85, zorder=8))
 ax.text(PW * 2, 80, "5V 30A supply\n(bolted to deck on seam base)", ha="center", va="center", fontsize=10, zorder=9)
@@ -60,7 +66,7 @@ for tx in (PW * 4 + 160, PW * 2 + 160, PW * 0 + 160):
 ax.set_xlim(-60, W + 60); ax.set_ylim(PH + 45, -70)
 ax.set_title("Bar ticker - BACK view (Panel 1 is on the right from behind)    ~63\" x 6.3\" panels, 3/4\" wood frame", fontsize=13)
 legend = [("#5aa0e0", "printed seam parts (4) + end brackets (2), white = M3 screws"), ("#5aa0e0", "edge clips (10): long-edge inserts -> top/bottom 1x4"),
-          ("#c8955a", "1x4 frame = the backbone (no steel)")]
+          ("#c8955a", "1x4 frame = the backbone (no steel)   - yellow dashed = ribbon/power plugs (kept clear)")]
 for i, (c, t) in enumerate(legend):
     ax.add_patch(Rectangle((i * 460 - 40, -58), 22, 16, facecolor=c, edgecolor="#333"))
     ax.text(i * 460 - 10, -50, t, va="center", fontsize=10)
