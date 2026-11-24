@@ -30,7 +30,9 @@ def part(xc, w, color, label):
         ax.text(xc, PH / 2 + H / 2 + 12, label, ha="center", fontsize=8.5, zorder=9)
 for xc in (PW * 1, PW * 4):
     part(xc, 60, "#5aa0e0", "seam plate")
-part(15, 30, "#5aa0e0", "end bracket"); part(W - 15, 30, "#5aa0e0", "end bracket")
+for xe in (15, W - 15):
+    ax.add_patch(Rectangle((xe - 15, 0), 30, PH, facecolor="#5aa0e0", edgecolor="#1d3d5e", lw=1.2, zorder=7))
+    ax.text(xe, PH + 12, "end bracket", ha="center", fontsize=8.5, zorder=9)
 part(PW * 2, 120, "#5aa0e0", "")
 part(PW * 3, 100, "#5aa0e0", "")
 for k in range(0, N + 1):
@@ -39,9 +41,9 @@ for k in range(0, N + 1):
         if 0 < x < W:
             for sy in (-1, 1):
                 ax.add_patch(Circle((x, PH / 2 + sy * 42), 3, facecolor="#f2f2f2", edgecolor="#333", lw=0.8, zorder=10))
-# steel bars (stop short of the end brackets)
+# steel bars (full length, ends captured in the end brackets)
 for ry in ROWS:
-    ax.add_patch(Rectangle((32, ry - BAR_W / 2), W - 64, BAR_W, facecolor="#9aa3ad", edgecolor="#4b5560", lw=1, alpha=0.6, zorder=6))
+    ax.add_patch(Rectangle((5, ry - BAR_W / 2), W - 10, BAR_W, facecolor="#9aa3ad", edgecolor="#4b5560", lw=1, alpha=0.6, zorder=6))
 # magnets in every long-edge insert
 for i in range(N):
     for ry in ROWS:
@@ -57,7 +59,7 @@ for tx in (PW * 4 + 160, PW * 2 + 160, PW * 0 + 160):
 # labels
 ax.set_xlim(-60, W + 60); ax.set_ylim(PH + 45, -70)
 ax.set_title("Bar ticker - BACK view (Panel 1 is on the right from behind)    ~63\" x 6.3\" panels, 3/4\" wood frame", fontsize=13)
-legend = [("#5aa0e0", "printed seam parts (4) + end brackets (2), white = M3 screws"), ("#9aa3ad", "steel flat bar 1\" x 1/8\" x 60.5\" (2), held by magnets"),
+legend = [("#5aa0e0", "printed seam parts (4) + end brackets (2), white = M3 screws"), ("#9aa3ad", "steel flat bar 1\" x 1/8\" x 62.5\" (2), held by magnets"),
           ("#d94040", "magnets (every long-edge insert)"), ("#c8955a", "wood frame (sides screw to the end-bracket flanges)")]
 for i, (c, t) in enumerate(legend):
     ax.add_patch(Rectangle((i * 460 - 40, -58), 22, 16, facecolor=c, edgecolor="#333"))

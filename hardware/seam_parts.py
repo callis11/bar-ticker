@@ -6,7 +6,7 @@
 #   ticker-seam-plate.stl      plain joiner for a seam                      print 2
 #   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount built in         print 1
 #   ticker-seam-psu-cradle.stl joiner with a zip-tie cradle for the 5V supply  print 1
-#   ticker-end-bracket.stl     outer ends: 90-degree flange for the wood side boards  print 2
+#   ticker-end-bracket.stl     outer ends: holds both steel bar ends + flange for the wood sides  print 2
 #   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 20
 #
 # Screws: M3 x 10 mm (+ printed washer) into every insert. Windows allow +/-6 mm along and +/-4 mm up/down,
@@ -81,15 +81,33 @@ psu = windows(psu, (-INS_X, INS_X))
 psu = seam_marker(psu, 0)
 save(psu, "ticker-seam-psu-cradle.stl")
 
-# ---- end bracket (outer ends): base on the panel back + 90-degree flange flush with the end edge
+# ---- end bracket (outer ends): full panel height, 90-degree flange flush with the end edge for the wood side
+# board (screw holes along the whole height), and pockets that capture the ends of both 1" steel bars, so the
+# bars, the bracket and the side boards all tie together. Bars run the full length and butt against the flange.
+PANEL_H = 160.0
+ROW_Y = 66.0                       # steel bar centerline (long-edge insert rows, ~14 mm from the panel edge)
+BAR_W, BAR_T = 25.4, 3.2
+MAG_H = 12.0                       # magnet body height: the bar sits on the magnet faces at this height
 L, FL_T, FL_H = 30.0, 5.0, 45.0
-eb = box(0, -H / 2, 0, L, H / 2, T) + box(0, -H / 2, 0, FL_T, H / 2, FL_H)
-for yc in (-H / 2 + 1.5, 0.0, H / 2 - 1.5):
+eb = box(0, -PANEL_H / 2, 0, L, PANEL_H / 2, T) + box(0, -PANEL_H / 2, 0, FL_T, PANEL_H / 2, FL_H)
+for s_ in (-1, 1):
+    y_in = ROW_Y - BAR_W / 2 - 0.3          # inner edge of the bar (+clearance)
+    a, b = sorted((s_ * (y_in - 4.5), s_ * PANEL_H / 2))
+    blk = box(0, a, 0, L, b, MAG_H + BAR_T + 0.4 + 3.0)                       # block around the bar end
+    ba, bb = sorted((s_ * y_in, s_ * (PANEL_H / 2 + 1)))
+    blk = blk - box(FL_T, ba, MAG_H, L + 1, bb, MAG_H + BAR_T + 0.4)          # bar slot (open on the inside and outer edge)
+    la, lb = sorted((s_ * (y_in + 4.0), s_ * (PANEL_H / 2 + 1)))
+    blk = blk - box(FL_T, la, MAG_H + BAR_T + 0.4 - 0.01, L + 1, lb, MAG_H + 20)  # lip only overlaps the bar's inner 4 mm
+    eb = eb + blk
+for yc in (0.0,):
     eb = eb + m.Manifold.batch_hull([box(0, yc - 1.5, 0, FL_T, yc + 1.5, FL_H - 4), box(0, yc - 1.5, 0, L, yc + 1.5, T)])
+for s_ in (-1, 1):                                                 # gussets from the flange down onto the bar blocks
+    yc = s_ * (ROW_Y - BAR_W / 2 - 3.0)
+    eb = eb + m.Manifold.batch_hull([box(0, yc - 1.5, 0, FL_T, yc + 1.5, FL_H - 4), box(0, yc - 1.5, 0, L, yc + 1.5, 19)])
 eb = windows(eb, (INS_X,))
-for yc in (-30.0, 30.0):                                           # #6 wood screws, countersunk on the inside
-    eb = eb - Cy(FL_T + 2, 2.0, 2.0, 32).rotate([0, 90, 0]).translate([-1, yc, 30])
-    eb = eb - Cy(2.4, 2.0, 4.2, 32).rotate([0, 90, 0]).translate([FL_T - 2.39, yc, 30])
+for yc in (-66.0, -36.0, -12.0, 12.0, 36.0, 66.0):                 # #6 wood screws along the whole height
+    eb = eb - Cy(FL_T + 2, 2.0, 2.0, 32).rotate([0, 90, 0]).translate([-1, yc, 32])
+    eb = eb - Cy(2.4, 2.0, 4.2, 32).rotate([0, 90, 0]).translate([FL_T - 2.39, yc, 32])
 save(eb, "ticker-end-bracket.stl")
 
 # ---- slider washer: bridges a window under the M3 screw head
@@ -104,6 +122,6 @@ fig = plt.figure(figsize=(16, 5))
 for i, n in enumerate(names):
     tm = trimesh.load(n); ax = fig.add_subplot(1, 4, i + 1, projection="3d")
     ax.add_collection3d(Poly3DCollection(tm.vertices[tm.faces], facecolor="#5aa0e0", edgecolor="#1d3d5e", linewidths=0.1))
-    ax.set_xlim(-65, 65); ax.set_ylim(-65, 65); ax.set_zlim(0, 60); ax.view_init(35, -60); ax.set_axis_off()
+    ax.set_xlim(-85, 85); ax.set_ylim(-85, 85); ax.set_zlim(0, 70); ax.view_init(35, -60); ax.set_axis_off()
     ax.set_title(n.replace("ticker-", "").replace(".stl", ""))
 plt.tight_layout(); plt.savefig("ticker-seam-parts.png", dpi=100)
