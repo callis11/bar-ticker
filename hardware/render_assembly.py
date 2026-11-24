@@ -76,3 +76,25 @@ p.camera_position = [(PW * 2.5, -480, 560), (PW * 2.5, 80, 10), (0, 0, 1)]
 p.add_text("Close-up: power supply on its cradle (left) and the Pi + Bonnet (right)", font_size=12, color="black")
 p.screenshot("ticker-render-middle.png")
 print("ok")
+
+# ---- front views with a real ticker frame on the LEDs
+def front_scene(size=(2400, 900)):
+    p = scene(size=size)
+    tex = pv.read_texture("/tmp/ticker_face.png") if os.path.exists("/tmp/ticker_face.png") else None
+    face = pv.Plane(center=(W / 2, PH / 2, -15.2), direction=(0, 0, -1), i_size=W, j_size=PH)
+    face.texture_map_to_plane(inplace=True)
+    if tex is not None:
+        face.active_texture_coordinates[:, 0] = 1 - face.active_texture_coordinates[:, 0]   # viewed from the front
+        p.add_mesh(face, texture=tex, lighting=False)
+    return p
+import os
+p = front_scene()
+p.camera_position = [(W / 2, 80, -2600), (W / 2, 80, 0), (0, 1, 0)]
+p.camera.zoom(1.55)
+p.add_text("Bar ticker - FRONT", font_size=14, color="black")
+p.screenshot("ticker-render-front.png")
+p = front_scene()
+p.camera_position = [(W * 0.15, -700, -1500), (W / 2, 80, 0), (0, 1, 0)]
+p.add_text("Bar ticker - front, from below (how it looks above the bar)", font_size=14, color="black")
+p.screenshot("ticker-render-front-angle.png")
+print("front ok")
