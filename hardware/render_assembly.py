@@ -23,7 +23,8 @@ def add(key, mesh): groups.setdefault(key, []).append(mesh)
 for i in range(N):                                                    # panels (front faces -z)
     add("panel", tbox(i * PW + 0.6, 0, -15, (i + 1) * PW - 0.6, PH, 0))
 add("print", part("ticker-seam-plate.stl", PW * 1))
-add("print", part("ticker-seam-psu-cradle.stl", PW * 2))
+add("print", part("ticker-seam-psu-base.stl", PW * 2))
+add("print", part("ticker-psu-deck.stl", PW * 2).apply_translation([0, 0, 18]))
 add("print", part("ticker-seam-pi-mount.stl", PW * 3))
 add("print", part("ticker-seam-plate.stl", PW * 4))
 add("print", part("ticker-end-bracket.stl", 0))
@@ -33,7 +34,7 @@ for ry in (14, 146):                                                  # steel ba
     for i in range(N):
         for rx in (50, 122, 198, 270):
             add("magnet", tcyl(i * PW + rx, ry, 0, 12, 12.5))
-add("psu", tbox(PW * 2 - 107, 80 - 57, 22, PW * 2 + 107, 80 + 57, 72))  # 5V 30A supply on the cradle
+add("psu", tbox(PW * 2 - 98.5, 80 - 49, 22, PW * 2 + 98.5, 80 + 49, 72))  # 5V 30A supply (197 x 98 x ~50) bolted to the deck
 add("pi", tbox(PW * 3 - 42.5, 80 - 28, 12, PW * 3 + 42.5, 80 + 28, 13.5))   # Pi 4
 add("bonnet", tbox(PW * 3 - 32.5, 80 - 28, 30, PW * 3 + 32.5, 80 + 28, 31.6))  # Triple Bonnet on the tall header
 WOOD, DEPTH = 19, 75                                                  # 3/4" boards, 75 mm deep (covers panel + parts)
@@ -73,7 +74,7 @@ p.screenshot("ticker-render-closeup.png")
 
 p = scene(wood_opacity=0.25)
 p.camera_position = [(PW * 2.5, -480, 560), (PW * 2.5, 80, 10), (0, 0, 1)]
-p.add_text("Close-up: power supply on its cradle (left) and the Pi + Bonnet (right)", font_size=12, color="black")
+p.add_text("Close-up: power supply bolted to its deck (left) and the Pi + Bonnet (right)", font_size=12, color="black")
 p.screenshot("ticker-render-middle.png")
 print("ok")
 

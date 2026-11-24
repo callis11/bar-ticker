@@ -33,7 +33,7 @@ for xc in (PW * 1, PW * 4):
 for xe in (15, W - 15):
     ax.add_patch(Rectangle((xe - 15, 0), 30, PH, facecolor="#5aa0e0", edgecolor="#1d3d5e", lw=1.2, zorder=7))
     ax.text(xe, PH + 12, "end bracket", ha="center", fontsize=8.5, zorder=9)
-part(PW * 2, 120, "#5aa0e0", "")
+part(PW * 2, 240, "#5aa0e0", "")
 part(PW * 3, 100, "#5aa0e0", "")
 for k in range(0, N + 1):
     for sx in (-1, 1):
@@ -50,8 +50,8 @@ for i in range(N):
         for rx in ROW_X:
             ax.add_patch(Circle((i * PW + rx, ry), 6.5, facecolor="#d94040", edgecolor="#701010", lw=0.8, zorder=7))
 # power supply rides above the bars on the cradle; Pi on its seam mount
-ax.add_patch(FancyBboxPatch((PW * 2 - 107, 22), 214, 116, boxstyle="round,pad=1", facecolor="#c9ccd1", edgecolor="#555", lw=1.2, alpha=0.85, zorder=8))
-ax.text(PW * 2, 80, "5V 30A supply\n(on seam cradle)", ha="center", va="center", fontsize=10, zorder=9)
+ax.add_patch(FancyBboxPatch((PW * 2 - 98.5, 31), 197, 98, boxstyle="round,pad=1", facecolor="#c9ccd1", edgecolor="#555", lw=1.2, alpha=0.85, zorder=8))
+ax.text(PW * 2, 80, "5V 30A supply\n(bolted to deck on seam base)", ha="center", va="center", fontsize=10, zorder=9)
 ax.add_patch(FancyBboxPatch((PW * 3 - 42.5, PH / 2 - 28), 85, 56, boxstyle="round,pad=1", facecolor="#3fa34d", edgecolor="#1e5a26", lw=1.2, zorder=8))
 ax.text(PW * 3, PH / 2, "Pi 4 + Bonnet\n(seam Pi mount)", ha="center", va="center", fontsize=8.5, color="white", zorder=9)
 for tx in (PW * 4 + 160, PW * 2 + 160, PW * 0 + 160):

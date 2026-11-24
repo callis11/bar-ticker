@@ -5,7 +5,8 @@
 #
 #   ticker-seam-plate.stl      plain joiner for a seam                      print 2
 #   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount built in         print 1
-#   ticker-seam-psu-cradle.stl joiner with a zip-tie cradle for the 5V supply  print 1
+#   ticker-seam-psu-base.stl   joiner with 4 posts for the power-supply deck       print 1
+#   ticker-psu-deck.stl        deck the 5V supply bolts to (2 x M4), sits on the posts  print 1
 #   ticker-end-bracket.stl     outer ends: holds both steel bar ends + flange for the wood sides  print 2
 #   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 20
 #
@@ -66,20 +67,47 @@ for (hx, hy) in PI_HOLES:
 pim = seam_marker(pim, 5)
 save(pim, "ticker-seam-pi-mount.stl")
 
-# ---- seam plate with a cradle for the power supply. The supply is taller (~110-115 mm) than the gap between
-# the steel bars, so it rides on two raised rails ABOVE the bars and is held with 2 zip ties / velcro straps.
-RAIL_Z = 22.0                                                      # top of the rails: above the bars (~16 mm)
-psu = box(-60, -H / 2, 0, 60, H / 2, T)
-RAILS = (-34.0, 28.0)                                              # rail y starts: inside the screw windows, clear of the bars
-for y in RAILS:                                                    # two rails along x
-    psu = psu + box(-60, y, T, 60, y + 6, RAIL_Z)
-for x in (-35, 35):                                                # zip-tie slots through each rail (2 straps)
-    for y in RAILS:
-        psu = psu - box(x - 3, y - 1, RAIL_Z - 9, x + 3, y + 7, RAIL_Z - 5)
-psu = psu + box(-60, -1.5, T, 60, 1.5, 10)                         # center rib
-psu = windows(psu, (-INS_X, INS_X))
-psu = seam_marker(psu, 0)
-save(psu, "ticker-seam-psu-cradle.stl")
+# ---- power supply mount, 2 pieces (bolt the supply to the deck FIRST, then screw the deck onto the base):
+#   base: seam joiner (4 end inserts) with 4 posts out past the supply's ends
+#   deck: plate that rides on the posts ABOVE the steel bars; the supply bolts to it with 2 x M4 + fender washers
+# Supply: 7 3/4" (197 mm) long; 2 threaded M4 holes in the bottom along one long edge, 4.7" (119 mm) apart,
+# closer to one end (~18 mm and ~139 mm from that end, from the photo). The deck has slotted windows so the
+# across-the-width position and a few mm along don't matter.
+PSU_L = 197.0
+PSU_HOLE_DX = 119.4                       # 4.7" center to center
+PSU_HOLE_FROM_END = 18.0                  # first hole from the near end (photo estimate)
+PSU_HOLE_CX = -PSU_L / 2 + PSU_HOLE_FROM_END + PSU_HOLE_DX / 2   # midpoint of the 2 holes, supply centered at x=0
+DECK_Z = 18.0                             # underside of the deck: above the bars (~16 mm)
+DECK_T = 4.0
+BL = 120.0                                # base/deck half-length (240 mm long: fits a 256 mm bed)
+POST_X, POST_Y = 112.0, 30.0
+BASE_H = 104.0                            # base stays between the bars where the posts are
+psub = box(-BL, -BASE_H / 2, 0, BL, BASE_H / 2, T)
+psub = ribs(psub, -BL, BL, ys=(-BASE_H / 2 + 1.5, BASE_H / 2 - 1.5))
+for px in (-POST_X, POST_X):
+    for py in (-POST_Y, POST_Y):
+        psub = psub + box(px - 5, py - 5, T, px + 5, py + 5, DECK_Z)
+        psub = psub - cyl(px, py, T, DECK_Z, 2.8, 24)          # M3 self-tapping / thread-forming screw
+psub = windows(psub, (-INS_X, INS_X))
+psub = seam_marker(psub, 0)
+save(psub, "ticker-seam-psu-base.stl")
+
+deck = box(-BL, -60, 0, BL, 60, DECK_T)
+for y in (-58.5, 58.5):                                           # stiffening lips along both long edges
+    deck = deck + box(-BL, y - 1.5, DECK_T, BL, y + 1.5, DECK_T + 5)
+for px in (-POST_X, POST_X):                                      # countersunk holes onto the base posts
+    for py in (-POST_Y, POST_Y):
+        deck = deck - cyl(px, py, -1, DECK_T + 2, 3.4, 24)
+        deck = deck - Cy(2.0, 1.7, 3.6, 24).translate([px, py, DECK_T - 1.99])
+for hx in (PSU_HOLE_CX - PSU_HOLE_DX / 2, PSU_HOLE_CX + PSU_HOLE_DX / 2):   # M4 windows for the supply
+    for s_ in (-1, 1):
+        a, b = sorted((s_ * 32.0, s_ * 55.0))
+        deck = deck - rbox(hx - 4.5, a, hx + 4.5, b, -1, DECK_T + 2, 2.2)
+for x in np.arange(-90, 91, 12):                                   # vents under the supply
+    deck = deck - box(x - 2, -22, -1, x + 2, 22, DECK_T + 1)
+# outline of the supply's footprint scored lightly on top, so it's obvious which way it sits
+deck = deck - box(-PSU_L / 2, -0.4 - 25, DECK_T - 0.5, -PSU_L / 2 + 0.8, 25.4, DECK_T + 1)
+save(deck, "ticker-psu-deck.stl")
 
 # ---- end bracket (outer ends): full panel height, 90-degree flange flush with the end edge for the wood side
 # board (screw holes along the whole height), and pockets that capture the ends of both 1" steel bars, so the
@@ -117,11 +145,11 @@ save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 3.4, 32), "ticker-end-
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-names = ["ticker-seam-plate.stl", "ticker-seam-pi-mount.stl", "ticker-seam-psu-cradle.stl", "ticker-end-bracket.stl"]
-fig = plt.figure(figsize=(16, 5))
+names = ["ticker-seam-plate.stl", "ticker-seam-pi-mount.stl", "ticker-seam-psu-base.stl", "ticker-psu-deck.stl", "ticker-end-bracket.stl"]
+fig = plt.figure(figsize=(20, 5))
 for i, n in enumerate(names):
-    tm = trimesh.load(n); ax = fig.add_subplot(1, 4, i + 1, projection="3d")
+    tm = trimesh.load(n); ax = fig.add_subplot(1, 5, i + 1, projection="3d")
     ax.add_collection3d(Poly3DCollection(tm.vertices[tm.faces], facecolor="#5aa0e0", edgecolor="#1d3d5e", linewidths=0.1))
-    ax.set_xlim(-85, 85); ax.set_ylim(-85, 85); ax.set_zlim(0, 70); ax.view_init(35, -60); ax.set_axis_off()
+    ax.set_xlim(-140, 140); ax.set_ylim(-140, 140); ax.set_zlim(0, 70); ax.view_init(35, -60); ax.set_axis_off()
     ax.set_title(n.replace("ticker-", "").replace(".stl", ""))
 plt.tight_layout(); plt.savefig("ticker-seam-parts.png", dpi=100)
