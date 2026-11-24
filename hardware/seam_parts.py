@@ -4,7 +4,7 @@
 # so the long-edge insert rows stay free for the magnets that hold the bars.
 #
 #   ticker-seam-plate.stl      plain joiner for a seam                      print 2
-#   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount built in         print 1
+#   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount + 6-way fuse block mount  print 1
 #   ticker-seam-psu-base.stl   joiner with 4 posts for the power-supply deck       print 1
 #   ticker-psu-deck.stl        deck the 5V supply bolts to (2 x M4), sits on the posts  print 1
 #   ticker-end-bracket.stl     outer ends: holds both steel bar ends + flange for the wood sides  print 2
@@ -51,19 +51,34 @@ plate = ribs(plate, -30, 30)
 plate = seam_marker(windows(plate, (-INS_X, INS_X)), 5)
 save(plate, "ticker-seam-plate.stl")
 
-# ---- seam plate with the Pi 4 mount (Pi centered on the seam, USB/Ethernet end facing +x)
+# ---- seam plate with the Pi 4 mount AND the 6-way fuse block (Pi centered on the seam, USB/Ethernet end
+# facing +x; fuse block on the extension toward the power supply, -x).
+# Fuse block: GaRhomxy 6-way with negative bus, 3.46" x 3.45" x 1.44" (88 x 88 x 37 mm); 4 corner mounting
+# holes 2.76" x 2.86" (70.1 x 72.6 mm) apart per the listing. Bosses take #8 / M4 self-tapping screws.
 PI_HOLES = [(-29, -24.5), (29, -24.5), (-29, 24.5), (29, 24.5)]   # 58 x 49 mm pattern
 SO_H = 8.0                                                         # standoffs: Pi board clears the screw heads
-pim = box(-50, -H / 2, 0, 50, H / 2, T)
-pim = ribs(pim, -50, 50)
+FB_CX = -105.0                                                     # fuse block center (toward the supply)
+FB_DX, FB_DY = 70.1, 72.6                                          # fuse block hole spacing
+FB_BOSS_H = 6.0
+PX0 = FB_CX - 50.0                                                 # plate starts just past the fuse block
+pim = box(PX0, -H / 2, 0, 50, H / 2, T)
+pim = ribs(pim, PX0, 50)
 for (hx, hy) in PI_HOLES:
     pim = pim + cyl(hx, hy, T, SO_H, 6.5)
+for sx in (-1, 1):
+    for sy in (-1, 1):
+        pim = pim + cyl(FB_CX + sx * FB_DX / 2, sy * FB_DY / 2, T, FB_BOSS_H, 9.0)
 for x in np.arange(-36, 37, 8):                                    # vents under the Pi
     if abs(x) > 4:
         pim = pim - box(x - 1.5, -18, -1, x + 1.5, 18, T + 1)
 pim = windows(pim, (-INS_X, INS_X))
 for (hx, hy) in PI_HOLES:
     pim = pim - cyl(hx, hy, -1, T + SO_H + 2, 2.4, 32)               # M2.5 screws thread into the plastic
+for sx in (-1, 1):
+    for sy in (-1, 1):                                             # slightly slotted pilots: +/-1.5 mm for listing tolerance
+        x, y = FB_CX + sx * FB_DX / 2, sy * FB_DY / 2
+        pim = pim - rbox(x - 1.65 - 1.5, y - 1.65 - 1.5, x + 1.65 + 1.5, y + 1.65 + 1.5, T + 1, FB_BOSS_H, 1.65) \
+                  - cyl(x, y, -1, T + FB_BOSS_H + 2, 3.3, 24)
 pim = seam_marker(pim, 5)
 save(pim, "ticker-seam-pi-mount.stl")
 

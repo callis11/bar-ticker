@@ -36,6 +36,7 @@ for ry in (14, 146):                                                  # steel ba
             add("magnet", tcyl(i * PW + rx, ry, 0, 12, 12.5))
 add("psu", tbox(PW * 2 - 98.5, 80 - 49, 22, PW * 2 + 98.5, 80 + 49, 72))  # 5V 30A supply (197 x 98 x ~50) bolted to the deck
 add("pi", tbox(PW * 3 - 42.5, 80 - 28, 12, PW * 3 + 42.5, 80 + 28, 13.5))   # Pi 4
+add("fuse", tbox(PW * 3 - 105 - 44, 80 - 44, 10, PW * 3 - 105 + 44, 80 + 44, 47))  # 6-way fuse block
 add("bonnet", tbox(PW * 3 - 32.5, 80 - 28, 30, PW * 3 + 32.5, 80 + 28, 31.6))  # Triple Bonnet on the tall header
 WOOD, DEPTH = 19, 75                                                  # 3/4" boards, 75 mm deep (covers panel + parts)
 add("wood", tbox(-WOOD, -WOOD, -15, 0, PH + WOOD, DEPTH - 15))
@@ -44,7 +45,7 @@ add("wood", tbox(0, -WOOD, -15, W, 0, DEPTH - 15))
 add("wood", tbox(0, PH, -15, W, PH + WOOD, DEPTH - 15))
 
 colors = {"panel": "#2a2a2a", "print": "#4f97da", "steel": "#a7b0ba", "magnet": "#d23c3c",
-          "psu": "#cfd3d8", "pi": "#2f9a45", "bonnet": "#1b1b1b", "wood": "#c8955a"}
+          "psu": "#cfd3d8", "pi": "#2f9a45", "bonnet": "#1b1b1b", "fuse": "#e8e8e8", "wood": "#c8955a"}
 import pyvista as pv
 pv.OFF_SCREEN = True
 def scene(wood_opacity=1.0, size=(2400, 1100)):
@@ -74,7 +75,7 @@ p.screenshot("ticker-render-closeup.png")
 
 p = scene(wood_opacity=0.25)
 p.camera_position = [(PW * 2.5, -480, 560), (PW * 2.5, 80, 10), (0, 0, 1)]
-p.add_text("Close-up: power supply bolted to its deck (left) and the Pi + Bonnet (right)", font_size=12, color="black")
+p.add_text("Close-up: power supply on its deck (left), fuse block + Pi on the Pi seam mount (right)", font_size=12, color="black")
 p.screenshot("ticker-render-middle.png")
 print("ok")
 
