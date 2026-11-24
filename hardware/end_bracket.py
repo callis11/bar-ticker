@@ -1,4 +1,4 @@
-# Bar ticker: end bracket + magnet spacer.
+# Bar ticker: end bracket.
 # The end bracket screws into the single brass insert near each SHORT end of the end panels (about 12 mm in
 # from the edge, off-center), which is clear of the top/bottom insert rows where the steel bars and magnets go.
 # It gives a 90-degree flange flush with the panel's end edge for screwing on the wooden side boards.
@@ -36,10 +36,6 @@ for zc in (20.0, 36.0):
     part = part - Cy(FL_T + 2, 2.0, 2.0, 32).rotate([0, 90, 0]).translate([-1, 0, zc])
     part = part - Cy(2.4, 2.0, 4.2, 32).rotate([0, 90, 0]).translate([FL_T - 2.39, 0, zc])
 tm = save(part, "ticker-end-bracket.stl")
-
-# 2 mm spacer washer: under every magnet that is NOT going through a joiner strap,
-# so all the magnet faces line up and the steel bar sits flat.
-save(cyl(0, 0, 0, 2.0, 10.0, 64) - cyl(0, 0, -1, 4.0, 3.4, 32), "ticker-magnet-spacer.stl")
 
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt

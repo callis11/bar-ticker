@@ -34,11 +34,16 @@ for k in range(1, N):
 # steel bars
 for ry in ROWS:
     ax.add_patch(Rectangle((32, ry - BAR_W / 2), W - 64, BAR_W, facecolor="#9aa3ad", edgecolor="#4b5560", lw=1, alpha=0.55, zorder=6))
-# magnets
+# joiner screws (recessed, no magnet) at the seams; magnets everywhere else
 for i in range(N):
     for ry in ROWS:
         for rx in ROW_X:
-            ax.add_patch(Circle((i * PW + rx, ry), 6.5, facecolor="#d94040", edgecolor="#701010", lw=0.8, zorder=7))
+            x = i * PW + rx
+            at_seam = (rx == ROW_X[0] and i > 0) or (rx == ROW_X[-1] and i < N - 1)
+            if at_seam:
+                ax.add_patch(Circle((x, ry), 3, facecolor="#f2f2f2", edgecolor="#333", lw=0.8, zorder=7))
+            else:
+                ax.add_patch(Circle((x, ry), 6.5, facecolor="#d94040", edgecolor="#701010", lw=0.8, zorder=7))
 # power supply + Pi (stand off the back on the steel bars / a back board)
 ps = FancyBboxPatch((PW * 1 + 50, 25), 215, 110, boxstyle="round,pad=1", facecolor="#c9ccd1", edgecolor="#555", lw=1.2, zorder=8)
 ax.add_patch(ps); ax.text(PW * 1 + 157, 80, "5V 30A\npower supply", ha="center", va="center", fontsize=10, zorder=9)
@@ -52,7 +57,7 @@ ax.text(PW * 2 + 160, 128, "Port 2 -> Panel 3 IN", ha="center", fontsize=8, colo
 ax.set_xlim(-60, W + 60); ax.set_ylim(PH + 45, -70)
 ax.set_title("Bar ticker - BACK view (Panel 1 is on the right from behind)    ~63\" x 6.3\" panels, 3/4\" wood frame", fontsize=13)
 legend = [("#5aa0e0", "printed joiner straps (8) + end brackets (2)"), ("#9aa3ad", "steel flat bar 1\" x 1/8\" x 60.5\" (2), held by magnets"),
-          ("#d94040", "M3 magnets in the brass inserts"), ("#c8955a", "wood frame (sides screw to the end-bracket flanges)")]
+          ("#d94040", "magnets (white dots = joiner screws)"), ("#c8955a", "wood frame (sides screw to the end-bracket flanges)")]
 for i, (c, t) in enumerate(legend):
     ax.add_patch(Rectangle((i * 420, -58), 22, 16, facecolor=c, edgecolor="#333"))
     ax.text(i * 420 + 30, -50, t, va="center", fontsize=10)
