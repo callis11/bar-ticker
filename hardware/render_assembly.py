@@ -28,7 +28,7 @@ for h_ in ("A", "B"):
     add("print", part(f"ticker-psu-deck-{h_}.stl", PW * 2).apply_translation([0, 0, 18]))
 add("print", part("ticker-seam-pi-mount.stl", PW * 3))
 add("print", part("ticker-seam-plate.stl", PW * 4))
-add("print", part("ticker-end-bracket.stl", 0))
+add("print", part("ticker-end-bracket-switch.stl", 0))
 add("print", part("ticker-end-bracket.stl", W, flip=True))
 for ry in (14, 146):                                                  # steel bars + magnets
     add("steel", tbox(5, ry - 12.7, 12, W - 5, ry + 12.7, 15.2))
@@ -41,12 +41,14 @@ add("fuse", tbox(PW * 3 - 105 - 44, 80 - 44, 10, PW * 3 - 105 + 44, 80 + 44, 47)
 add("bonnet", tbox(PW * 3 - 32.5, 80 - 28, 30, PW * 3 + 32.5, 80 + 28, 31.6))  # Triple Bonnet on the tall header
 WOOD, DEPTH = 19, 75                                                  # 3/4" boards, 75 mm deep (covers panel + parts)
 add("wood", tbox(-WOOD, -WOOD, -15, 0, PH + WOOD, DEPTH - 15))
+add("switch", trimesh.creation.cylinder(radius=12, height=24, sections=32).apply_transform(
+    trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0])).apply_translation([-WOOD - 2, 80, 55]))  # power switch
 add("wood", tbox(W, -WOOD, -15, W + WOOD, PH + WOOD, DEPTH - 15))
 add("wood", tbox(0, -WOOD, -15, W, 0, DEPTH - 15))
 add("wood", tbox(0, PH, -15, W, PH + WOOD, DEPTH - 15))
 
 colors = {"panel": "#2a2a2a", "print": "#4f97da", "steel": "#a7b0ba", "magnet": "#d23c3c",
-          "psu": "#cfd3d8", "pi": "#2f9a45", "bonnet": "#1b1b1b", "fuse": "#e8e8e8", "wood": "#c8955a"}
+          "psu": "#cfd3d8", "pi": "#2f9a45", "bonnet": "#1b1b1b", "fuse": "#e8e8e8", "switch": "#c0392b", "wood": "#c8955a"}
 import pyvista as pv
 pv.OFF_SCREEN = True
 def scene(wood_opacity=1.0, size=(2400, 1100)):

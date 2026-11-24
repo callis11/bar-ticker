@@ -7,7 +7,8 @@
 #   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount + 6-way fuse block mount  print 1
 #   ticker-seam-psu-base-A/B.stl  joiner with 4 posts for the power-supply deck, 2 halves (butt cut, K1C bed)  print 1 each
 #   ticker-psu-deck-A/B.stl       deck the 5V supply bolts to (2 x M4), 2 halves, each with 1 supply bolt  print 1 each
-#   ticker-end-bracket.stl     outer ends: holds both steel bar ends + flange for the wood sides  print 2
+#   ticker-end-bracket.stl     outer ends: holds both steel bar ends + flange for the wood sides  print 1
+#   ticker-end-bracket-switch.stl  same, with a notch in the flange for the power switch  print 1
 #   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 20
 #
 # Screws: M3 x 10 mm (+ printed washer) into every insert. Windows allow +/-6 mm along and +/-4 mm up/down,
@@ -159,6 +160,12 @@ for yc in (-66.0, -36.0, -12.0, 12.0, 36.0, 66.0):                 # #6 wood scr
     eb = eb - Cy(FL_T + 2, 2.0, 2.0, 32).rotate([0, 90, 0]).translate([-1, yc, 32])
     eb = eb - Cy(2.4, 2.0, 4.2, 32).rotate([0, 90, 0]).translate([FL_T - 2.39, yc, 32])
 save(eb, "ticker-end-bracket.stl")
+# switch-end version: notch in the top of the flange so a 20 mm round rocker switch (and the ~35 mm pocket routed
+# behind it in the side board) has room. Switch center: panel center height, 55 mm out from the panel back
+# (= 70 mm / 2 3/4" back from the front edge of a 1x4 side board).
+SW_Z, SW_NOTCH = 55.0, 24.0
+eb_sw = eb - box(-1, -SW_NOTCH, SW_Z - 25, L + 1, SW_NOTCH, FL_H + 1)
+save(eb_sw, "ticker-end-bracket-switch.stl")
 
 # ---- slider washer: bridges a window under the M3 screw head
 save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 3.4, 32), "ticker-end-washer.stl")
