@@ -5,8 +5,8 @@
 #
 #   ticker-seam-plate.stl      plain joiner for a seam                      print 2
 #   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount + 6-way fuse block mount  print 1
-#   ticker-seam-psu-base.stl   joiner with 4 posts for the power-supply deck       print 1
-#   ticker-psu-deck.stl        deck the 5V supply bolts to (2 x M4), sits on the posts  print 1
+#   ticker-seam-psu-base-A/B.stl  joiner with 4 posts for the power-supply deck, 2 halves (butt cut, K1C bed)  print 1 each
+#   ticker-psu-deck-A/B.stl       deck the 5V supply bolts to (2 x M4), 2 halves, each with 1 supply bolt  print 1 each
 #   ticker-end-bracket.stl     outer ends: holds both steel bar ends + flange for the wood sides  print 2
 #   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 20
 #
@@ -41,6 +41,10 @@ def ribs(part, x0, x1, ys=(-H / 2 + 1.5, H / 2 - 1.5), h=5.0):
     for y in ys:
         part = part + box(x0, y - 1.5, T, x1, y + 1.5, T + h)
     return part
+
+def split_x0(part, big=400.0):
+    """Cut a long part in two at x=0 (butt cut). Each half prints flat with no supports."""
+    return part ^ box(-big, -big, -big, 0, big, big), part ^ box(0, -big, -big, big, big, big)
 
 def seam_marker(part, h):
     return part - box(-0.6, -H / 2 - 1, T - 0.8, 0.6, H / 2 + 1, T + h + 1)
@@ -105,7 +109,8 @@ for px in (-POST_X, POST_X):
         psub = psub - cyl(px, py, T, DECK_Z, 2.8, 24)          # M3 self-tapping / thread-forming screw
 psub = windows(psub, (-INS_X, INS_X))
 psub = seam_marker(psub, 0)
-save(psub, "ticker-seam-psu-base.stl")
+a_, b_ = split_x0(psub)        # 2 halves: each screws to its own panel's 2 inserts; the deck + supply tie them together
+save(a_, "ticker-seam-psu-base-A.stl"); save(b_, "ticker-seam-psu-base-B.stl")
 
 deck = box(-BL, -60, 0, BL, 60, DECK_T)
 for y in (-58.5, 58.5):                                           # stiffening lips along both long edges
@@ -119,10 +124,12 @@ for hx in (PSU_HOLE_CX - PSU_HOLE_DX / 2, PSU_HOLE_CX + PSU_HOLE_DX / 2):   # M4
         a, b = sorted((s_ * 32.0, s_ * 55.0))
         deck = deck - rbox(hx - 4.5, a, hx + 4.5, b, -1, DECK_T + 2, 2.2)
 for x in np.arange(-90, 91, 12):                                   # vents under the supply
-    deck = deck - box(x - 2, -22, -1, x + 2, 22, DECK_T + 1)
+    if abs(x) > 8:
+        deck = deck - box(x - 2, -22, -1, x + 2, 22, DECK_T + 1)
 # outline of the supply's footprint scored lightly on top, so it's obvious which way it sits
 deck = deck - box(-PSU_L / 2, -0.4 - 25, DECK_T - 0.5, -PSU_L / 2 + 0.8, 25.4, DECK_T + 1)
-save(deck, "ticker-psu-deck.stl")
+a_, b_ = split_x0(deck)        # 2 halves: each has 2 posts + 1 supply bolt, so the supply itself joins them
+save(a_, "ticker-psu-deck-A.stl"); save(b_, "ticker-psu-deck-B.stl")
 
 # ---- end bracket (outer ends): full panel height, 90-degree flange flush with the end edge for the wood side
 # board (screw holes along the whole height), and pockets that capture the ends of both 1" steel bars, so the
@@ -160,10 +167,10 @@ save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 3.4, 32), "ticker-end-
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-names = ["ticker-seam-plate.stl", "ticker-seam-pi-mount.stl", "ticker-seam-psu-base.stl", "ticker-psu-deck.stl", "ticker-end-bracket.stl"]
-fig = plt.figure(figsize=(20, 5))
+names = ["ticker-seam-plate.stl", "ticker-seam-pi-mount.stl", "ticker-seam-psu-base-A.stl", "ticker-seam-psu-base-B.stl", "ticker-psu-deck-A.stl", "ticker-psu-deck-B.stl", "ticker-end-bracket.stl"]
+fig = plt.figure(figsize=(26, 5))
 for i, n in enumerate(names):
-    tm = trimesh.load(n); ax = fig.add_subplot(1, 5, i + 1, projection="3d")
+    tm = trimesh.load(n); ax = fig.add_subplot(1, 7, i + 1, projection="3d")
     ax.add_collection3d(Poly3DCollection(tm.vertices[tm.faces], facecolor="#5aa0e0", edgecolor="#1d3d5e", linewidths=0.1))
     ax.set_xlim(-140, 140); ax.set_ylim(-140, 140); ax.set_zlim(0, 70); ax.view_init(35, -60); ax.set_axis_off()
     ax.set_title(n.replace("ticker-", "").replace(".stl", ""))
