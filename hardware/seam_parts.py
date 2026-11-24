@@ -1,13 +1,14 @@
 # Bar ticker: printed parts that hold the 5 LED panels together, using the brass inserts near each panel's
 # SHORT ends. Every panel has two there: ~15 mm in from the end edge, ~37-39 mm in from each long edge
-# (measured from the 11/23 tape photo). At a seam that's 4 inserts (2 per panel), all between the steel bars,
-# so the long-edge insert rows stay free for the magnets that hold the bars.
+# (measured from the 11/23 tape photo). At a seam that's 4 inserts (2 per panel), all in the middle of the panel,
+# so the long-edge insert rows stay free for the edge clips that hang the panels from the 1x4 frame.
 #
 #   ticker-seam-plate.stl      plain joiner for a seam                      print 2
 #   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount + 6-way fuse block mount  print 1
 #   ticker-seam-psu-base-A/B.stl  joiner with 4 posts for the power-supply deck, 2 halves (butt cut, K1C bed)  print 1 each
 #   ticker-psu-deck-A/B.stl       deck the 5V supply bolts to (2 x M4), 2 halves, each with 1 supply bolt  print 1 each
-#   ticker-end-bracket.stl     outer ends: holds both steel bar ends + flange for the wood sides  print 1
+#   ticker-edge-clip.stl       long edges: insert -> 90-degree flange screwed to the top/bottom 1x4  print 20
+#   ticker-end-bracket.stl     outer ends: flange for the wood side board  print 1
 #   ticker-end-bracket-switch.stl  same, with a notch in the flange for the power switch  print 1
 #   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 20
 #
@@ -29,7 +30,7 @@ def save(part, name):
 INS_X, INS_Y = 15.0, 42.0          # insert offset from the end edge / from the panel center line
 WIN_X, WIN_Y = 6.0, 4.0            # window half-size around each insert
 T = 4.0                            # plate thickness
-H = 108.0                          # plate height (fits between the steel bars)
+H = 108.0                          # plate height (stays clear of the edge clips at |y| >= 55)
 
 def windows(part, xs):
     for x in xs:
@@ -89,7 +90,7 @@ save(pim, "ticker-seam-pi-mount.stl")
 
 # ---- power supply mount, 2 pieces (bolt the supply to the deck FIRST, then screw the deck onto the base):
 #   base: seam joiner (4 end inserts) with 4 posts out past the supply's ends
-#   deck: plate that rides on the posts ABOVE the steel bars; the supply bolts to it with 2 x M4 + fender washers
+#   deck: plate that rides on the posts above the base; the supply bolts to it with 2 x M4 + fender washers
 # Supply: 7 3/4" (197 mm) long; 2 threaded M4 holes in the bottom along one long edge, 4.7" (119 mm) apart,
 # closer to one end (~18 mm and ~139 mm from that end, from the photo). The deck has slotted windows so the
 # across-the-width position and a few mm along don't matter.
@@ -97,11 +98,11 @@ PSU_L = 197.0
 PSU_HOLE_DX = 119.4                       # 4.7" center to center
 PSU_HOLE_FROM_END = 18.0                  # first hole from the near end (photo estimate)
 PSU_HOLE_CX = -PSU_L / 2 + PSU_HOLE_FROM_END + PSU_HOLE_DX / 2   # midpoint of the 2 holes, supply centered at x=0
-DECK_Z = 18.0                             # underside of the deck: above the bars (~16 mm)
+DECK_Z = 18.0                             # underside of the deck (clears the base ribs and screw heads)
 DECK_T = 4.0
 BL = 120.0                                # base/deck half-length (240 mm long: fits a 256 mm bed)
 POST_X, POST_Y = 112.0, 30.0
-BASE_H = 104.0                            # base stays between the bars where the posts are
+BASE_H = 104.0                            # base stays inside |y| <= 52 (edge clips start at 55)
 psub = box(-BL, -BASE_H / 2, 0, BL, BASE_H / 2, T)
 psub = ribs(psub, -BL, BL, ys=(-BASE_H / 2 + 1.5, BASE_H / 2 - 1.5))
 for px in (-POST_X, POST_X):
@@ -132,38 +133,44 @@ deck = deck - box(-PSU_L / 2, -0.4 - 25, DECK_T - 0.5, -PSU_L / 2 + 0.8, 25.4, D
 a_, b_ = split_x0(deck)        # 2 halves: each has 2 posts + 1 supply bolt, so the supply itself joins them
 save(a_, "ticker-psu-deck-A.stl"); save(b_, "ticker-psu-deck-B.stl")
 
-# ---- end bracket (outer ends): full panel height, 90-degree flange flush with the end edge for the wood side
-# board (screw holes along the whole height), and pockets that capture the ends of both 1" steel bars, so the
-# bars, the bracket and the side boards all tie together. Bars run the full length and butt against the flange.
+# ---- NO STEEL: the 1x4 frame is the backbone. The top and bottom boards run the full length; the panels hang
+# from them with small edge clips, and the side boards screw to the end brackets.
+
+# ---- edge clip: screws into a long-edge insert (the rows ~14 mm in from each long edge) and has a 90-degree
+# flange flush with the panel's long edge for screwing into the top or bottom 1x4. 2 per panel per edge = 20.
+ROW_IN = 14.0                      # long-edge insert row, measured in from the panel edge (photo estimate)
 PANEL_H = 160.0
-ROW_Y = 66.0                       # steel bar centerline (long-edge insert rows, ~14 mm from the panel edge)
-BAR_W, BAR_T = 25.4, 3.2
-MAG_H = 12.0                       # magnet body height: the bar sits on the magnet faces at this height
-L, FL_T, FL_H = 30.0, 5.0, 45.0
+EDGE = PANEL_H / 2                 # panel edge, from the center line
+CL_W = 30.0                        # clip width along the ticker
+CL_Y0 = 55.0                       # base starts here: clears the seam parts / PSU base (|y| <= 54)
+FL_T, FL_H = 5.0, 45.0
+clip = box(-CL_W / 2, CL_Y0, 0, CL_W / 2, EDGE, T) + box(-CL_W / 2, EDGE - FL_T, 0, CL_W / 2, EDGE, FL_H)
+for xc in (-CL_W / 2 + 1.5, CL_W / 2 - 1.5):                       # gussets
+    clip = clip + m.Manifold.batch_hull([box(xc - 1.5, EDGE - FL_T, 0, xc + 1.5, EDGE, FL_H - 4),
+                                         box(xc - 1.5, CL_Y0, 0, xc + 1.5, EDGE, T)])
+yi = EDGE - ROW_IN
+clip = clip - rbox(-WIN_X - 1.7, yi - 5 - 1.7, WIN_X + 1.7, yi + 5 + 1.7, -1, T + 2, 2.0)   # insert window
+for zc in (20.0, 36.0):                                            # #6 wood screws, countersunk on the inside face
+    clip = clip - Cy(FL_T + 2, 2.0, 2.0, 32).rotate([-90, 0, 0]).translate([0, EDGE - FL_T - 1, zc])
+    clip = clip - Cy(2.4, 4.2, 2.0, 32).rotate([-90, 0, 0]).translate([0, EDGE - FL_T - 0.01, zc])
+save(clip, "ticker-edge-clip.stl")
+
+# ---- end bracket (outer ends): full panel height, screws into the 2 short-end inserts, 90-degree flange flush with
+# the end edge for the wood side board.
+L = 30.0
 eb = box(0, -PANEL_H / 2, 0, L, PANEL_H / 2, T) + box(0, -PANEL_H / 2, 0, FL_T, PANEL_H / 2, FL_H)
-for s_ in (-1, 1):
-    y_in = ROW_Y - BAR_W / 2 - 0.3          # inner edge of the bar (+clearance)
-    a, b = sorted((s_ * (y_in - 4.5), s_ * PANEL_H / 2))
-    blk = box(0, a, 0, L, b, MAG_H + BAR_T + 0.4 + 3.0)                       # block around the bar end
-    ba, bb = sorted((s_ * y_in, s_ * (PANEL_H / 2 + 1)))
-    blk = blk - box(FL_T, ba, MAG_H, L + 1, bb, MAG_H + BAR_T + 0.4)          # bar slot (open on the inside and outer edge)
-    la, lb = sorted((s_ * (y_in + 4.0), s_ * (PANEL_H / 2 + 1)))
-    blk = blk - box(FL_T, la, MAG_H + BAR_T + 0.4 - 0.01, L + 1, lb, MAG_H + 20)  # lip only overlaps the bar's inner 4 mm
-    eb = eb + blk
-for yc in (0.0,):
+for yc in (-PANEL_H / 2 + 1.5, -24.0, 24.0, PANEL_H / 2 - 1.5):
     eb = eb + m.Manifold.batch_hull([box(0, yc - 1.5, 0, FL_T, yc + 1.5, FL_H - 4), box(0, yc - 1.5, 0, L, yc + 1.5, T)])
-for s_ in (-1, 1):                                                 # gussets from the flange down onto the bar blocks
-    yc = s_ * (ROW_Y - BAR_W / 2 - 3.0)
-    eb = eb + m.Manifold.batch_hull([box(0, yc - 1.5, 0, FL_T, yc + 1.5, FL_H - 4), box(0, yc - 1.5, 0, L, yc + 1.5, 19)])
 eb = windows(eb, (INS_X,))
-for yc in (-66.0, -36.0, -12.0, 12.0, 36.0, 66.0):                 # #6 wood screws along the whole height
+FL_HOLES = (-66.0, -36.0, -12.0, 12.0, 36.0, 66.0)
+for yc in FL_HOLES:                                                # #6 wood screws along the whole height
     eb = eb - Cy(FL_T + 2, 2.0, 2.0, 32).rotate([0, 90, 0]).translate([-1, yc, 32])
     eb = eb - Cy(2.4, 2.0, 4.2, 32).rotate([0, 90, 0]).translate([FL_T - 2.39, yc, 32])
 save(eb, "ticker-end-bracket.stl")
 # switch-end version: notch in the top of the flange so a 20 mm round rocker switch (and the ~35 mm pocket routed
 # behind it in the side board) has room. Switch center: panel center height, 55 mm out from the panel back
 # (= 70 mm / 2 3/4" back from the front edge of a 1x4 side board).
-SW_Z, SW_NOTCH = 55.0, 24.0
+SW_Z, SW_NOTCH = 55.0, 20.0
 eb_sw = eb - box(-1, -SW_NOTCH, SW_Z - 25, L + 1, SW_NOTCH, FL_H + 1)
 save(eb_sw, "ticker-end-bracket-switch.stl")
 
@@ -174,10 +181,10 @@ save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 3.4, 32), "ticker-end-
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-names = ["ticker-seam-plate.stl", "ticker-seam-pi-mount.stl", "ticker-seam-psu-base-A.stl", "ticker-seam-psu-base-B.stl", "ticker-psu-deck-A.stl", "ticker-psu-deck-B.stl", "ticker-end-bracket.stl"]
-fig = plt.figure(figsize=(26, 5))
+names = ["ticker-seam-plate.stl", "ticker-seam-pi-mount.stl", "ticker-seam-psu-base-A.stl", "ticker-seam-psu-base-B.stl", "ticker-psu-deck-A.stl", "ticker-psu-deck-B.stl", "ticker-end-bracket.stl", "ticker-edge-clip.stl"]
+fig = plt.figure(figsize=(30, 5))
 for i, n in enumerate(names):
-    tm = trimesh.load(n); ax = fig.add_subplot(1, 7, i + 1, projection="3d")
+    tm = trimesh.load(n); ax = fig.add_subplot(1, 8, i + 1, projection="3d")
     ax.add_collection3d(Poly3DCollection(tm.vertices[tm.faces], facecolor="#5aa0e0", edgecolor="#1d3d5e", linewidths=0.1))
     ax.set_xlim(-140, 140); ax.set_ylim(-140, 140); ax.set_zlim(0, 70); ax.view_init(35, -60); ax.set_axis_off()
     ax.set_title(n.replace("ticker-", "").replace(".stl", ""))

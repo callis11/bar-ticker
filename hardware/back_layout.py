@@ -41,14 +41,12 @@ for k in range(0, N + 1):
         if 0 < x < W:
             for sy in (-1, 1):
                 ax.add_patch(Circle((x, PH / 2 + sy * 42), 3, facecolor="#f2f2f2", edgecolor="#333", lw=0.8, zorder=10))
-# steel bars (full length, ends captured in the end brackets)
-for ry in ROWS:
-    ax.add_patch(Rectangle((5, ry - BAR_W / 2), W - 10, BAR_W, facecolor="#9aa3ad", edgecolor="#4b5560", lw=1, alpha=0.6, zorder=6))
-# magnets in every long-edge insert
+# edge clips (2 per panel per edge) screw into the long-edge inserts and into the top/bottom 1x4
 for i in range(N):
-    for ry in ROWS:
-        for rx in ROW_X:
-            ax.add_patch(Circle((i * PW + rx, ry), 6.5, facecolor="#d94040", edgecolor="#701010", lw=0.8, zorder=7))
+    for cx in (122, 198):
+        for (y0, yi) in ((0, 14), (PH - 25, PH - 14)):
+            ax.add_patch(Rectangle((i * PW + cx - 15, y0), 30, 25, facecolor="#5aa0e0", edgecolor="#1d3d5e", lw=1, zorder=7))
+            ax.add_patch(Circle((i * PW + cx, yi), 3, facecolor="#f2f2f2", edgecolor="#333", lw=0.8, zorder=10))
 ax.add_patch(Rectangle((PW * 3 - 149, PH / 2 - 44), 88, 88, facecolor="#e8e8e8", edgecolor="#555", lw=1.2, zorder=8))
 ax.text(PW * 3 - 105, PH / 2, "6-way\nfuse block", ha="center", va="center", fontsize=8.5, zorder=9)
 # power supply rides above the bars on the cradle; Pi on its seam mount
@@ -61,8 +59,8 @@ for tx in (PW * 4 + 160, PW * 2 + 160, PW * 0 + 160):
 # labels
 ax.set_xlim(-60, W + 60); ax.set_ylim(PH + 45, -70)
 ax.set_title("Bar ticker - BACK view (Panel 1 is on the right from behind)    ~63\" x 6.3\" panels, 3/4\" wood frame", fontsize=13)
-legend = [("#5aa0e0", "printed seam parts (4) + end brackets (2), white = M3 screws"), ("#9aa3ad", "steel flat bar 1\" x 1/8\" x 62.5\" (2), held by magnets"),
-          ("#d94040", "magnets (every long-edge insert)"), ("#c8955a", "wood frame (sides screw to the end-bracket flanges)")]
+legend = [("#5aa0e0", "printed seam parts (4) + end brackets (2), white = M3 screws"), ("#5aa0e0", "edge clips (20): long-edge inserts -> top/bottom 1x4"),
+          ("#c8955a", "1x4 frame = the backbone (no steel)")]
 for i, (c, t) in enumerate(legend):
     ax.add_patch(Rectangle((i * 460 - 40, -58), 22, 16, facecolor=c, edgecolor="#333"))
     ax.text(i * 460 - 10, -50, t, va="center", fontsize=10)
