@@ -41,9 +41,9 @@ for k in range(0, N + 1):
         if 0 < x < W:
             for sy in (-1, 1):
                 ax.add_patch(Circle((x, PH / 2 + sy * 42), 3, facecolor="#f2f2f2", edgecolor="#333", lw=0.8, zorder=10))
-# edge clips (2 per panel per edge) screw into the long-edge inserts and into the top/bottom 1x4
+# edge clips (1 per panel per edge) screw into the long-edge inserts and into the top/bottom 1x4
 for i in range(N):
-    for cx in (122, 198):
+    for cx in (122,):
         for (y0, yi) in ((0, 14), (PH - 25, PH - 14)):
             ax.add_patch(Rectangle((i * PW + cx - 15, y0), 30, 25, facecolor="#5aa0e0", edgecolor="#1d3d5e", lw=1, zorder=7))
             ax.add_patch(Circle((i * PW + cx, yi), 3, facecolor="#f2f2f2", edgecolor="#333", lw=0.8, zorder=10))
@@ -59,7 +59,7 @@ for tx in (PW * 4 + 160, PW * 2 + 160, PW * 0 + 160):
 # labels
 ax.set_xlim(-60, W + 60); ax.set_ylim(PH + 45, -70)
 ax.set_title("Bar ticker - BACK view (Panel 1 is on the right from behind)    ~63\" x 6.3\" panels, 3/4\" wood frame", fontsize=13)
-legend = [("#5aa0e0", "printed seam parts (4) + end brackets (2), white = M3 screws"), ("#5aa0e0", "edge clips (20): long-edge inserts -> top/bottom 1x4"),
+legend = [("#5aa0e0", "printed seam parts (4) + end brackets (2), white = M3 screws"), ("#5aa0e0", "edge clips (10): long-edge inserts -> top/bottom 1x4"),
           ("#c8955a", "1x4 frame = the backbone (no steel)")]
 for i, (c, t) in enumerate(legend):
     ax.add_patch(Rectangle((i * 460 - 40, -58), 22, 16, facecolor=c, edgecolor="#333"))

@@ -30,8 +30,8 @@ add("print", part("ticker-seam-pi-mount.stl", PW * 3))
 add("print", part("ticker-seam-plate.stl", PW * 4))
 add("print", part("ticker-end-bracket-switch.stl", 0))
 add("print", part("ticker-end-bracket.stl", W, flip=True))
-for i in range(N):                                                    # edge clips: 2 per panel per edge
-    for cx in (122, 198):
+for i in range(N):                                                    # edge clips: 1 per panel per edge
+    for cx in (122,):
         add("print", part("ticker-edge-clip.stl", i * PW + cx))
         add("print", part("ticker-edge-clip.stl", i * PW + cx, flip=True))
 add("psu", tbox(PW * 2 - 98.5, 80 - 49, 22, PW * 2 + 98.5, 80 + 49, 72))  # 5V 30A supply (197 x 98 x ~50) bolted to the deck
@@ -65,7 +65,7 @@ def scene(wood_opacity=1.0, size=(2400, 1100)):
 # 1) whole ticker from behind
 p = scene()
 p.camera_position = [(W / 2, -1300, 1500), (W / 2, 80, 0), (0, 0, 1)]
-p.camera.zoom(1.0)
+p.camera.zoom(1.7)
 p.add_text("Bar ticker - back, fully assembled", font_size=14, color="black")
 p.screenshot("ticker-render-full.png")
 

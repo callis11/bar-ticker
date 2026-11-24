@@ -7,10 +7,10 @@
 #   ticker-seam-pi-mount.stl   joiner with the Pi 4 mount + 6-way fuse block mount  print 1
 #   ticker-seam-psu-base-A/B.stl  joiner with 4 posts for the power-supply deck, 2 halves (butt cut, K1C bed)  print 1 each
 #   ticker-psu-deck-A/B.stl       deck the 5V supply bolts to (2 x M4), 2 halves, each with 1 supply bolt  print 1 each
-#   ticker-edge-clip.stl       long edges: insert -> 90-degree flange screwed to the top/bottom 1x4  print 20
+#   ticker-edge-clip.stl       long edges: insert -> 90-degree flange screwed to the top/bottom 1x4  print 10
 #   ticker-end-bracket.stl     outer ends: flange for the wood side board  print 1
 #   ticker-end-bracket-switch.stl  same, with a notch in the flange for the power switch  print 1
-#   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 20
+#   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 30
 #
 # Screws: M3 x 10 mm (+ printed washer) into every insert. Windows allow +/-6 mm along and +/-4 mm up/down,
 # so small measuring errors don't matter. x = along the ticker (0 = seam or end edge), y = up/down
@@ -137,7 +137,7 @@ save(a_, "ticker-psu-deck-A.stl"); save(b_, "ticker-psu-deck-B.stl")
 # from them with small edge clips, and the side boards screw to the end brackets.
 
 # ---- edge clip: screws into a long-edge insert (the rows ~14 mm in from each long edge) and has a 90-degree
-# flange flush with the panel's long edge for screwing into the top or bottom 1x4. 2 per panel per edge = 20.
+# flange flush with the panel's long edge for screwing into the top or bottom 1x4. 1 per panel per edge = 10.
 ROW_IN = 14.0                      # long-edge insert row, measured in from the panel edge (photo estimate)
 PANEL_H = 160.0
 EDGE = PANEL_H / 2                 # panel edge, from the center line
