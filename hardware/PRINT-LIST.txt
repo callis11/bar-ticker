@@ -1,33 +1,44 @@
-BAR TICKER - PRINT LIST (updated 11/25: nothing crosses a seam through the middle anymore)
+BAR TICKER - EVERYTHING TO PRINT (current as of 11/25)
+This folder is the only one you need. Anything outside it with an older name is retired.
 
-EASIEST: open the 4 files in "print-beds" in Creality Print, one per bed:
-  Bed1-Pi-mount.3mf                     1 x Pi + fuse block plate
-  Bed2-Power-supply-plate.3mf           1 x power-supply plate
-  Bed3-End-brackets-clips-washers.3mf   2 end brackets (1 with switch notch) + 10 edge clips + 30 washers
-  Bed4-Straps-and-legs.3mf              8 seam straps + 8 legs
-Settings: PLA (PETG for the supply plate if you have it), 0.20 mm, 4 walls, 30% infill, NO supports.
+====================================================================
+IF YOU ALREADY PRINTED THE OLD SET - ONLY REPRINT THESE 4 BEDS
+====================================================================
+  Bed1-Pi-mount.3mf                  new Pi + fuse block plate (middle of Panel 3)
+  Bed2-Power-supply-plate.3mf        new one-piece supply plate (middle of Panel 2)
+  Reprint-4-straps-and-8-legs.3mf    4 more straps (now 2 per seam x 4 seams = 8) + 8 taller legs (18 mm)
+  Washers: reprint only if yours are the old tight ones (M3 hole). Bed3 has 30 new ones, or print
+           ticker-end-washer.stl x 30 on its own.
 
-Single STLs (same parts):
-  ticker-seam-strap.stl      8   (2 per seam, top + bottom; the middle stays open for the 16-pin plugs)
-  ticker-pi-mount.stl        1   (middle of Panel 3)
-  ticker-psu-plate.stl       1   (middle of Panel 2 or 4)
-  ticker-leg.stl             8   (4 under each plate)
-  ticker-edge-clip.stl      10
-  ticker-end-bracket.stl     1
-  ticker-end-bracket-switch.stl 1
-  ticker-end-washer.stl     30
+KEEP what you already printed: edge clips (10), end bracket, switch end bracket, the first 4 straps.
+THROW AWAY: old seam Pi mount, old 14 mm legs, PSU base A/B, PSU deck A/B, old seam plate.
 
-DELETE (old, they cover the 16-pin plugs): ticker-seam-pi-mount, ticker-seam-psu-base-A/B, ticker-psu-deck-A/B,
-ticker-seam-plate, ticker-seam-psu-cradle.
+====================================================================
+FULL SET FROM SCRATCH (4 beds)
+====================================================================
+  Bed1-Pi-mount.3mf                      1 Pi + fuse plate
+  Bed2-Power-supply-plate.3mf            1 supply plate
+  Bed3-End-brackets-clips-washers.3mf    2 end brackets (1 with switch notch) + 10 edge clips + 30 washers
+  Bed4-Straps-and-legs.3mf               8 straps + 8 legs
+Creality Print: open the file, pick the K1C profile. PLA (PETG for the supply plate if you have it),
+0.20 mm layers, 4 walls, 30% infill, NO supports.
 
-HARDWARE (panel inserts are M4)
-  M4 x 10 + printed washer: straps (16), edge clips (10), end brackets (4)
-  M4 x 30 + 1 printed washer: 8 (4 per plate, through plate + 18 mm leg, ~6 mm into the insert). If it bottoms out, add a washer;
-     the insert bottom (check depth with an M4 x 16 first).
-  2 x M4 x 8 + 2 regular M4 washers: supply to its plate (bolt it on the bench first)
-  4 x M2.5 x 8 (Pi), 4 x #8 x 3/4" (fuse block)
-  ~35 x #6 x 5/8" wood screws, 8 x #8 x 1-1/4" wood screws, 2 x 1x4 x 8 ft
-  (No M3 needed anymore.)
+WHAT HOLDS THE WOOD
+  Edge clips (10): 1 per panel on the top edge + 1 on the bottom edge; the 90-degree flange screws into the
+     top/bottom 1x4 with 2 x #6 x 5/8" wood screws.
+  End brackets (2): one on each outer end; the flange screws into the wood side board (6 x #6 x 5/8").
+     The switch version goes on the Panel 5 end.
 
-Edge clips: 1 per panel per long edge. On the 2 panels with a plate, the middle inserts are taken by the
-legs, so use an outer long-edge insert there.
+WHERE EVERYTHING GOES (back of the ticker, panels face down)
+  Every seam (4):  2 straps, top + bottom. The middle stays open for the 16-pin plugs.
+  Panel 2 middle:  supply plate on 4 legs (supply bolted on first, 2 x M4 x 8 + washers from underneath)
+  Panel 3 middle:  Pi + fuse block plate on 4 legs
+  Plug every ribbon and power cable in BEFORE screwing the plates down.
+
+SCREWS (panel inserts are M4)
+  M4 x 10 + printed washer:  straps 16, edge clips 10, end brackets 4  = 30
+  M4 x 30 + printed washer:  8 (plates, through plate + 18 mm leg, ~6 mm into the insert)
+  M4 x 8 + M4 washer:        2 (supply to its plate)
+  M2.5 x 8:                  4 (Pi)        #8 x 3/4" sheet-metal: 4 (fuse block)
+  #6 x 5/8" wood screws: ~35   #8 x 1-1/4" wood screws: 8 (frame corners)
+  Wood: 2 x 1x4 x 8 ft -> 2 @ 64.5" (top/bottom) + 2 @ 7.8" (sides)
