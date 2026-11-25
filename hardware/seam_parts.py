@@ -1,5 +1,5 @@
 # Bar ticker: printed parts that hold the 5 LED panels together, using the brass inserts near each panel's
-# SHORT ends. Every panel has two there: ~15 mm in from the end edge, ~37-39 mm in from each long edge
+# SHORT ends (brass M4 inserts). Every panel has two there: ~15 mm in from the end edge, ~37-39 mm in from each long edge
 # (measured from the 11/23 tape photo). At a seam that's 4 inserts (2 per panel), all in the middle of the panel,
 # so the long-edge insert rows stay free for the edge clips that hang the panels from the 1x4 frame.
 #
@@ -13,7 +13,7 @@
 #   ticker-end-bracket-switch.stl  same, with a notch in the flange for the power switch  print 1
 #   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 30
 #
-# Screws: M3 x 10 mm (+ printed washer) for flat parts; M3 x 25 for the raised parts (Pi mount, PSU base). Windows allow +/-6 mm along and +/-4 mm up/down,
+# Panel inserts are M4 (confirmed 11/24). Screws: M4 x 10 mm (+ printed washer) for flat parts; M4 x 25 for the raised parts (Pi mount, PSU base). Windows allow +/-6 mm along and +/-4 mm up/down,
 # so small measuring errors don't matter. x = along the ticker (0 = seam or end edge), y = up/down
 # (0 = panel center), z = away from the panel back.
 import manifold3d as m, numpy as np, trimesh
@@ -42,7 +42,7 @@ def windows(part, xs):
 
 LEG = 14.0                         # raised parts: plate underside this high off the panel frame, so the ribbon
                                    # connectors (IN/OUT, 1-2" in from each end, center of the panel) and the power
-                                   # plug fit underneath. Screws for raised parts: M3 x 25.
+                                   # plug fit underneath. Screws for raised parts: M4 x 25.
 def legs(part, xs, ys=(-INS_Y, INS_Y)):
     """Hollow legs under a plate that sits at z=LEG..LEG+T: one around each insert, window straight through."""
     for x in xs:
@@ -217,8 +217,8 @@ SW_Z, SW_NOTCH = 55.0, 20.0
 eb_sw = eb - box(-1, -SW_NOTCH, SW_Z - 25, L + 1, SW_NOTCH, FL_H + 1)
 save(eb_sw, "ticker-end-bracket-switch.stl")
 
-# ---- slider washer: bridges a window under the M3 screw head
-save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 3.4, 32), "ticker-end-washer.stl")
+# ---- slider washer: bridges a window under the M4 screw head (the panel inserts are M4)
+save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 4.5, 32), "ticker-end-washer.stl")   # M4 clearance
 
 # ---- preview sheet
 import matplotlib; matplotlib.use("Agg")
