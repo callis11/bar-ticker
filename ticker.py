@@ -2587,6 +2587,7 @@ class Feed:
         self.wxs, self.wx_statuses = {}, {}        # latest weather per town
         self.stock_bad, self.wx_status, self.wx_loc = [], "", {}
         self.screens_alone = False                 # nothing else is on, so weather/stock screens just stay up
+        self._strip_sig = None                     # what the strip was last drawn from (redrawn only when it changes)
         self.extra_kick = False
         self.notices = []                          # takeovers waiting to play (severe weather, big stock moves)
         self.wxa, self.wxa_at, self.wxa_seen, self.wxa_status = [], 0, {}, ""
@@ -2802,6 +2803,16 @@ class Feed:
                     mixed += note
                 mixed.append(seg)
             segs = mixed or note
+        # Drawing the strip is the heavy part and this runs every second: skip it when nothing it's drawn from changed,
+        # otherwise the redraw steals time from the display thread and the scroll hitches once a second.
+        try:
+            logos = len(os.listdir(LOGO_DIR)) if os.path.isdir(LOGO_DIR) else 0
+        except OSError:
+            logos = 0
+        sig = (repr(segs), repr(self.pinned_games()), ctl.version, datetime.now().strftime("%H%M"), LOOK, logos)
+        if sig == self._strip_sig:
+            return
+        self._strip_sig = sig
         self.strip = text_strip(segs)
         self.build_split(pl, build)
         self.cards = self.make_ticker_cards(pl, games, segs)
@@ -3226,6 +3237,23 @@ def start_web(ctl, feed, port):
     print(f"control page on port {port}")
 
 # ------------------------------------------------------------------ display loop
+class Pacer:
+    """Whole pixels to move since the last frame, from the real clock. Sleeping a fixed time per frame drifts and
+    jitters (the loop's own work isn't counted), which shows up as stutter; this never loses time, so the crawl
+    moves exactly `speed` pixels per second, one pixel at a time."""
+    def __init__(self):
+        self.t, self.frac = time.monotonic(), 0.0
+    def step(self, speed):
+        now = time.monotonic()
+        dt, self.t = now - self.t, now
+        if dt > 0.25:                      # the scroll wasn't running (alert, picture, ...): start again smoothly
+            self.frac = 0.0
+            return 0
+        self.frac += dt * speed
+        n = int(self.frac)
+        self.frac -= n
+        return n
+
 def speed_step(speed):
     """Pixels to move per frame: 1 at slow speeds (smoothest), more when fast so the Pi keeps up."""
     return 1 if speed <= 60 else 2 if speed <= 130 else 3
@@ -3323,14 +3351,18 @@ def run_display(ctl, feed, matrix):
         frame.paste(img, (x, 0))
         canvas.SetImage(to_panels(frame))
         canvas = matrix.SwapOnVSync(canvas)
-        ctl.last_frame = frame.copy() if int(time.time() * 4) % 2 == 0 else ctl.last_frame
+        now_ = time.monotonic()
+        if now_ - show.last_copy >= 0.25:           # the phone's live preview only needs a few frames a second
+            show.last_copy, ctl.last_frame = now_, frame.copy()
 
+    show.last_copy = 0.0
     x, seen, img_i = W, -1, 0
     card_i, card_t0 = 0, time.time()
     player = pictures.Player(ctl.lib, W, ROWS)          # Picture mode: one picture or the slideshow
     inter, lap, last_pic, pic_n = None, False, time.time(), 0   # pictures popping up in the ticker
     inter_last = None
     show_t0, show_n, show_inter = time.time(), 0, None  # Shows: on their own, or popping up in the ticker
+    pacer = Pacer()
     scr_inter = None                                    # weather / stock screens held on the strip for a few seconds
     scr_state = {"wx": {"last": time.time(), "lap": False}, "stock": {"last": time.time(), "lap": False}}
 
@@ -3477,6 +3509,11 @@ def run_display(ctl, feed, matrix):
             bottom = feed.bottom
             if feed.bottom_off is not None and blink_off(t) and feed.bottom_off.width == bottom.width:
                 bottom = feed.bottom_off
+            n = pacer.step(ctl.speed)
+            if n == 0:
+                time.sleep(0.002)
+                continue
+            x -= n
             img = Image.new("RGB", (W, ROWS))
             img.paste(pinned_frame(feed.pinned, t, ctl), (0, 0))
             ImageDraw.Draw(img).line([(0, TOP_H), (W, TOP_H)], fill=(35, 35, 50))
@@ -3485,9 +3522,6 @@ def run_display(ctl, feed, matrix):
                 mark_lap()
             img.paste(bottom, (x, ROWS - BOTTOM_H))
             show(img)
-            step = speed_step(ctl.speed)
-            x -= step
-            time.sleep(step / ctl.speed)
         elif ctl.motion != "scroll" and feed.cards:   # one item at a time
             cards = feed.cards
             card = cards[card_i % len(cards)]
@@ -3501,6 +3535,14 @@ def run_display(ctl, feed, matrix):
             show(with_motion(card_frame(card, t, ctl), t, length, ctl.motion))
             time.sleep(1 / 40)
         else:                                     # scroll everything
+            n = pacer.step(ctl.speed)
+            if n == 0:
+                time.sleep(0.002)
+                continue
+            x -= n
+            if x < -feed.strip.width:
+                x, lap = W, True
+                mark_lap()
             strip, t = feed.strip, time.time()
             if feed.strip_off is not None and blink_off(t) and feed.strip_off.width == strip.width:
                 strip = feed.strip_off
@@ -3515,12 +3557,6 @@ def run_display(ctl, feed, matrix):
                 show(layer)
             else:
                 show(strip, x)
-            step = speed_step(ctl.speed)
-            x -= step
-            if x < -strip.width:
-                x, lap = W, True
-                mark_lap()
-            time.sleep(step / ctl.speed)
 
 # ------------------------------------------------------------------ test helpers
 def save_gif(frames, name, ms):
