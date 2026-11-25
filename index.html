@@ -216,6 +216,7 @@
 </div>
 
 <div class="card panel" data-panel="scroll">
+  <div id="secGames">
   <h2>Games</h2>
   <div class="chips wrap" id="leagues"></div>
   <div class="quick">
@@ -237,6 +238,8 @@
   </details>
 
   <div class="keep">                            <!-- one piece, so the laptop's two columns never split it -->
+  </div>
+  <div id="secPl">
   <h2 class="sect">ParlayLabs</h2>
   <div class="switch" style="margin:0 0 10px"><span style="font-weight:600">Show ParlayLabs bets</span><input type="checkbox" id="plOn"></div>
   <div id="plBox">
@@ -252,6 +255,8 @@
   </div>
 
   <div class="keep">
+  </div>
+  <div id="secStocks">
   <h2 class="sect">Stocks</h2>
   <div class="switch" style="margin:0 0 10px"><span style="font-weight:600">Show stocks</span><input type="checkbox" id="stocksOn"></div>
   <div id="stocksBox">
@@ -272,6 +277,8 @@
   </div>
 
   <div class="keep">
+  </div>
+  <div id="secWx">
   <h2 class="sect">Weather</h2>
   <div class="switch" style="margin:0 0 10px"><span style="font-weight:600">Show weather</span><input type="checkbox" id="wxOn"></div>
   <div id="wxBox">
@@ -289,14 +296,15 @@
   </div>
   </div>
   </div>
-
+  </div>
+  <div id="secOdds">
   <h2 class="sect">Odds</h2>
   <div class="switch" style="margin:0 0 10px"><span style="font-weight:600">Show odds</span><input type="checkbox" id="oddsOn"></div>
   <div class="chips wrap" id="oddsPick">
     <button data-o="ml">Moneyline</button><button data-o="ou">Over/Under</button><button data-o="spread">Spread</button>
   </div>
   <p class="hint" style="margin:0">For games that haven't started. Switch off for scores only.</p>
-
+  </div>
   <h2 class="sect">Look</h2>
   <div class="chips wrap" id="lookPick">
     <button data-l="classic">Classic</button><button data-l="broadcast">Broadcast</button><button data-l="team">Team colors</button>
@@ -316,12 +324,14 @@
     <button data-h="3">3 sec</button><button data-h="5">5 sec</button><button data-h="8">8 sec</button><button data-h="15">15 sec</button></div>
   <p class="hint" id="motionHint" style="margin:0"></p>
 
+  <div id="secPin">
   <h2 class="sect">Hold on top</h2>
   <div class="chips wrap" id="pinPick">
     <button data-pin="off">Off</button><button data-pin="mine">My teams</button><button data-pin="live">Live games</button><button data-pin="picked">Picked games</button>
   </div>
   <p class="hint" id="pinHint" style="margin:0"></p>
-</div>
+  </div>
+  </div>
 
 <div class="card panel" data-panel="shows">
   <h2>Your shows</h2>
@@ -597,6 +607,9 @@ function render() {
     ? "The classic crawl: games, odds and ParlayLabs flow by. Speed sets how fast."
     : "One item at a time: games as a big scoreboard, ParlayLabs with a small label on top. Speed sets how fast long ones (like parlays) crawl across.";
   $("#plOn").checked = !!S.pl_on; $("#plBox").hidden = !S.pl_on;
+  { const sp = S.sports_on !== false;                    // a part that's off: its whole settings section goes away
+    $("#secGames").hidden = $("#secOdds").hidden = $("#secPin").hidden = !sp;
+    $("#secPl").hidden = !S.pl_on; $("#secStocks").hidden = S.stocks_on === false; $("#secWx").hidden = S.wx_on === false; }
   $("#showSports").checked = S.sports_on !== false; $("#showPl").checked = !!S.pl_on;
   $("#showStocks").checked = S.stocks_on !== false; $("#showWx").checked = S.wx_on !== false;
   { const on = [S.sports_on !== false && "scores", S.pl_on && "ParlayLabs", S.stocks_on !== false && "stocks", S.wx_on !== false && "weather"].filter(Boolean);
