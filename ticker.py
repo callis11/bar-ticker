@@ -16,7 +16,7 @@ Scroll GIF:         python3 ticker.py --preview
 Alert GIF:          python3 ticker.py --test-alert td     (td / win / close)
 """
 import argparse, colorsys, io, json, math, os, random, re, tempfile, time, threading, urllib.parse, urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageSequence
 import pictures
@@ -100,6 +100,7 @@ PL_REFRESH = 600           # check ParlayLabs every 10 minutes
 PL_SPORTS  = {"NFL": "", "NBA": "/nba", "CFB": "/cfb", "CBB": "/cbb"}
 WX_DEFAULT_PLACE = "Somerset Center, Michigan"   # weather town (change it on the phone: town name or ZIP)
 DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "AAPL", "NVDA", "TSLA"]   # symbols on the stock scroll (change on the phone)
+STOCK_ALERT_CHOICES = (2, 3, 5)                   # "moved this many % today" choices for the stock-mover alert
 
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
 LEAGUES = [  # (label, espn path, color)
@@ -131,6 +132,7 @@ class Control:
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
             "stocks_on": True, "stocks": list(DEFAULT_STOCKS), "wx_on": True, "wx_place": WX_DEFAULT_PLACE, "wx_parts": ["now", "forecast"],
+            "wx_alerts": True, "wx_alert_level": "warnings", "stock_alerts": True, "stock_alert_pct": 3,
             "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off",
             # pictures: which ones (empty = all), one played on its own, seconds each, order, change style,
             # how often one pops up in the ticker, LED color boost
@@ -211,6 +213,12 @@ class Control:
         self.stocks = clean_symbols(self.stocks)
         self.wx_place = (str(self.wx_place or "").strip() or WX_DEFAULT_PLACE)[:60]
         self.wx_parts = [x for x in (self.wx_parts or []) if x in WX_PARTS]
+        self.wx_alerts, self.stock_alerts = bool(self.wx_alerts), bool(self.stock_alerts)
+        self.wx_alert_level = "watches" if self.wx_alert_level == "watches" else "warnings"
+        try:
+            self.stock_alert_pct = min(STOCK_ALERT_CHOICES, key=lambda v: abs(v - float(self.stock_alert_pct)))
+        except (TypeError, ValueError):
+            self.stock_alert_pct = 3
         self.pl_sports = [x for x in (self.pl_sports or []) if x in PL_SPORTS]      # empty = all sports
         self.prop_types = [x for x in (self.prop_types or []) if x in PROP_TYPES]  # empty = all types
         if self.effect not in EFFECTS:
@@ -805,7 +813,7 @@ def wx_segments(wx, ctl):
     segs = []
     if "now" in ctl.wx_parts:
         desc, dc = wx_text(wx["code"])
-        segs += [(f"{place_label(ctl.wx_place)}  ", WHITE), (f"{wx['temp']}°  ", temp_color(wx["temp"])), (desc, dc), DOT]
+        segs += [(f"{place_label(ctl.wx_place)} ", WHITE), ("", None, "wx", wx["code"]), (f"{wx['temp']}°  ", temp_color(wx["temp"])), (desc, dc), DOT]
         det = [(f"H {wx['hi']}° L {wx['lo']}°  ", LIGHT)]
         if wx["rain"] >= 20:
             det.append((f"Rain {wx['rain']}%  ", RAIN_BLUE))
@@ -816,7 +824,7 @@ def wx_segments(wx, ctl):
     if "forecast" in ctl.wx_parts:
         for dy in wx["days"][:3]:
             desc, dc = wx_text(dy["code"])
-            segs += [(f"{dy['name']}  ", (0, 180, 255)), (f"{dy['hi']}°/{dy['lo']}°  ", WHITE), (desc, dc)]
+            segs += [(f"{dy['name']} ", (0, 180, 255)), ("", None, "wx", dy["code"]), (f"{dy['hi']}°/{dy['lo']}°  ", WHITE), (desc, dc)]
             if dy["rain"] >= 30:
                 segs.append((f"  {dy['rain']}%", RAIN_BLUE))
             segs.append(DOT)
@@ -832,6 +840,189 @@ def extra_segments(feed, ctl):
     if wx and not feed.demo and now - wx["at"] > 3 * 3600:
         wx = None
     return stock_segments(stocks, ctl) + wx_segments(wx, ctl)
+
+# ---- weather icons: drawn big then shrunk so the edges are smooth on the LEDs (same shapes as the demo page)
+SUN_C, CLOUD_C, RAINCLOUD_C, STORMCLOUD_C = (255, 190, 0), (200, 200, 200), (150, 156, 168), (105, 110, 122)
+RAIN_C, SNOW_C, FOG_C, BOLT_C = (70, 150, 255), (225, 242, 255), (160, 160, 160), (255, 210, 0)
+
+def wx_kind(code):
+    if code == 0: return "clear"
+    if code in (1, 2): return "partly"
+    if code in (45, 48): return "fog"
+    if code in (51, 53, 55, 61, 63, 65, 80, 81, 82): return "rain"
+    if code in (56, 57, 66, 67): return "sleet"
+    if code in (71, 73, 75, 77, 85, 86): return "snow"
+    if code in (95, 96, 99): return "storm"
+    return "cloud"
+
+_icons = {}
+def wx_icon(kind, size):
+    """RGBA icon on a 48-unit grid: clear, partly, cloud, fog, rain, sleet, snow, storm, plus up / down / warn for alerts."""
+    if (kind, size) in _icons:
+        return _icons[(kind, size)]
+    SS = 4
+    n = size * SS
+    u = n / 48.0
+    im = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    circ = lambda cx, cy, r, fill: d.ellipse([(cx - r) * u, (cy - r) * u, (cx + r) * u, (cy + r) * u], fill=fill)
+    def line(x1, y1, x2, y2, fill, w=2.6):
+        d.line([x1 * u, y1 * u, x2 * u, y2 * u], fill=fill, width=max(1, int(w * u)))
+    def sun(cx, cy, r, r0, r1):
+        for i in range(8):
+            a = i * math.pi / 4
+            line(cx + math.cos(a) * r0, cy + math.sin(a) * r0, cx + math.cos(a) * r1, cy + math.sin(a) * r1, SUN_C)
+        circ(cx, cy, r, SUN_C)
+    def cloud(dx, dy, fill):
+        circ(17 + dx, 28 + dy, 8, fill); circ(27 + dx, 23 + dy, 10, fill); circ(37 + dx, 29 + dy, 7, fill)
+        d.rounded_rectangle([(11 + dx) * u, (27 + dy) * u, (43 + dx) * u, (37 + dy) * u], radius=5 * u, fill=fill)
+    if kind == "clear":
+        sun(24, 24, 9, 13, 20)
+    elif kind == "partly":
+        sun(17, 17, 6, 9, 13); cloud(2, 6, CLOUD_C)
+    elif kind == "fog":
+        for i, y in enumerate((14, 23, 32, 41)):
+            line(8 + (i % 2) * 4, y, 38 + (i % 2) * 4, y, FOG_C, 3.4)
+    elif kind in ("rain", "sleet"):
+        cloud(0, -6, RAINCLOUD_C)
+        for x in ((16, 25, 34) if kind == "rain" else (16, 34)):
+            line(x + 3, 33, x, 41, RAIN_C)
+        if kind == "sleet":
+            circ(25, 37, 2.4, SNOW_C)
+    elif kind == "snow":
+        cloud(0, -6, RAINCLOUD_C)
+        for x, y in ((15, 37), (24, 33), (33, 37), (20, 43), (29, 43)):
+            circ(x, y, 2.4, SNOW_C)
+    elif kind == "storm":
+        cloud(0, -6, STORMCLOUD_C)
+        d.polygon([(x * u, y * u) for x, y in ((27, 29), (19, 39), (24, 39), (21, 47), (32, 35), (26, 35))], fill=BOLT_C)
+    elif kind in ("up", "down"):
+        pts = ((24, 8), (43, 40), (5, 40)) if kind == "up" else ((24, 40), (43, 8), (5, 8))
+        d.polygon([(x * u, y * u) for x, y in pts], fill=(255, 255, 255))
+    elif kind == "warn":
+        d.polygon([(x * u, y * u) for x, y in ((24, 5), (46, 43), (2, 43))], fill=BOLT_C)
+        d.rounded_rectangle([22 * u, 17 * u, 26 * u, 31 * u], radius=2 * u, fill=(0, 0, 0))
+        circ(24, 36, 2.4, (0, 0, 0))
+    else:                                                  # cloud
+        cloud(0, 0, CLOUD_C)
+    out = im.resize((size, size), Image.LANCZOS)
+    _icons[(kind, size)] = out
+    return out
+
+def wx_piece(code, h=ROWS):
+    """Weather icon as a strip piece (black behind it) for the scroll."""
+    size = int(h * 0.8)
+    img = Image.new("RGB", (size + 14, h))
+    ic = wx_icon(wx_kind(code), size)
+    img.paste(ic, (7, (h - size) // 2), ic)
+    return img
+
+# ---- notices: full-screen takeovers for severe weather and big stock moves
+NWS_API       = "https://api.weather.gov/alerts/active"
+WXA_REFRESH   = 120                                  # check the National Weather Service every 2 minutes
+WXA_REFLASH   = ("Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning")   # flash again every 15 min while active
+WXA_REFLASH_SEC = 900
+NOTICE_SECONDS = 12
+WINTERY = ("Winter", "Blizzard", "Snow", "Ice", "Freez", "Cold", "Chill", "Frost")
+
+def nws_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "ParlayLabsTicker (github.com/callis11/bar-ticker)",
+                                               "Accept": "application/geo+json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)
+
+def fetch_wx_alerts(loc, level="warnings", loader=None):
+    """Active National Weather Service alerts for the town: warnings (and watches if asked), most urgent first."""
+    j = (loader or nws_json)(f"{NWS_API}?point={loc['lat']:.4f},{loc['lon']:.4f}")
+    out = []
+    for f in j.get("features", []):
+        p = f.get("properties", {})
+        ev = (p.get("event") or "").strip()
+        if p.get("status") not in (None, "Actual"):                    # skip drills and tests
+            continue
+        if not (ev.endswith(("Warning", "Emergency")) or (level == "watches" and ev.endswith("Watch"))):
+            continue
+        out.append({"id": p.get("id") or f.get("id") or ev, "event": ev, "area": p.get("areaDesc", ""),
+                    "ends": p.get("ends") or p.get("expires") or ""})
+    return sorted(out, key=lambda a: (a["event"].endswith("Watch"), a["event"] not in WXA_REFLASH))
+
+def until_text(iso):
+    try:
+        dt = datetime.fromisoformat(iso).astimezone()
+    except (TypeError, ValueError):
+        return ""
+    clock = f"{dt:%-I:%M %p}"
+    return f"until {clock}" if dt.date() == datetime.now().astimezone().date() else f"until {dt:%a} {clock}"
+
+def wx_alert_color(ev):
+    """Background color for the takeover."""
+    if ev.endswith("Watch"): return (190, 120, 0)
+    if any(w in ev for w in WINTERY): return (0, 90, 190)
+    if "Thunderstorm" in ev: return (210, 95, 0)
+    return (190, 0, 0)
+
+def wx_alert_text_color(ev):
+    """Color for the same alert in the scroll (on black)."""
+    if ev.endswith("Watch"): return (255, 190, 0)
+    if any(w in ev for w in WINTERY): return SNOW_BLUE
+    if "Thunderstorm" in ev: return (255, 140, 40)
+    return RED
+
+class Notice:
+    """A takeover that isn't a team alert: a big title, a detail line (scrolls if long), a color and an icon."""
+    def __init__(self, kind, title, detail, c1, icon=None, secs=NOTICE_SECONDS):
+        self.kind, self.title, self.detail, self.c1, self.icon, self.at = kind, title, detail, c1, icon, time.time()
+        w, avail = font(19).getlength(detail), W - 90
+        self.secs = max(secs, min(28, (avail + w) / 70 + 2)) if w > avail else secs
+
+def wx_notice(a):
+    area = ", ".join(x.strip() for x in a["area"].split(";")[:2] if x.strip())
+    detail = "  ·  ".join(x for x in (until_text(a["ends"]), area) if x)
+    return Notice("wx", a["event"].upper(), detail, wx_alert_color(a["event"]), "warn", 14)
+
+def stock_notice(q):
+    up = q["pct"] > 0
+    word = f"{'+' if up else '-'}{abs(q['pct']):.1f}%"
+    return Notice("stock", f"{q['name']}  {word}",
+                  f"{q['name']} is {'up' if up else 'down'} {abs(q['pct']):.1f}% today  ·  now {q['price']:,.2f}",
+                  (0, 125, 50) if up else (175, 20, 20), "up" if up else "down", 10)
+
+def notice_frame(nt, t):
+    """The takeover: flashes for the first couple of seconds, then holds; a long detail line scrolls."""
+    flash = t < 2.4 and int(t * 5) % 2 == 1
+    bg = (0, 0, 0) if flash else nt.c1
+    img = Image.new("RGB", (W, ROWS), bg)
+    d = ImageDraw.Draw(img)
+    x0, col = 10, nt.c1 if flash else WHITE
+    if nt.icon:
+        sz = 52
+        ic = wx_icon(nt.icon, sz)
+        img.paste(ic, (10, (ROWS - sz) // 2), ic)
+        x0 = 10 + sz + 12
+    avail = W - x0 - 10
+    centered(d, nt.title, fit_font(nt.title, avail, 30), col, x0 + avail // 2, 20)
+    f2 = fit_font(nt.detail, avail, 19)
+    w2 = f2.getlength(nt.detail)
+    if w2 <= avail:
+        centered(d, nt.detail, f2, col, x0 + avail // 2, 47)
+    else:
+        f2 = font(19)
+        w2 = f2.getlength(nt.detail)
+        layer = Image.new("RGB", (avail, 26), bg)
+        sx = avail - (max(0.0, t - 1.0) * 70) % (avail + w2)
+        centered(ImageDraw.Draw(layer), nt.detail, f2, col, int(sx + w2 / 2), 13)
+        img.paste(layer, (x0, 34))
+    return img
+
+def wx_alert_segments(feed, ctl):
+    """Active warnings at the very front of the scroll, red, so they're the first thing you see."""
+    alerts = feed.alerts_now()
+    if not ctl.wx_alerts or not alerts:
+        return []
+    segs = [("  WEATHER ALERT  ", RED, "hdr")]
+    for a in alerts:
+        segs += [(a["event"].upper(), wx_alert_text_color(a["event"])), (f"  {until_text(a['ends'])}", LIGHT), DOT]
+    return segs
 
 # ------------------------------------------------------------------ alerts
 # ---- alert themes: your own look for each team's touchdown / red zone / win / close-game alert
@@ -1936,6 +2127,8 @@ def seg_width(sg):
         return hdr_block(sg[0], sg[1]).width
     if k == "sub":
         return sub_block(sg[0], sg[1]).width
+    if k == "wx":
+        return wx_piece(sg[3]).width
     return int(font(FONT_SIZE).getlength(sg[0]))
 
 def text_strip(segs, stamp=True, hide_msg=False, h=ROWS):
@@ -1955,6 +2148,8 @@ def text_strip(segs, stamp=True, hide_msg=False, h=ROWS):
             pieces.append((sg, hdr_block(sg[0], sg[1], h)))
         elif k == "sub":
             pieces.append((sg, sub_block(sg[0], look_color(sg[1]), h)))
+        elif k == "wx":
+            pieces.append((sg, wx_piece(sg[3], h)))
         else:
             pieces.append((sg, None))
     width = sum(p.width if p is not None else int(F.getlength(sg[0])) for sg, p in pieces) + 4
@@ -2026,14 +2221,17 @@ def message_frame(ctl, t, x, background=None):
 def make_cards(segs):
     """Splits the scroll into cards: a small label on top (league, time slot, ParlayLabs part)
     and one game, parlay, prop or message underneath."""
-    cards, label, sub, cur = [], None, None, []
+    cards, label, sub, cur, icon = [], None, None, [], None
     def flush():
-        nonlocal cur
+        nonlocal cur, icon
         body = [sg for sg in cur if sg[0].strip()]
         if body:
             lab = label if not sub else (f"{label[0]} · {sub[0]}" if label else sub[0], sub[1])
-            cards.append({"label": lab, "segs": body, "msg": False})
-        cur = []
+            card = {"label": lab, "segs": body, "msg": False}
+            if icon is not None:                         # weather icon: drawn at the left of the card
+                card["icon"] = icon
+            cards.append(card)
+        cur, icon = [], None
     cards.append({"label": None, "segs": [(datetime.now().strftime("%-I:%M"), (0, 180, 255))], "msg": False})
     for sg in segs:
         tag = sg[2] if len(sg) > 2 else None
@@ -2043,6 +2241,8 @@ def make_cards(segs):
             flush(); sub = (sg[0].strip(), sg[1])
         elif tag == "msg":
             flush(); cards.append({"label": None, "segs": [(sg[0].strip(), sg[1])], "msg": True})
+        elif tag == "wx":
+            icon = sg[3]
         elif sg == DOT or sg[0].strip() == "•":
             flush()
         else:
@@ -2052,6 +2252,7 @@ def make_cards(segs):
 
 LABEL_FONT = 8 * K
 LABEL_H    = LABEL_FONT + 2
+ICON_W     = 54                                      # room for a weather icon at the left of a card
 
 def card_tokens(card):
     """The card's words with their colors, so long cards can wrap onto two lines."""
@@ -2070,9 +2271,10 @@ def _line_w(toks, f):
 def card_layout(card):
     """(font size, lines) for a card that fits on screen (one big line, or two lines), or (None, [all]) to crawl."""
     toks = card_tokens(card)
+    avail = W - 6 - (ICON_W if card.get("icon") is not None else 0)
     h = ROWS - (LABEL_H if card["label"] else 0)
     for size in range((24 if card["label"] is None else 19) * K, 11 * K - 1, -1):
-        if _line_w(toks, font(size)) <= W - 6:
+        if _line_w(toks, font(size)) <= avail:
             return size, [toks]
     if sum(1 for w, _ in toks if w.strip()) > 1:
         # prefer breaking between parlay legs ("·") or where the color changes, then anywhere
@@ -2085,7 +2287,7 @@ def card_layout(card):
             lines[0][-1:] = [(lines[0][-1][0].rstrip().rstrip("·").rstrip(), lines[0][-1][1])]
             lines[1][:1] = [(lines[1][0][0].lstrip(), lines[1][0][1])]
             for size in range(h // 2 - 2, 15, -1):
-                if all(_line_w(ln, font(size)) <= W - 6 for ln in lines):
+                if all(_line_w(ln, font(size)) <= avail for ln in lines):
                     return size, lines
     return None, [toks]
 
@@ -2116,13 +2318,19 @@ def card_frame(card, t, ctl):
     else:
         top = 0
     h = ROWS - top
+    x0 = 0
+    if card.get("icon") is not None:
+        sz = h - 4
+        ic = wx_icon(wx_kind(card["icon"]), sz)
+        img.paste(ic, (8, top + (h - sz) // 2), ic)
+        x0 = ICON_W
     fx = ctl.effect if card["msg"] else "steady"
     if fx == "fireworks":
         fireworks(d, t)
     ys = [top + h / 2] if len(lines) == 1 else (top + h * 0.27, top + h * 0.73)
     l, tt, r, b = f.getbbox("0A")
     for toks, cy in zip(lines, ys):
-        x = (W - _line_w(toks, f)) / 2 if size else W - t * ctl.speed
+        x = x0 + (W - x0 - _line_w(toks, f)) / 2 if size else W - t * ctl.speed
         y = cy - (b - tt) / 2 - tt
         for tx, col in toks:
             if col == "rainbow":
@@ -2175,10 +2383,14 @@ class Feed:
         self.strip = text_strip([("Loading…", GRAY)])
         self.strip_off = self.strip_mask = None
         self.pinned, self.bottom, self.bottom_off = [], None, None   # split screen
-        self.cards = []
+        self.cards, self.warn = [], []
         self.stocks, self.wx = None, None          # latest quotes / weather (see extras_loop)
         self.stock_bad, self.wx_status, self.wx_loc = [], "", {}
         self.extra_kick = False
+        self.notices = []                          # takeovers waiting to play (severe weather, big stock moves)
+        self.wxa, self.wxa_at, self.wxa_seen, self.wxa_status = [], 0, {}, ""
+        self.wxa_test = None                       # (alert, until) while the phone's test button is showing a pretend alert
+        self.stock_fired = set()                   # (symbol, up?, day) already flashed
         self.watcher = AlertWatcher()
         threading.Thread(target=self.loop, daemon=True).start()
         threading.Thread(target=self.extras_loop, daemon=True).start()   # own thread: a slow quote never stalls the scores
@@ -2218,17 +2430,20 @@ class Feed:
     def extras_loop(self):
         """Stocks and weather, in their own thread. Only fetches what's switched on, and again when you change
         the symbols or the town."""
-        last_s = last_w = 0
-        key_s = key_w = None
+        last_s = last_w = last_a = 0
+        key_s = key_w = key_a = None
         while True:
             ctl, now = self.ctl, time.time()
             if self.extra_kick:
-                self.extra_kick, last_s, last_w = False, 0, 0
+                self.extra_kick, last_s, last_w, last_a = False, 0, 0, 0
             ks, kw = (ctl.stocks_on, tuple(ctl.stocks)), (ctl.wx_on, ctl.wx_place)
             if ks != key_s:
                 key_s, last_s = ks, 0
             if kw != key_w:
                 key_w, last_w = kw, 0
+            ka = (ctl.wx_alerts, ctl.wx_place, ctl.wx_alert_level)
+            if ka != key_a:
+                key_a, last_a = ka, 0
             if self.demo:
                 self.stocks, self.wx = demo_stocks(ctl), demo_weather(ctl)
             else:
@@ -2236,6 +2451,8 @@ class Feed:
                     self.update_stocks(); last_s = time.time()
                 if ctl.wx_on and now - last_w >= WX_REFRESH:
                     self.update_weather(); last_w = time.time()
+                if ctl.wx_alerts and now - last_a >= WXA_REFRESH:
+                    self.update_wx_alerts(); last_a = time.time()
             time.sleep(1)
 
     def update_stocks(self):
@@ -2245,19 +2462,67 @@ class Feed:
             fresh = len(self.stock_bad) < len(self.ctl.stocks)
             self.stocks = {"quotes": quotes, "open": market_open(),
                            "at": time.time() if fresh else (self.stocks or {}).get("at", time.time())}
+            self.check_movers(quotes)
+
+    def check_movers(self, quotes):
+        """Flash once per symbol, per direction, per day when it's moved the chosen % while the market is open."""
+        ctl = self.ctl
+        if not ctl.stock_alerts or not market_open():
+            return
+        day = datetime.now().strftime("%Y-%m-%d")
+        for q in quotes:
+            if q["sym"] in self.stock_bad or abs(q["pct"]) < ctl.stock_alert_pct:
+                continue
+            key = (q["sym"], q["pct"] > 0, day)
+            if key not in self.stock_fired:
+                self.stock_fired.add(key)
+                self.notices.append(stock_notice(q))
+
+    def locate_cached(self, place):
+        loc = self.wx_loc.get(place)
+        if not loc:
+            try:
+                loc = locate(place)
+            except Exception:                          # lookup failed: fine for the default town, an error for any other
+                if place != WX_DEFAULT_PLACE:
+                    raise
+                loc = {"lat": WX_FALLBACK[0], "lon": WX_FALLBACK[1], "title": place}
+            self.wx_loc = {place: loc}
+        return loc
+
+    def update_wx_alerts(self):
+        """National Weather Service warnings for the town: a takeover when a new one appears (tornado, severe
+        thunderstorm and flash flood warnings flash again every 15 min while they last)."""
+        ctl, now = self.ctl, time.time()
+        try:
+            alerts = fetch_wx_alerts(self.locate_cached(ctl.wx_place), ctl.wx_alert_level)
+        except Exception as e:
+            self.wxa_status = f"error: {e}"
+            return
+        self.wxa, self.wxa_at, self.wxa_status = alerts, now, "ok"
+        for a in alerts:
+            last = self.wxa_seen.get(a["id"])
+            if last is None or (a["event"] in WXA_REFLASH and now - last >= WXA_REFLASH_SEC):
+                self.wxa_seen[a["id"]] = now
+                self.notices.append(wx_notice(a))
+        live = {a["id"] for a in alerts}
+        for k in [k for k in self.wxa_seen if k not in live]:
+            del self.wxa_seen[k]                        # it ended: a new one with the same name flashes again
+
+    def alerts_now(self):
+        """Warnings to show in the scroll: the real ones (if the last check is recent), or the phone's test one."""
+        out = list(self.wxa) if time.time() - self.wxa_at < 1800 else []
+        if self.wxa_test and time.time() < self.wxa_test[1]:
+            out.insert(0, self.wxa_test[0])
+        return out
+
+    def next_notice(self):
+        return self.notices.pop(0) if self.notices else None
 
     def update_weather(self):
         place = self.ctl.wx_place
         try:
-            loc = self.wx_loc.get(place)
-            if not loc:
-                try:
-                    loc = locate(place)
-                except Exception:                      # lookup failed: fine for the default town, an error for any other
-                    if place != WX_DEFAULT_PLACE:
-                        raise
-                    loc = {"lat": WX_FALLBACK[0], "lon": WX_FALLBACK[1], "title": place}
-                self.wx_loc = {place: loc}
+            loc = self.locate_cached(place)
             self.wx = dict(fetch_weather(loc), place=place, at=time.time())
             self.wx_status = loc["title"]
         except Exception as e:
@@ -2274,10 +2539,11 @@ class Feed:
     def build_strip(self):
         ctl = self.ctl
         games, raw = self.shown_games()
+        self.warn = wx_alert_segments(self, ctl)                        # active warnings go first
         pl = pl_segments(self.pl, ctl) + extra_segments(self, ctl)      # ParlayLabs, then stocks, then weather
         build = time_segments if ctl.group == "time" else score_segments
         game_segs = build(games, None, ctl.show_odds(), "week", raw)
-        segs = game_segs + pl                     # games first, then ParlayLabs, stocks, weather
+        segs = self.warn + game_segs + pl         # warnings, games, then ParlayLabs, stocks, weather
         if ctl.msg_in_scroll and ctl.message.strip():
             # your message comes around before each league (and before ParlayLabs)
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
@@ -2322,7 +2588,7 @@ class Feed:
         rest = [g for g in games if g["id"] not in ids]
         if not rest:                                     # you picked only the held games: show the rest of your sports
             rest, raw = [g for g in visible_games(self.games, ctl.leagues, ctl.days) if g["id"] not in ids], False
-        segs = build(rest, None, ctl.show_odds(), "week", raw) + pl
+        segs = self.warn + build(rest, None, ctl.show_odds(), "week", raw) + pl
         if ctl.msg_in_scroll and ctl.message.strip():
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
             note = [(f"   {ctl.message.strip()}   ", col, "msg"), DOT]
@@ -2339,7 +2605,7 @@ class Feed:
         """One-at-a-time cards: clock, your message, ParlayLabs items, then each game as a big scoreboard."""
         ctl = self.ctl
         pl_cards = make_cards(pl)                # clock + ParlayLabs, as text cards
-        cards = pl_cards[:1]
+        cards = pl_cards[:1] + make_cards(self.warn)[1:]      # clock, then any active warnings
         if ctl.msg_in_scroll and ctl.message.strip():
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
             cards.append({"label": None, "segs": [(ctl.message.strip(), col)], "msg": True})
@@ -2440,6 +2706,15 @@ class Feed:
 
     def test_alert(self, team_key, kind):
         """The phone's Test button: a pretend alert for that team, shown right away."""
+        if team_key == "WX|TEST":                       # pretend tornado warning: takeover now, and in the scroll for a minute
+            soon = (datetime.now().astimezone() + timedelta(minutes=45)).isoformat()
+            a = {"id": "test", "event": "Tornado Warning", "area": "Your county (test)", "ends": soon}
+            self.wxa_test = (a, time.time() + 60)
+            self.notices.insert(0, wx_notice(a))
+            return
+        if team_key == "STOCK|TEST":
+            self.notices.insert(0, stock_notice({"sym": "NVDA", "name": "NVDA", "price": 181.23, "pct": -4.2}))
+            return
         if team_key == "ANY|ALL":
             al = Alert("close", fake("NBA", "LAL", "BOS", 101, 99, "in", "4th 1:12"), None, ANY_INFO)
             al.at = 0
@@ -2564,6 +2839,7 @@ def make_handler(ctl, feed):
                                     pictures=ctl.lib.list(), pic_version=ctl.lib.version,
                                     feed_ok=feed_ok, feed_error=feed.last_error,
                                     wx_status=feed.wx_status, stock_bad=feed.stock_bad,
+                                    wxa_status=feed.wxa_status, wxa_now=[a["event"] for a in feed.alerts_now()],
                                     last_ok=int(stale)))
             elif path == "/api/frame.png":
                 buf = io.BytesIO(); ctl.last_frame.save(buf, "PNG")
@@ -2793,6 +3069,12 @@ def run_display(ctl, feed, matrix):
     inter_last = None
     show_t0, show_n, show_inter = time.time(), 0, None  # Shows: on their own, or popping up in the ticker
     while True:
+        nt = feed.next_notice()
+        if nt:                                    # severe weather / big stock move: takeover, then back to what was showing
+            start = time.time()
+            while (t := time.time() - start) < nt.secs:
+                show(notice_frame(nt, t)); time.sleep(1 / 30)
+            x, inter, last_pic = W, None, time.time()
         al = feed.next_alert()
         th = ctl.theme(al.key) if al and (al.key == ANY_CLOSE or (al.game["league"], al.abbr) in MY_TEAMS) else None
         if al and (th is None or th["on"]):       # takeover, then go back to whatever was showing
@@ -2946,6 +3228,11 @@ def run_preview(feed, seconds=45):
     save_gif(frames, "preview.gif", 50)          # 4 px every 50 ms = 80 px/s
 
 def run_test_alert(kind):
+    if kind in ("wx", "stock"):                   # severe-weather and stock-mover takeovers
+        soon = (datetime.now().astimezone() + timedelta(minutes=45)).isoformat()
+        nt = wx_notice({"id": "t", "event": "Tornado Warning", "area": "Hillsdale; Lenawee", "ends": soon}) if kind == "wx"             else stock_notice({"sym": "NVDA", "name": "NVDA", "price": 181.23, "pct": -4.2})
+        save_gif([notice_frame(nt, i / 20) for i in range(int(nt.secs * 20))], f"alert-{kind}.gif", 50)
+        return
     games = {"td":    fake("NFL", "MIN", "DET", 17, 24, "in", "4th 3:12"),
              "win":   fake("NFL", "MIN", "DET", 17, 31, "post", "Final"),
              "close": fake("NBA", "DET", "BOS", 101, 99, "in", "4th 2:31")}
@@ -3020,7 +3307,7 @@ if __name__ == "__main__":
     ap.add_argument("--demo", action="store_true", help="use local picks.json + fake games")
     ap.add_argument("--port", type=int, help="control page port (default 80, or 8080 with --sim)")
     ap.add_argument("--preview", action="store_true", help="write preview.gif")
-    ap.add_argument("--test-alert", choices=["td", "win", "close"], help="write an alert GIF")
+    ap.add_argument("--test-alert", choices=["td", "win", "close", "wx", "stock"], help="write an alert GIF")
     ap.add_argument("--test-panels", action="store_true", help="number each panel 1-5 to check the wiring")
     args = ap.parse_args()
     if args.test_panels:

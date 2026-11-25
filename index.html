@@ -253,6 +253,12 @@
   </div>
   <div class="chips wrap" id="stockIdx" style="margin-bottom:4px"></div>
   <p class="hint" id="stockHint" style="margin:0 0 4px"></p>
+  <div class="switch" style="margin:12px 0 10px"><span style="font-weight:600">Big move alerts</span><input type="checkbox" id="stockAlOn"></div>
+  <div id="stockAlBox">
+    <div class="seg" id="stockAlPct"><span class="segLabel">Flash at</span><button data-v="2">±2%</button><button data-v="3">±3%</button><button data-v="5">±5%</button></div>
+    <button class="btn ghost" id="stockAlTest" style="margin:0 0 6px">Test it on the ticker</button>
+    <p class="hint" style="margin:0 0 4px">Takes over the ticker when one of your symbols is up or down that much on the day while the market is open. Once per symbol, per direction, per day.</p>
+  </div>
   </div>
   </div>
 
@@ -266,6 +272,12 @@
   </div>
   <div class="chips wrap" id="wxParts"><button data-p="now">Right now</button><button data-p="forecast">Next 3 days</button></div>
   <p class="hint" id="wxHint" style="margin:0 0 4px"></p>
+  <div class="switch" style="margin:12px 0 10px"><span style="font-weight:600">Severe weather alerts</span><input type="checkbox" id="wxAlOn"></div>
+  <div id="wxAlBox">
+    <div class="seg" id="wxAlLevel"><button data-v="warnings">Warnings only</button><button data-v="watches">Warnings + watches</button></div>
+    <button class="btn ghost" id="wxAlTest" style="margin:0 0 6px">Test it on the ticker</button>
+    <p class="hint" id="wxAlHint" style="margin:0 0 4px"></p>
+  </div>
   </div>
   </div>
 
@@ -587,6 +599,13 @@ function render() {
   $("#wxOn").checked = S.wx_on !== false; $("#wxBox").hidden = S.wx_on === false;
   if (document.activeElement !== $("#wxPlace")) $("#wxPlace").value = S.wx_place || "";
   document.querySelectorAll("#wxParts button").forEach(b => b.classList.toggle("on", (S.wx_parts || []).includes(b.dataset.p)));
+  $("#stockAlOn").checked = S.stock_alerts !== false; $("#stockAlBox").hidden = S.stock_alerts === false;
+  document.querySelectorAll("#stockAlPct button").forEach(b => b.classList.toggle("on", +b.dataset.v === (S.stock_alert_pct || 3)));
+  $("#wxAlOn").checked = S.wx_alerts !== false; $("#wxAlBox").hidden = S.wx_alerts === false;
+  document.querySelectorAll("#wxAlLevel button").forEach(b => b.classList.toggle("on", b.dataset.v === (S.wx_alert_level || "warnings")));
+  $("#wxAlHint").textContent = (S.wxa_now || []).length ? `Active now: ${S.wxa_now.join(", ")}. They sit at the front of the scroll.`
+    : String(S.wxa_status || "").startsWith("error") ? "Couldn't reach the National Weather Service (US towns only). It keeps trying."
+    : "From the National Weather Service, checked every 2 minutes. Takes over the ticker when a new one appears; tornado, severe thunderstorm and flash flood warnings flash again every 15 minutes while they last. Active ones also sit at the front of the scroll.";
   $("#wxHint").textContent = !S.wx_status ? "Type a town and state, or a ZIP code, then tap Set."
     : String(S.wx_status).startsWith("error") ? "Couldn't find or load that place. Try \u201cTown, State\u201d or a ZIP code."
     : `Showing ${S.wx_status}. Updates every 10 minutes.`;
@@ -827,6 +846,16 @@ $("#stockAddBtn").onclick = () => { addSymbol($("#stockAdd").value); $("#stockAd
 $("#stockAdd").onkeydown = e => { if (e.key === "Enter") $("#stockAddBtn").click(); };
 $("#stockChips").onclick = e => { const b = e.target.closest("button"); if (b) save({stocks: (S.stocks || []).filter(k => k !== b.dataset.s)}, (STOCK_LABEL[b.dataset.s] || b.dataset.s) + " removed"); };
 $("#stockIdx").onclick = e => { const b = e.target.closest("button"); if (b) addSymbol(b.dataset.add); };
+async function testNotice(team) {
+  try { await api("/api/test-alert", {method:"POST", body: JSON.stringify({team, kind:"x"})}); toast("Here it comes"); }
+  catch { toast("Couldn't reach the ticker"); }
+}
+$("#stockAlOn").onchange = e => save({stock_alerts: e.target.checked}, e.target.checked ? "Big move alerts on" : "Big move alerts off");
+$("#stockAlPct").onclick = e => { const b = e.target.closest("button"); if (b) save({stock_alert_pct: +b.dataset.v}, `Flash at ±${b.dataset.v}%`); };
+$("#stockAlTest").onclick = () => testNotice("STOCK|TEST");
+$("#wxAlOn").onchange = e => save({wx_alerts: e.target.checked}, e.target.checked ? "Severe weather alerts on" : "Severe weather alerts off");
+$("#wxAlLevel").onclick = e => { const b = e.target.closest("button"); if (b) save({wx_alert_level: b.dataset.v}, b.textContent); };
+$("#wxAlTest").onclick = () => testNotice("WX|TEST");
 $("#wxOn").onchange = e => save({wx_on: e.target.checked}, e.target.checked ? "Weather on" : "Weather off");
 $("#wxSet").onclick = () => { const v = $("#wxPlace").value.trim(); if (v) save({wx_place: v}, "Looking up " + v); };
 $("#wxPlace").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $("#wxSet").click(); $("#wxPlace").blur(); } };
@@ -1463,7 +1492,8 @@ const Demo = (() => {
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
            group:"league", days:"week", pl_parts:["record","parlays","props"], pl_on:false, logos:true,
-           stocks_on:true, stocks:["^GSPC","^DJI","^IXIC","AAPL","NVDA","TSLA"], wx_on:true, wx_place:"Somerset Center, Michigan", wx_parts:["now","forecast"], show_every:-1, show_id:"",
+           stocks_on:true, stocks:["^GSPC","^DJI","^IXIC","AAPL","NVDA","TSLA"], wx_on:true, wx_place:"Somerset Center, Michigan", wx_parts:["now","forecast"],
+           wx_alerts:true, wx_alert_level:"warnings", stock_alerts:true, stock_alert_pct:3, show_every:-1, show_id:"",
            shows:[{id:"golions", name:"Go Lions", in_ticker:false, c1:"#0076b6", c2:"#ffffff",
                    steps:[{kind:"words", text:"GO LIONS!", fx:"steady", bg:"color", secs:5, side:"left", w:0.4, fade:false}]}],
            speed:80, motion:"scroll", hold:5, pl_count:5, pl_sports:[], prop_types:[], game_motion:"slide", ranks:true, game_speed:80, msg_on_image:false, pin:"off",
@@ -1547,6 +1577,78 @@ const Demo = (() => {
     buildStrip();
   }
 
+  // ---- weather icons (same 48-unit shapes as the Pi) and the full-screen notices
+  const WXI = {sun:"#ffbe00", cloud:"#c8c8c8", rainc:"#969ca8", stormc:"#696e7a", rain:"#4696ff", snow:"#e1f2ff", fog:"#a0a0a0", bolt:"#ffd200"};
+  const wxKind = c => c === 0 ? "clear" : [1, 2].includes(c) ? "partly" : [45, 48].includes(c) ? "fog" : [51, 53, 55, 61, 63, 65, 80, 81, 82].includes(c) ? "rain"
+    : [56, 57, 66, 67].includes(c) ? "sleet" : [71, 73, 75, 77, 85, 86].includes(c) ? "snow" : [95, 96, 99].includes(c) ? "storm" : "cloud";
+  function drawIcon(c, kind, x, y, size) {
+    const u = size / 48;
+    c.save(); c.translate(x, y); c.scale(u, u);
+    const circ = (cx, cy, r, f) => { c.fillStyle = f; c.beginPath(); c.arc(cx, cy, r, 0, 7); c.fill(); };
+    const line = (x1, y1, x2, y2, f, w = 2.6) => { c.strokeStyle = f; c.lineWidth = w; c.lineCap = "butt"; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); };
+    const poly = (pts, f) => { c.fillStyle = f; c.beginPath(); pts.forEach(([px, py], i) => i ? c.lineTo(px, py) : c.moveTo(px, py)); c.closePath(); c.fill(); };
+    const sun = (cx, cy, r, r0, r1) => { for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; line(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, cx + Math.cos(a) * r1, cy + Math.sin(a) * r1, WXI.sun); } circ(cx, cy, r, WXI.sun); };
+    const cloud = (dx, dy, f) => { circ(17 + dx, 28 + dy, 8, f); circ(27 + dx, 23 + dy, 10, f); circ(37 + dx, 29 + dy, 7, f);
+      c.fillStyle = f; c.beginPath(); if (c.roundRect) c.roundRect(11 + dx, 27 + dy, 32, 10, 5); else c.rect(11 + dx, 27 + dy, 32, 10); c.fill(); };
+    if (kind === "clear") sun(24, 24, 9, 13, 20);
+    else if (kind === "partly") { sun(17, 17, 6, 9, 13); cloud(2, 6, WXI.cloud); }
+    else if (kind === "fog") [14, 23, 32, 41].forEach((yy, i) => line(8 + (i % 2) * 4, yy, 38 + (i % 2) * 4, yy, WXI.fog, 3.4));
+    else if (kind === "rain" || kind === "sleet") {
+      cloud(0, -6, WXI.rainc);
+      (kind === "rain" ? [16, 25, 34] : [16, 34]).forEach(xx => line(xx + 3, 33, xx, 41, WXI.rain));
+      if (kind === "sleet") circ(25, 37, 2.4, WXI.snow);
+    } else if (kind === "snow") { cloud(0, -6, WXI.rainc); [[15, 37], [24, 33], [33, 37], [20, 43], [29, 43]].forEach(([xx, yy]) => circ(xx, yy, 2.4, WXI.snow)); }
+    else if (kind === "storm") { cloud(0, -6, WXI.stormc); poly([[27, 29], [19, 39], [24, 39], [21, 47], [32, 35], [26, 35]], WXI.bolt); }
+    else if (kind === "up") poly([[24, 8], [43, 40], [5, 40]], "#fff");
+    else if (kind === "down") poly([[24, 40], [43, 8], [5, 8]], "#fff");
+    else if (kind === "warn") { poly([[24, 5], [46, 43], [2, 43]], WXI.bolt); c.fillStyle = "#000"; c.fillRect(22, 17, 4, 14); circ(24, 36, 2.4, "#000"); }
+    else cloud(0, 0, WXI.cloud);
+    c.restore();
+  }
+  function wxPiece(code, h = H) {
+    const sz = Math.floor(h * 0.8), cnv = newCanvasH(sz + 14, h);
+    drawIcon(cnv.getContext("2d"), wxKind(code), 7, Math.floor((h - sz) / 2), sz);
+    return cnv;
+  }
+  const WINTERY = /Winter|Blizzard|Snow|Ice|Freez|Cold|Chill|Frost/;
+  const wxaBg = ev => /Watch$/.test(ev) ? "#be7800" : WINTERY.test(ev) ? "#005abe" : /Thunderstorm/.test(ev) ? "#d25f00" : "#be0000";
+  const wxaFg = ev => /Watch$/.test(ev) ? "#ffbe00" : WINTERY.test(ev) ? SNOWB : /Thunderstorm/.test(ev) ? "#ff8c28" : C.red;
+  const untilText = iso => {
+    const d = new Date(iso); if (isNaN(d)) return "";
+    const clock = d.toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit"});
+    return d.toDateString() === new Date().toDateString() ? `until ${clock}` : `until ${d.toLocaleDateString("en-US", {weekday:"short"})} ${clock}`;
+  };
+  function mkNotice(title, detail, bg, icon, secs) {
+    g.font = font(19); const w = g.measureText(detail).width, avail = W - 90;
+    return {title, detail, c1: bg, icon, secs: w > avail ? Math.max(secs, Math.min(28, (avail + w) / 70 + 2)) : secs};
+  }
+  const wxNotice = a => mkNotice(a.event.toUpperCase(), [untilText(a.ends), a.area.split(";").slice(0, 2).map(z => z.trim()).filter(Boolean).join(", ")].filter(Boolean).join("  ·  "), wxaBg(a.event), "warn", 14);
+  const stockNotice = q => { const up = q.pct > 0, word = `${up ? "+" : "-"}${Math.abs(q.pct).toFixed(1)}%`;
+    return mkNotice(`${q.name}  ${word}`, `${q.name} is ${up ? "up" : "down"} ${Math.abs(q.pct).toFixed(1)}% today  ·  now ${q.price.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2})}`,
+                    up ? "#007d32" : "#af1414", up ? "up" : "down", 10); };
+  function drawNotice(nt, t) {
+    const flash = t < 2.4 && Math.floor(t * 5) % 2 === 1, bg = flash ? "#000" : nt.c1, col = flash ? nt.c1 : "#fff";
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    let x0 = 10;
+    if (nt.icon) { drawIcon(g, nt.icon, 10, (H - 52) / 2, 52); x0 = 74; }
+    const avail = W - x0 - 10;
+    center(nt.title, fit(nt.title, avail, 30), col, x0 + avail / 2, 20);
+    const n2 = fit(nt.detail, avail, 19); g.font = font(n2);
+    if (g.measureText(nt.detail).width <= avail) center(nt.detail, n2, col, x0 + avail / 2, 47);
+    else {
+      g.font = font(19); const w2 = g.measureText(nt.detail).width, sx = avail - (Math.max(0, t - 1) * 70) % (avail + w2);
+      g.save(); g.beginPath(); g.rect(x0, 34, avail, 26); g.clip(); textAt(g, x0 + sx, 47, nt.detail, 19, col); g.restore();
+    }
+  }
+  let wxaTest = null;
+  const warnActive = () => !!(wxaTest && Date.now() < wxaTest.until);
+  function warnSegs() {
+    if (S.wx_alerts === false || !warnActive()) return [];
+    const a = wxaTest.a;
+    return [["  WEATHER ALERT  ", C.red, "hdr"], [a.event.toUpperCase(), wxaFg(a.event)], [`  ${untilText(a.ends)}`, LIGHTC], ["  •  ", C.dot]];
+  }
+
+
   // ---- stocks + weather (the Pi uses Yahoo + Open-Meteo; this page shows sample quotes and live weather when it can)
   const STOCK_SAMPLE = {"^GSPC":["S&P 500",6812.34,0.42], "^DJI":["DOW",47921.10,0.18], "^IXIC":["NASDAQ",23104.55,-0.31],
                         AAPL:["AAPL",278.52,0.84], NVDA:["NVDA",181.23,-1.62], TSLA:["TSLA",412.80,2.37]};
@@ -1602,14 +1704,14 @@ const Demo = (() => {
       const parts = S.wx_parts || [], body = [];
       if (parts.includes("now")) {
         const [desc, dc] = wxText(w.code);
-        body.push([`${placeLabel(w.place)}  `, C.white], [`${w.temp}°  `, tempColor(w.temp)], [desc, dc], ["  •  ", C.dot], [`H ${w.hi}° L ${w.lo}°  `, LIGHTC]);
+        body.push([`${placeLabel(w.place)} `, C.white], ["", null, "wx", w.code], [`${w.temp}°  `, tempColor(w.temp)], [desc, dc], ["  •  ", C.dot], [`H ${w.hi}° L ${w.lo}°  `, LIGHTC]);
         if (w.rain >= 20) body.push([`Rain ${w.rain}%  `, RAINB]);
         if (Math.abs(w.feels - w.temp) >= 5) body.push([`Feels ${w.feels}°  `, LIGHTC]);
         body.push([`Wind ${w.wdir} ${w.wind}`, C.gray], ["  •  ", C.dot]);
       }
       if (parts.includes("forecast")) for (const d of w.days.slice(0, 3)) {
         const [desc, dc] = wxText(d.code);
-        body.push([`${d.name}  `, C.blue], [`${d.hi}°/${d.lo}°  `, C.white], [desc, dc]);
+        body.push([`${d.name} `, C.blue], ["", null, "wx", d.code], [`${d.hi}°/${d.lo}°  `, C.white], [desc, dc]);
         if (d.rain >= 30) body.push([`  ${d.rain}%`, RAINB]);
         body.push(["  •  ", C.dot]);
       }
@@ -1618,11 +1720,12 @@ const Demo = (() => {
     return out;
   }
 
-  let lastPL = [], lastShown = [];
+  let lastPL = [], lastShown = [], lastWarn = [];
   function segments(override) {
     const picks = override ? 0 : (S.game_ids || []).length;
     const only = picks ? [] : (S.leagues || []), want = k => !only.length || only.includes(k);
     const segs = [[`  ${new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}).replace(/ ?[AP]M/, "")}  `, C.blue]];
+    lastWarn = warnSegs(); segs.push(...lastWarn);          // active warnings go first
     const plSegs = [];
     for (const b of S.pl_on ? pl : []) {
       if ((S.pl_sports || []).length && !S.pl_sports.includes(b.sport)) continue;
@@ -1973,7 +2076,7 @@ const Demo = (() => {
   // the scroll is drawn on a see-through canvas, so sparks can sit behind the words
   function makeStrip(segs, hideMsg = false, h = H) {
     const F = h === H ? FONT_PX : HALF_PX;
-    const pieces = segs.map(sg => [sg, sg[2] === "game" ? (h === H ? gamePiece(sg[3]) : gameLine(sg[3], h)) : sg[2] === "hdr" ? hdrBlock(sg[0], sg[1], h) : sg[2] === "sub" ? subBlock(sg[0], lookColor(sg[1]), h) : null]);
+    const pieces = segs.map(sg => [sg, sg[2] === "game" ? (h === H ? gamePiece(sg[3]) : gameLine(sg[3], h)) : sg[2] === "hdr" ? hdrBlock(sg[0], sg[1], h) : sg[2] === "sub" ? subBlock(sg[0], lookColor(sg[1]), h) : sg[2] === "wx" ? wxPiece(sg[3], h) : null]);
     const w = pieces.reduce((a, [sg, pic]) => a + (pic ? pic.width : measure(sg[0], F)), 0) + 4;
     const cnv = newCanvasH(w, h); cnv.spans = [];
     const s = cnv.getContext("2d");
@@ -1994,18 +2097,19 @@ const Demo = (() => {
   let cards = [], cardI = 0, cardT0 = performance.now();
   function makeCards(segs) {
     const out = [{label:null, segs:[[new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}).replace(/ ?[AP]M/, ""), C.blue]], msg:false}];
-    let label = null, sub = null, cur = [];
-    const flush = () => { const body = cur.filter(x => x[0].trim()); if (body.length) out.push({label: sub ? [label ? `${label[0]} · ${sub[0]}` : sub[0], sub[1]] : label, segs: body, msg:false}); cur = []; };
+    let label = null, sub = null, cur = [], icon = null;
+    const flush = () => { const body = cur.filter(x => x[0].trim()); if (body.length) out.push(Object.assign({label: sub ? [label ? `${label[0]} · ${sub[0]}` : sub[0], sub[1]] : label, segs: body, msg:false}, icon !== null ? {icon} : {})); cur = []; icon = null; };
     for (const sg of segs) {
       if (sg[2] === "hdr") { flush(); label = [sg[0].trim(), sg[1]]; sub = null; }
       else if (sg[2] === "sub") { flush(); sub = [sg[0].trim(), sg[1]]; }
       else if (sg[2] === "msg") { flush(); out.push({label:null, segs:[[sg[0].trim(), sg[1]]], msg:true}); }
+      else if (sg[2] === "wx") icon = sg[3];
       else if (sg[0].trim() === "•") flush();
       else cur.push(sg);
     }
     flush(); return out;
   }
-  const LABEL_PX = 8 * K, LABEL_H = LABEL_PX + 2;
+  const LABEL_PX = 8 * K, LABEL_H = LABEL_PX + 2, ICON_W = 54;
   const cardTokens = c => {               // the card's words with their colors, so long cards can wrap
     const toks = []; for (const [txt, col] of c.segs) for (const w of txt.match(/\S+\s*|\s+/g) || []) toks.push([w, col]);
     while (toks.length && !toks[0][0].trim()) toks.shift();
@@ -2015,9 +2119,9 @@ const Demo = (() => {
   const lineW = (toks, n) => { g.font = font(n); return toks.reduce((a, [w]) => a + g.measureText(w).width, 0); };
   function cardLayout(c) {                // [size, lines] that fit (one or two lines), or [null, [all]] to crawl
     if (c._layout && c._layout.key === S.ranks + "") return c._layout.v;
-    const toks = cardTokens(c), h = H - (c.label ? LABEL_H : 0);
+    const toks = cardTokens(c), h = H - (c.label ? LABEL_H : 0), avail = W - 6 - (c.icon != null ? ICON_W : 0);
     let v = null;
-    for (let n = (c.label ? 19 : 24) * K; n >= 11 * K && !v; n--) if (lineW(toks, n) <= W - 6) v = [n, [toks]];
+    for (let n = (c.label ? 19 : 24) * K; n >= 11 * K && !v; n--) if (lineW(toks, n) <= avail) v = [n, [toks]];
     if (!v && toks.filter(([w]) => w.trim()).length > 1) {
       const nice = [], all = [];
       for (let i = 1; i < toks.length; i++) { all.push(i); if (/[·:]$/.test(toks[i - 1][0].trimEnd()) || toks[i - 1][1] !== toks[i][1]) nice.push(i); }
@@ -2028,7 +2132,7 @@ const Demo = (() => {
         const l1 = toks.slice(0, cut), l2 = toks.slice(cut);
         l1[l1.length - 1] = [l1[l1.length - 1][0].trimEnd().replace(/·$/, "").trimEnd(), l1[l1.length - 1][1]];
         l2[0] = [l2[0][0].trimStart(), l2[0][1]];
-        for (let n = Math.floor(h / 2) - 2; n > 15 && !v; n--) if (lineW(l1, n) <= W - 6 && lineW(l2, n) <= W - 6) v = [n, [l1, l2]];
+        for (let n = Math.floor(h / 2) - 2; n > 15 && !v; n--) if (lineW(l1, n) <= avail && lineW(l2, n) <= avail) v = [n, [l1, l2]];
       }
     }
     v = v || [null, [toks]];
@@ -2052,10 +2156,12 @@ const Demo = (() => {
     let top = 0;
     if (c.label) { cc.font = font(LABEL_PX); cc.textBaseline = "top"; cc.fillStyle = c.label[1]; cc.fillText(c.label[0].toUpperCase(), 3 * K, 0); top = LABEL_H; }
     const h = H - top;
+    let x0 = 0;
+    if (c.icon != null) { const sz = h - 4; drawIcon(cc, wxKind(c.icon), 8, top + (h - sz) / 2, sz); x0 = ICON_W; }
     if (fx === "fireworks") fireworks(cc, t);
     const ys = lines.length === 1 ? [top + h / 2] : [top + h * 0.27, top + h * 0.73];
     lines.forEach((toks, li) => {
-      let px = size ? (W - lineW(toks, n)) / 2 : W - t * S.speed;
+      let px = size ? x0 + (W - x0 - lineW(toks, n)) / 2 : W - t * S.speed;
       for (const [tx, col] of toks) {
         fxText(cc, tx, px, ys[li] + 1, n, col === "rainbow" ? null : col, col === "rainbow" ? "rainbow" : fx, t);
         cc.font = font(n); px += cc.measureText(tx).width;
@@ -2078,7 +2184,7 @@ const Demo = (() => {
     const segs = segments();
     // one-at-a-time: clock, message, ParlayLabs items, then each game as a big scoreboard
     const plCards = makeCards(lastPL);
-    cards = plCards.slice(0, 1);
+    cards = plCards.slice(0, 1).concat(makeCards(lastWarn).slice(1));
     if (S.msg_in_scroll && (S.message || "").trim())
       cards.push({label:null, segs:[[S.message.trim(), S.effect === "rainbow" ? "rainbow" : S.color]], msg:true});
     const order = {in:0, pre:1, post:2}, lgo = Object.keys(ESPN);
@@ -2558,10 +2664,10 @@ const Demo = (() => {
     if (!showing && due >= 0) { showing = alerts.splice(due, 1)[0]; showing.start = now; }
     if (showing) {
       const t = (now - showing.start) / 1000;
-      if (t < alertLen(themeOf(showing.key))) { drawAlert(showing, t); return requestAnimationFrame(tick); }
+      if (t < (showing.notice ? showing.notice.secs : alertLen(themeOf(showing.key)))) { showing.notice ? drawNotice(showing.notice, t) : drawAlert(showing, t); return requestAnimationFrame(tick); }
       showing = null; x = W;
     }
-    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.pl_on, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin, S.look, fontsReady, S.show_id, S.logos, S.stocks_on, S.stocks, S.wx_on, S.wx_place, S.wx_parts, wxVer]);
+    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.pl_on, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin, S.look, fontsReady, S.show_id, S.logos, S.stocks_on, S.stocks, S.wx_on, S.wx_place, S.wx_parts, wxVer, S.wx_alerts, warnActive()]);
     if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; inter = null; lastPic = now; lapDone = false; showInter = null; showT0 = now; }
     const tickShows = (S.shows || []).filter(z => z.in_ticker && (z.steps || []).length);
     if (S.mode === "scroll" && !inter && !showInter && +(S.show_every ?? -1) && tickShows.length) {   // a show between laps
@@ -2629,6 +2735,14 @@ const Demo = (() => {
   }
 
   function testAlert(teamKey = "NFL|DET", kind = "td") {     // the Test button: shows right away
+    if (teamKey === "WX|TEST") {                              // pretend tornado warning: takeover now, and in the scroll for a minute
+      const a = {id:"test", event:"Tornado Warning", area:"Your county (test)", ends:new Date(Date.now() + 45 * 60000).toISOString()};
+      wxaTest = {a, until: Date.now() + 60000};
+      alerts.unshift({now: true, at: performance.now(), notice: wxNotice(a)});
+      setTimeout(() => { wxVer++; }, 61000);                 // drop it from the scroll when the minute is up
+      return;
+    }
+    if (teamKey === "STOCK|TEST") { alerts.unshift({now: true, at: performance.now(), notice: stockNotice({name:"NVDA", price:181.23, pct:-4.2})}); return; }
     if (teamKey === "ANY|ALL") {
       alerts.unshift({kind: "close", key: "ANY|ALL|close", now: true, at: performance.now(), game: fake("NBA","LAL","BOS",101,99,"in","4th 1:12"), words: ["CLOSE GAME"]});
       return;
@@ -2694,7 +2808,7 @@ const Demo = (() => {
                                                 kinds: ["close"], themes: {close: themeOf("ANY|ALL|close")}}].concat((S.favorites || []).map(f => { const key = `${f.league}|${f.abbr}`;
                                    return {key, league: f.league, abbr: f.abbr, name: f.name, c1: f.c1, c2: f.c2, kinds: ALERT_KINDS[f.league],
                                            themes: Object.fromEntries(ALERT_KINDS[f.league].map(k => [k, themeOf(`${key}|${k}`)]))}; })),
-                                 has_image: lib.length > 0, feed_ok: true, last_ok: 0,
+                                 has_image: lib.length > 0, feed_ok: true, last_ok: 0, wxa_now: warnActive() ? ["Tornado Warning"] : [], wxa_status: "ok",
                                  wx_status: wxData ? (wxData.live ? wxData.place : "sample weather") : "", stock_bad: []});
   }
 
@@ -2734,7 +2848,7 @@ async function start() {
       const tx = d.transaction("kv", mode), q = f(tx.objectStore("kv")); tx.oncomplete = () => ok(q && q.result); tx.onerror = () => bad(tx.error); }); };
     return {get: k => run("readonly", st => st.get(k)), set: (k, v) => run("readwrite", st => st.put(v, k)), del: k => run("readwrite", st => st.delete(k))};
   })();
-  const SAVE_KEYS = ["themes", "favorites", "shows", "show_every", "pic_ids", "pic_secs", "pic_order", "pic_fx", "pic_every", "pic_boost", "message", "color", "effect", "stocks_on", "stocks", "wx_on", "wx_place", "wx_parts"];
+  const SAVE_KEYS = ["themes", "favorites", "shows", "show_every", "pic_ids", "pic_secs", "pic_order", "pic_fx", "pic_every", "pic_boost", "message", "color", "effect", "stocks_on", "stocks", "wx_on", "wx_place", "wx_parts", "wx_alerts", "wx_alert_level", "stock_alerts", "stock_alert_pct"];
   let saveT = 0, stored = new Set();
   function persist() {
     clearTimeout(saveT);
