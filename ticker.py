@@ -2823,10 +2823,17 @@ def make_handler(ctl, feed):
         def do_GET(self):
             path = self.path.split("?")[0]
             if path in ("/", "/index.html"):
-                self.send(200, open(os.path.join(HERE, "index.html"), "rb").read(), "text/html; charset=utf-8")
+                # the Pi's copy says "Bar Ticker Pi" on the home screen and tab; the shared demo page keeps "Bar Ticker"
+                page = open(os.path.join(HERE, "index.html"), "rb").read()
+                for tag in (b'apple-mobile-web-app-title" content="Bar Ticker"', b'application-name" content="Bar Ticker"', b"<title>Bar Ticker</title>"):
+                    page = page.replace(tag, tag.replace(b"Bar Ticker", b"Bar Ticker Pi"))
+                self.send(200, page, "text/html; charset=utf-8")
             elif path.lstrip("/") in STATIC_FILES:                # icon + home-screen bookmark files
                 name = path.lstrip("/")
-                self.send(200, open(os.path.join(HERE, name), "rb").read(), STATIC_FILES[name])
+                body = open(os.path.join(HERE, name), "rb").read()
+                if name == "manifest.json":
+                    body = body.replace(b'"Bar Ticker"', b'"Bar Ticker Pi"')
+                self.send(200, body, STATIC_FILES[name])
             elif path == "/api/state":
                 games = [dict(g, mine=bool(mine(g)[0]), close=is_close(g), linger=feed.linger_left(g))
                          for g in feed.games]
