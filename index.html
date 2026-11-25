@@ -218,6 +218,7 @@
 <div class="card panel" data-panel="scroll">
   <div id="secGames">
   <h2>Games</h2>
+  <div class="switch" style="margin:0 0 10px"><span style="font-weight:600">Show games</span><input type="checkbox" id="gamesOn"></div>
   <div class="chips wrap" id="leagues"></div>
   <div class="quick">
     <button id="pickMine">My teams</button>
@@ -610,6 +611,7 @@ function render() {
   { const sp = S.sports_on !== false;                    // a part that's off: its whole settings section goes away
     $("#secGames").hidden = $("#secOdds").hidden = $("#secPin").hidden = !sp;
     $("#secPl").hidden = !S.pl_on; $("#secStocks").hidden = S.stocks_on === false; $("#secWx").hidden = S.wx_on === false; }
+  $("#gamesOn").checked = S.sports_on !== false;
   $("#showSports").checked = S.sports_on !== false; $("#showPl").checked = !!S.pl_on;
   $("#showStocks").checked = S.stocks_on !== false; $("#showWx").checked = S.wx_on !== false;
   { const on = [S.sports_on !== false && "scores", S.pl_on && "ParlayLabs", S.stocks_on !== false && "stocks", S.wx_on !== false && "weather"].filter(Boolean);
@@ -888,6 +890,7 @@ $("#wxPlace").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $(
 $("#wxParts").onclick = e => { const b = e.target.closest("button"); if (!b) return;
   const on = new Set(S.wx_parts || []); on.has(b.dataset.p) ? on.delete(b.dataset.p) : on.add(b.dataset.p);
   save({wx_parts: [...on]}, on.size ? "Weather updated" : "No weather in the scroll"); };
+$("#gamesOn").onchange = e => save({sports_on: e.target.checked}, e.target.checked ? "Scores on" : "Scores off");
 $("#showSports").onchange = e => save({sports_on: e.target.checked}, e.target.checked ? "Scores on" : "Scores off");
 $("#showPl").onchange = e => save({pl_on: e.target.checked}, e.target.checked ? "ParlayLabs bets on" : "ParlayLabs bets off");
 $("#showStocks").onchange = e => save({stocks_on: e.target.checked}, e.target.checked ? "Stocks on" : "Stocks off");
