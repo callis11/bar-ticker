@@ -111,7 +111,7 @@ def mid_windows(p):
 PI_HOLES = [(-29, -24.5), (29, -24.5), (-29, 24.5), (29, 24.5)]   # 58 x 49 mm pattern
 SO_H = 8.0
 PLATE_HL = 102.5
-PI_CX, FB_CX = 52.5, -52.5
+PI_CX, FB_CX = 45.0, -52.5           # Pi board ends ~8 mm short of the 16-pin plug
 FB_DX, FB_DY = 70.1, 72.6
 FB_BOSS_H = 6.0
 pim = mid_plate(PLATE_HL, H / 2)
