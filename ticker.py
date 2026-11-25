@@ -15,7 +15,7 @@ Try it on a PC:     python3 ticker.py --sim --demo        (control page at http:
 Scroll GIF:         python3 ticker.py --preview
 Alert GIF:          python3 ticker.py --test-alert td     (td / win / close)
 """
-import argparse, colorsys, io, json, math, os, random, tempfile, time, threading, urllib.parse, urllib.request
+import argparse, colorsys, io, json, math, os, random, re, tempfile, time, threading, urllib.parse, urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageSequence
@@ -98,6 +98,8 @@ def is_close(g):
 PARLAYLABS = "https://callis11.github.io/parlay-lab"
 PL_REFRESH = 600           # check ParlayLabs every 10 minutes
 PL_SPORTS  = {"NFL": "", "NBA": "/nba", "CFB": "/cfb", "CBB": "/cbb"}
+WX_DEFAULT_PLACE = "Somerset Center, Michigan"   # weather town (change it on the phone: town name or ZIP)
+DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "AAPL", "NVDA", "TSLA"]   # symbols on the stock scroll (change on the phone)
 
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
 LEAGUES = [  # (label, espn path, color)
@@ -128,6 +130,7 @@ class Control:
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"], "pl_on": False,
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
+            "stocks_on": True, "stocks": list(DEFAULT_STOCKS), "wx_on": True, "wx_place": WX_DEFAULT_PLACE, "wx_parts": ["now", "forecast"],
             "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off",
             # pictures: which ones (empty = all), one played on its own, seconds each, order, change style,
             # how often one pops up in the ticker, LED color boost
@@ -204,6 +207,10 @@ class Control:
         self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push", "scroll") else "slide"
         self.game_speed = max(20, min(200, int(self.game_speed)))
         self.pl_count = max(1, min(10, int(self.pl_count)))
+        self.stocks_on, self.wx_on = bool(self.stocks_on), bool(self.wx_on)
+        self.stocks = clean_symbols(self.stocks)
+        self.wx_place = (str(self.wx_place or "").strip() or WX_DEFAULT_PLACE)[:60]
+        self.wx_parts = [x for x in (self.wx_parts or []) if x in WX_PARTS]
         self.pl_sports = [x for x in (self.pl_sports or []) if x in PL_SPORTS]      # empty = all sports
         self.prop_types = [x for x in (self.prop_types or []) if x in PROP_TYPES]  # empty = all types
         if self.effect not in EFFECTS:
@@ -666,6 +673,165 @@ def pl_segments(blocks, ctl):
         if body:
             segs += [(f"  PARLAYLABS {b['sport']}  ", GOLD, "hdr")] + body
     return segs
+
+# ------------------------------------------------------------------ stocks + weather
+# Both are free feeds with no account or key: Open-Meteo for weather (and finding your town), Yahoo Finance's
+# public chart feed for quotes (delayed ~15 min, like most free quotes). They mix into the scroll after ParlayLabs.
+WX_API     = "https://api.open-meteo.com/v1/forecast"
+GEO_API    = "https://geocoding-api.open-meteo.com/v1/search"
+YAHOO      = "https://query1.finance.yahoo.com/v8/finance/chart/"
+WX_REFRESH = 600           # weather every 10 minutes
+STOCK_OPEN_SEC, STOCK_CLOSED_SEC = 60, 900     # quotes every minute while the market is open, every 15 min otherwise
+WX_FALLBACK = (41.98, -84.38)                  # only used if the town lookup can't be reached for the default place
+STOCK_NAMES = {"^GSPC": "S&P 500", "^DJI": "DOW", "^IXIC": "NASDAQ", "^RUT": "RUSSELL", "^VIX": "VIX"}
+STOCKS_COLOR, WX_COLOR = (0, 210, 140), (120, 190, 255)
+LIGHT, RAIN_BLUE, SNOW_BLUE, STORM = (200, 200, 200), (70, 150, 255), (170, 225, 255), (255, 120, 40)
+WX_PARTS = ("now", "forecast")
+
+def yahoo_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) ParlayLabsTicker"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)
+
+def clean_symbols(lst):
+    """Stock symbols as typed on the phone: upper case, letters/numbers/. - = and a leading ^ for indexes."""
+    out = []
+    for s in lst or []:
+        s = str(s).strip().upper()
+        if re.fullmatch(r"\^?[A-Z0-9.\-=]{1,10}", s) and s not in out:
+            out.append(s)
+    return out[:12]
+
+def market_open(now=None):
+    """US stock market hours (with a little slack either side), Mon-Fri, Eastern time."""
+    from zoneinfo import ZoneInfo
+    t = datetime.fromtimestamp(now or time.time(), ZoneInfo("America/New_York"))
+    return t.weekday() < 5 and (9, 0) <= (t.hour, t.minute) < (16, 15)
+
+def fetch_stock(sym, loader=None):
+    j = (loader or yahoo_json)(f"{YAHOO}{urllib.parse.quote(sym)}?range=1d&interval=1d")
+    m = j["chart"]["result"][0]["meta"]
+    price = float(m["regularMarketPrice"])
+    prev = float(m.get("previousClose") or m.get("chartPreviousClose") or price)
+    chg = price - prev
+    return {"sym": sym, "name": STOCK_NAMES.get(sym, sym.lstrip("^")), "price": price, "chg": chg,
+            "pct": 100 * chg / prev if prev else 0.0}
+
+def fetch_stocks(symbols, loader=None, old=None):
+    """(quotes in the phone's order, symbols that failed). A symbol that fails keeps its last quote, if it had one."""
+    quotes, bad = [], []
+    for sym in symbols:
+        try:
+            quotes.append(fetch_stock(sym, loader))
+        except Exception:
+            bad.append(sym)
+            if old and sym in old:
+                quotes.append(old[sym])
+    return quotes, bad
+
+def stock_segments(data, ctl):
+    """Stocks part of the scroll: STOCKS label, then AAPL 227.52 +0.55% for each symbol (green up, red down)."""
+    if not ctl.stocks_on or not data:
+        return []
+    by_sym = {q["sym"]: q for q in data["quotes"]}
+    quotes = [by_sym[s] for s in ctl.stocks if s in by_sym]
+    if not quotes:
+        return []
+    segs = [(f"  STOCKS{'' if data['open'] else ' · CLOSED'}  ", STOCKS_COLOR, "hdr")]
+    for q in quotes:
+        pct = round(q["pct"], 2)
+        col = GREEN if pct > 0 else RED if pct < 0 else GRAY
+        segs += [(f"{q['name']} ", WHITE), (f"{q['price']:,.2f} ", LIGHT),
+                 (f"{'+' if pct >= 0 else '-'}{abs(pct):.2f}%", col), DOT]
+    return segs
+
+# WMO weather codes (what Open-Meteo reports) -> words and a color
+def wx_text(code):
+    table = {0: ("Clear", GOLD), 1: ("Mostly clear", GOLD), 2: ("Partly cloudy", LIGHT), 3: ("Cloudy", (170, 170, 170)),
+             45: ("Fog", GRAY), 48: ("Fog", GRAY), 51: ("Drizzle", RAIN_BLUE), 53: ("Drizzle", RAIN_BLUE),
+             55: ("Drizzle", RAIN_BLUE), 56: ("Icy drizzle", SNOW_BLUE), 57: ("Icy drizzle", SNOW_BLUE),
+             61: ("Light rain", RAIN_BLUE), 63: ("Rain", RAIN_BLUE), 65: ("Heavy rain", RAIN_BLUE),
+             66: ("Freezing rain", SNOW_BLUE), 67: ("Freezing rain", SNOW_BLUE), 71: ("Light snow", SNOW_BLUE),
+             73: ("Snow", SNOW_BLUE), 75: ("Heavy snow", SNOW_BLUE), 77: ("Snow grains", SNOW_BLUE),
+             80: ("Showers", RAIN_BLUE), 81: ("Showers", RAIN_BLUE), 82: ("Heavy showers", RAIN_BLUE),
+             85: ("Snow showers", SNOW_BLUE), 86: ("Snow showers", SNOW_BLUE),
+             95: ("Thunderstorms", STORM), 96: ("Thunderstorms", STORM), 99: ("Thunderstorms", STORM)}
+    return table.get(code, ("", LIGHT))
+
+def temp_color(t):
+    return SNOW_BLUE if t <= 32 else WHITE if t < 80 else (255, 170, 60) if t < 95 else RED
+
+def compass(deg):
+    return ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][int((deg % 360) / 45 + 0.5) % 8]
+
+def place_label(place):
+    return (place.split(",")[0].strip() or place).upper()[:18]
+
+def locate(place, loader=None):
+    """Town name ("Somerset Center, Michigan") or ZIP code -> {"lat", "lon", "title"} via Open-Meteo's place search."""
+    loader = loader or get_json
+    name, _, hint = place.partition(",")
+    hint = hint.strip().lower()
+    res = loader(f"{GEO_API}?name={urllib.parse.quote(name.strip())}&count=10&language=en&format=json").get("results") or []
+    if not res:
+        raise ValueError(f"couldn't find “{place}”")
+    def score(r):                       # the state/region you typed, then US places
+        regions = " ".join(str(r.get(k, "")) for k in ("admin1", "admin2", "country", "country_code")).lower()
+        return (bool(hint) and hint in regions, r.get("country_code") == "US")
+    r = max(res, key=score)             # max keeps the first (most relevant) result on ties
+    title = ", ".join(x for x in (r.get("name"), r.get("admin1")) if x)
+    return {"lat": r["latitude"], "lon": r["longitude"], "title": title}
+
+def fetch_weather(loc, loader=None):
+    q = (f"?latitude={loc['lat']}&longitude={loc['lon']}"
+         "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m"
+         "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+         f"&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone={urllib.parse.quote(TIMEZONE, safe='')}&forecast_days=4")
+    j = (loader or get_json)(WX_API + q)
+    c, d = j["current"], j["daily"]
+    def day(i):
+        return {"name": datetime.strptime(d["time"][i], "%Y-%m-%d").strftime("%a").upper(),
+                "code": d["weather_code"][i], "hi": round(d["temperature_2m_max"][i]), "lo": round(d["temperature_2m_min"][i]),
+                "rain": round(d["precipitation_probability_max"][i] or 0)}
+    today = day(0)
+    return {"temp": round(c["temperature_2m"]), "feels": round(c["apparent_temperature"]), "code": c["weather_code"],
+            "wind": round(c["wind_speed_10m"]), "wdir": compass(c["wind_direction_10m"]),
+            "hi": today["hi"], "lo": today["lo"], "rain": today["rain"], "days": [day(i) for i in range(1, len(d["time"]))]}
+
+def wx_segments(wx, ctl):
+    """Weather part of the scroll: where, now (temp + sky), the details, then the next few days."""
+    if not ctl.wx_on or not wx or wx.get("place") != ctl.wx_place:
+        return []
+    segs = []
+    if "now" in ctl.wx_parts:
+        desc, dc = wx_text(wx["code"])
+        segs += [(f"{place_label(ctl.wx_place)}  ", WHITE), (f"{wx['temp']}°  ", temp_color(wx["temp"])), (desc, dc), DOT]
+        det = [(f"H {wx['hi']}° L {wx['lo']}°  ", LIGHT)]
+        if wx["rain"] >= 20:
+            det.append((f"Rain {wx['rain']}%  ", RAIN_BLUE))
+        if abs(wx["feels"] - wx["temp"]) >= 5:
+            det.append((f"Feels {wx['feels']}°  ", LIGHT))
+        det.append((f"Wind {wx['wdir']} {wx['wind']}", GRAY))
+        segs += det + [DOT]
+    if "forecast" in ctl.wx_parts:
+        for dy in wx["days"][:3]:
+            desc, dc = wx_text(dy["code"])
+            segs += [(f"{dy['name']}  ", (0, 180, 255)), (f"{dy['hi']}°/{dy['lo']}°  ", WHITE), (desc, dc)]
+            if dy["rain"] >= 30:
+                segs.append((f"  {dy['rain']}%", RAIN_BLUE))
+            segs.append(DOT)
+    return [(f"  WEATHER  ", WX_COLOR, "hdr")] + segs if segs else []
+
+def extra_segments(feed, ctl):
+    """Stocks + weather for the scroll (and the one-at-a-time cards), hiding anything that has gone stale."""
+    now, out = time.time(), []
+    stocks = feed.stocks
+    if stocks and not feed.demo and stocks["open"] and now - stocks["at"] > 600:
+        stocks = None                                    # market open but no fresh quote in 10 min: don't show old prices
+    wx = feed.wx
+    if wx and not feed.demo and now - wx["at"] > 3 * 3600:
+        wx = None
+    return stock_segments(stocks, ctl) + wx_segments(wx, ctl)
 
 # ------------------------------------------------------------------ alerts
 # ---- alert themes: your own look for each team's touchdown / red zone / win / close-game alert
@@ -2010,8 +2176,12 @@ class Feed:
         self.strip_off = self.strip_mask = None
         self.pinned, self.bottom, self.bottom_off = [], None, None   # split screen
         self.cards = []
+        self.stocks, self.wx = None, None          # latest quotes / weather (see extras_loop)
+        self.stock_bad, self.wx_status, self.wx_loc = [], "", {}
+        self.extra_kick = False
         self.watcher = AlertWatcher()
         threading.Thread(target=self.loop, daemon=True).start()
+        threading.Thread(target=self.extras_loop, daemon=True).start()   # own thread: a slow quote never stalls the scores
 
     def loop(self):
         """Hot leagues (my team or the pinned game live) every FAST_SEC, everything else every ctl.refresh."""
@@ -2020,6 +2190,7 @@ class Feed:
             now = time.time()
             if self.force:                               # refresh button: skip the waits this time
                 self.force, last, last_pl, last_next = False, {}, 0, 0
+                self.extra_kick = True
             if self.demo:
                 self.games, self.pl = DEMO_GAMES, demo_parlaylabs()
             else:
@@ -2044,6 +2215,54 @@ class Feed:
             self.build_strip()
             time.sleep(1)
 
+    def extras_loop(self):
+        """Stocks and weather, in their own thread. Only fetches what's switched on, and again when you change
+        the symbols or the town."""
+        last_s = last_w = 0
+        key_s = key_w = None
+        while True:
+            ctl, now = self.ctl, time.time()
+            if self.extra_kick:
+                self.extra_kick, last_s, last_w = False, 0, 0
+            ks, kw = (ctl.stocks_on, tuple(ctl.stocks)), (ctl.wx_on, ctl.wx_place)
+            if ks != key_s:
+                key_s, last_s = ks, 0
+            if kw != key_w:
+                key_w, last_w = kw, 0
+            if self.demo:
+                self.stocks, self.wx = demo_stocks(ctl), demo_weather(ctl)
+            else:
+                if ctl.stocks_on and ctl.stocks and now - last_s >= (STOCK_OPEN_SEC if market_open() else STOCK_CLOSED_SEC):
+                    self.update_stocks(); last_s = time.time()
+                if ctl.wx_on and now - last_w >= WX_REFRESH:
+                    self.update_weather(); last_w = time.time()
+            time.sleep(1)
+
+    def update_stocks(self):
+        old = {q["sym"]: q for q in (self.stocks or {}).get("quotes", [])}
+        quotes, self.stock_bad = fetch_stocks(self.ctl.stocks, old=old)
+        if quotes:                                   # "at" only moves when something fresh came in (old quotes go stale)
+            fresh = len(self.stock_bad) < len(self.ctl.stocks)
+            self.stocks = {"quotes": quotes, "open": market_open(),
+                           "at": time.time() if fresh else (self.stocks or {}).get("at", time.time())}
+
+    def update_weather(self):
+        place = self.ctl.wx_place
+        try:
+            loc = self.wx_loc.get(place)
+            if not loc:
+                try:
+                    loc = locate(place)
+                except Exception:                      # lookup failed: fine for the default town, an error for any other
+                    if place != WX_DEFAULT_PLACE:
+                        raise
+                    loc = {"lat": WX_FALLBACK[0], "lon": WX_FALLBACK[1], "title": place}
+                self.wx_loc = {place: loc}
+            self.wx = dict(fetch_weather(loc), place=place, at=time.time())
+            self.wx_status = loc["title"]
+        except Exception as e:
+            self.wx_status = f"error: {e}"
+
     def shown_games(self):
         """Games on the ticker: the ones picked on the phone (incl. My teams / Live / Close),
         or every game in the chosen sports when nothing is picked."""
@@ -2055,10 +2274,10 @@ class Feed:
     def build_strip(self):
         ctl = self.ctl
         games, raw = self.shown_games()
-        pl = pl_segments(self.pl, ctl)
+        pl = pl_segments(self.pl, ctl) + extra_segments(self, ctl)      # ParlayLabs, then stocks, then weather
         build = time_segments if ctl.group == "time" else score_segments
         game_segs = build(games, None, ctl.show_odds(), "week", raw)
-        segs = game_segs + pl                     # games first, then ParlayLabs
+        segs = game_segs + pl                     # games first, then ParlayLabs, stocks, weather
         if ctl.msg_in_scroll and ctl.message.strip():
             # your message comes around before each league (and before ParlayLabs)
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
@@ -2251,6 +2470,22 @@ class Feed:
             return q.pop(0)
         return None
 
+def demo_stocks(ctl):
+    """Pretend quotes for --demo / --sim (no internet needed)."""
+    sample = {"^GSPC": (6812.34, 0.42), "^DJI": (47921.10, 0.18), "^IXIC": (23104.55, -0.31), "AAPL": (278.52, 0.84),
+              "NVDA": (181.23, -1.62), "TSLA": (412.80, 2.37)}
+    quotes = []
+    for sym in ctl.stocks:
+        price, pct = sample.get(sym, (100.0, 0.0))
+        quotes.append({"sym": sym, "name": STOCK_NAMES.get(sym, sym.lstrip("^")), "price": price,
+                       "chg": price * pct / 100, "pct": pct})
+    return {"quotes": quotes, "open": True, "at": time.time()}
+
+def demo_weather(ctl):
+    days = [("WED", 61, 41, 30, 60), ("THU", 71, 33, 25, 70), ("FRI", 2, 36, 24, 10)]
+    return {"temp": 34, "feels": 27, "code": 3, "wind": 12, "wdir": "NW", "hi": 39, "lo": 28, "rain": 40, "place": ctl.wx_place,
+            "at": time.time(), "days": [{"name": n, "code": c, "hi": h, "lo": l, "rain": r} for n, c, h, l, r in days]}
+
 def demo_parlaylabs():
     """Uses the sample ParlayLabs files in demo/ (a snapshot of the site) when testing without internet."""
     def load(url):
@@ -2328,6 +2563,7 @@ def make_handler(ctl, feed):
                 self.send(200, dict(ctl.as_dict(), games=games, has_image=bool(ctl.lib.ready_ids()), alert_teams=teams,
                                     pictures=ctl.lib.list(), pic_version=ctl.lib.version,
                                     feed_ok=feed_ok, feed_error=feed.last_error,
+                                    wx_status=feed.wx_status, stock_bad=feed.stock_bad,
                                     last_ok=int(stale)))
             elif path == "/api/frame.png":
                 buf = io.BytesIO(); ctl.last_frame.save(buf, "PNG")
