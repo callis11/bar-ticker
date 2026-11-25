@@ -1,0 +1,33 @@
+BAR TICKER - PRINT LIST (updated 11/25: nothing crosses a seam through the middle anymore)
+
+EASIEST: open the 4 files in "print-beds" in Creality Print, one per bed:
+  Bed1-Pi-mount.3mf                     1 x Pi + fuse block plate
+  Bed2-Power-supply-plate.3mf           1 x power-supply plate
+  Bed3-End-brackets-clips-washers.3mf   2 end brackets (1 with switch notch) + 10 edge clips + 30 washers
+  Bed4-Straps-and-legs.3mf              8 seam straps + 8 legs
+Settings: PLA (PETG for the supply plate if you have it), 0.20 mm, 4 walls, 30% infill, NO supports.
+
+Single STLs (same parts):
+  ticker-seam-strap.stl      8   (2 per seam, top + bottom; the middle stays open for the 16-pin plugs)
+  ticker-pi-mount.stl        1   (middle of Panel 3)
+  ticker-psu-plate.stl       1   (middle of Panel 2 or 4)
+  ticker-leg.stl             8   (4 under each plate)
+  ticker-edge-clip.stl      10
+  ticker-end-bracket.stl     1
+  ticker-end-bracket-switch.stl 1
+  ticker-end-washer.stl     30
+
+DELETE (old, they cover the 16-pin plugs): ticker-seam-pi-mount, ticker-seam-psu-base-A/B, ticker-psu-deck-A/B,
+ticker-seam-plate, ticker-seam-psu-cradle.
+
+HARDWARE (panel inserts are M4)
+  M4 x 10 + printed washer: straps (16), edge clips (10), end brackets (4)
+  M4 x 30 + washers: 8 (4 per plate, through plate + leg). Add washers until the screw stops ~1 mm short of
+     the insert bottom (check depth with an M4 x 16 first).
+  2 x M4 x 8 + 2 regular M4 washers: supply to its plate (bolt it on the bench first)
+  4 x M2.5 x 8 (Pi), 4 x #8 x 3/4" (fuse block)
+  ~35 x #6 x 5/8" wood screws, 8 x #8 x 1-1/4" wood screws, 2 x 1x4 x 8 ft
+  (No M3 needed anymore.)
+
+Edge clips: 1 per panel per long edge. On the 2 panels with a plate, the middle inserts are taken by the
+legs, so use an outer long-edge insert there.
