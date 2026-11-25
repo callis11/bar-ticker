@@ -747,7 +747,7 @@ STOCKS_COLOR, WX_COLOR = (0, 210, 140), (120, 190, 255)
 LIGHT, RAIN_BLUE, SNOW_BLUE, STORM = (200, 200, 200), (70, 150, 255), (170, 225, 255), (255, 120, 40)
 WX_PARTS = ("now", "forecast")
 WX_MAX_PLACES = 4
-STOCK_SETS = ("big", "mine", "movers", "crypto")   # what the stock part shows (any mix)
+STOCK_SETS = ("big", "mine", "movers", "penny", "crypto")   # what the stock part shows (any mix)
 SHOW_MODES = ("scroll", "screen", "both")          # in the scroll, held on screen for a few seconds, or both
 SCREEN_SECS = (4, 6, 8, 12, 20)                    # how long each screen stays
 SCREEN_EVERY = (-1, 2, 5, 10)                      # how often screens pop up: after each lap / every N minutes
@@ -755,6 +755,11 @@ STOCK_MOVER_SEC, STOCK_MOVER_CLOSED_SEC = 300, 1800
 # "Top movers" = the biggest % movers today among these big names (plus your own stocks), not the whole market
 MOVER_UNIVERSE = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "JPM", "V", "LLY", "WMT", "XOM", "UNH",
                   "MA", "COST", "HD", "NFLX", "AMD", "ORCL", "CRM", "BAC", "KO", "PEP", "DIS", "INTC", "BA", "PLTR", "UBER", "GM", "F"]
+
+# "Penny stocks" = whichever of these low-priced, heavily traded names are under $5 right now (a short list, not the whole market)
+PENNY_UNIVERSE = ["SNDL", "NOK", "BB", "PLUG", "FCEL", "GPRO", "OPEN", "LCID", "CLOV", "AMC", "TLRY", "SIRI", "BBAI", "RIG", "NIO",
+                  "TELL", "ZOM", "CIFR", "BTG", "HIVE", "WULF", "NU", "SOFI", "PSNY", "GRAB"]
+PENNY_MAX = 5.0
 
 def yahoo_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) ParlayLabsTicker"})
@@ -835,6 +840,10 @@ def stock_groups(feed, ctl):
     mv = feed.movers
     if "movers" in ctl.stock_sets and mv and (feed.demo or now - mv["at"] < 7200):
         groups.append((f"TOP MOVERS{closed if live else ''}", (255, 170, 60), pick_movers(mv["quotes"])))
+    pn = feed.penny
+    if "penny" in ctl.stock_sets and pn and (feed.demo or now - pn["at"] < 7200):
+        cheap = [q for q in pn["quotes"] if 0 < q["price"] < PENNY_MAX]
+        groups.append((f"PENNY STOCKS{closed if live else ''}", (255, 215, 80), pick_movers(cheap, 4)))
     if "crypto" in ctl.stock_sets:
         groups.append(("CRYPTO", (255, 150, 40), pick(ctl.crypto)))
     return [g for g in groups if g[2]]
@@ -2604,7 +2613,7 @@ class Feed:
         self.strip_off = self.strip_mask = None
         self.pinned, self.bottom, self.bottom_off = [], None, None   # split screen
         self.sports_cards, self.pl_cards, self.warn = [], [], []
-        self.stocks, self.movers = None, None      # latest quotes / today's top movers (see extras_loop)
+        self.stocks, self.movers, self.penny = None, None, None      # latest quotes / today's top movers (see extras_loop)
         self.wxs, self.wx_statuses = {}, {}        # latest weather per town
         self.stock_bad, self.wx_status, self.wx_loc = [], "", {}
         self.screens_alone = False                 # nothing else is on, so weather/stock screens just stay up
@@ -2653,22 +2662,22 @@ class Feed:
     def extras_loop(self):
         """Stocks and weather, in their own thread. Only fetches what's switched on, and again when you change
         the symbols or the town."""
-        last_s = last_w = last_a = last_m = 0
+        last_s = last_w = last_a = last_m = last_p = 0
         key_s = key_w = key_a = None
         while True:
             ctl, now = self.ctl, time.time()
             if self.extra_kick:
-                self.extra_kick, last_s, last_w, last_a, last_m = False, 0, 0, 0, 0
-            ks, kw = (ctl.stocks_on, tuple(wanted_symbols(ctl)), "movers" in ctl.stock_sets), (ctl.wx_on, tuple(ctl.wx_places))
+                self.extra_kick, last_s, last_w, last_a, last_m, last_p = False, 0, 0, 0, 0, 0
+            ks, kw = (ctl.stocks_on, tuple(wanted_symbols(ctl)), "movers" in ctl.stock_sets, "penny" in ctl.stock_sets), (ctl.wx_on, tuple(ctl.wx_places))
             if ks != key_s:
-                key_s, last_s, last_m = ks, 0, 0
+                key_s, last_s, last_m, last_p = ks, 0, 0, 0
             if kw != key_w:
                 key_w, last_w = kw, 0
             ka = (ctl.wx_alerts, ctl.wx_place, ctl.wx_alert_level)
             if ka != key_a:
                 key_a, last_a = ka, 0
             if self.demo:
-                self.stocks, self.movers = demo_stocks(ctl), demo_movers()
+                self.stocks, self.movers, self.penny = demo_stocks(ctl), demo_movers(), demo_penny()
                 self.wxs = {pl_: demo_weather(pl_) for pl_ in ctl.wx_places}
                 self.wx_statuses = {pl_: "sample weather" for pl_ in ctl.wx_places}
             else:
@@ -2676,6 +2685,8 @@ class Feed:
                     self.update_stocks(); last_s = time.time()
                 if ctl.stocks_on and "movers" in ctl.stock_sets and now - last_m >= (STOCK_MOVER_SEC if market_open() else STOCK_MOVER_CLOSED_SEC):
                     self.update_movers(); last_m = time.time()
+                if ctl.stocks_on and "penny" in ctl.stock_sets and now - last_p >= (STOCK_MOVER_SEC if market_open() else STOCK_MOVER_CLOSED_SEC):
+                    self.update_penny(); last_p = time.time()
                 if ctl.wx_on and now - last_w >= WX_REFRESH:
                     self.update_weather(); last_w = time.time()
                 if ctl.wx_alerts and now - last_a >= WXA_REFRESH:
@@ -2698,6 +2709,13 @@ class Feed:
         quotes, _ = fetch_stocks(syms)
         if quotes:
             self.movers = {"quotes": quotes, "at": time.time()}
+
+    def update_penny(self):
+        """Quotes for the penny-stock list, plus any of your own stocks: the under-$5 ones are picked when it's drawn."""
+        syms = list(dict.fromkeys(PENNY_UNIVERSE + [x for x in self.ctl.stocks if not x.startswith("^")]))
+        quotes, _ = fetch_stocks(syms)
+        if quotes:
+            self.penny = {"quotes": quotes, "at": time.time()}
 
     def check_movers(self, quotes):
         """Flash once per symbol, per direction, per day when it's moved the chosen % while the market is open."""
@@ -3044,6 +3062,10 @@ def demo_stocks(ctl):
 def demo_movers():
     sample = [("NVDA", 181.23, -4.2), ("TSLA", 412.80, 5.6), ("AMD", 164.30, 3.9), ("INTC", 24.10, -3.1), ("PLTR", 81.50, 6.8),
               ("META", 601.20, -1.9), ("AAPL", 278.52, 0.84)]
+    return {"quotes": [{"sym": x, "name": x, "price": pr, "chg": pr * pc / 100, "pct": pc} for x, pr, pc in sample], "at": time.time()}
+
+def demo_penny():
+    sample = [("SNDL", 1.62, 7.4), ("PLUG", 2.31, 5.1), ("NOK", 4.85, 2.2), ("BB", 3.9, -0.8), ("FCEL", 3.1, -4.6), ("AMC", 2.9, -3.2)]
     return {"quotes": [{"sym": x, "name": x, "price": pr, "chg": pr * pc / 100, "pct": pc} for x, pr, pc in sample], "at": time.time()}
 
 def demo_weather(place):

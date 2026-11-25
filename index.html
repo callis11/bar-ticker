@@ -264,7 +264,7 @@
   <div class="switch" style="margin:0 0 10px"><span style="font-weight:600">Show stocks</span><input type="checkbox" id="stocksOn"></div>
   <div id="stocksBox">
   <p class="hint" style="margin:0 0 6px">What to show (tap any mix)</p>
-  <div class="chips wrap" id="stockSets"><button data-s="big">The big ones</button><button data-s="mine">My stocks</button><button data-s="movers">Top movers</button><button data-s="crypto">Crypto</button></div>
+  <div class="chips wrap" id="stockSets"><button data-s="big">The big ones</button><button data-s="mine">My stocks</button><button data-s="movers">Top movers</button><button data-s="penny">Penny stocks</button><button data-s="crypto">Crypto</button></div>
   <p class="hint" id="stockSetHint" style="margin:0 0 10px"></p>
   <div id="stockMineBox">
   <p class="hint" style="margin:0 0 6px">My stocks</p>
@@ -642,7 +642,8 @@ function render() {
   document.querySelectorAll("#stockSets button").forEach(b => b.classList.toggle("on", sets.includes(b.dataset.s)));
   $("#stockMineBox").hidden = !sets.includes("mine"); $("#cryptoBox").hidden = !sets.includes("crypto");
   $("#stockSetHint").textContent = !sets.length ? "Nothing picked, so no stocks will show."
-    : sets.includes("movers") ? "Top movers = today's biggest gainers and losers among about 30 big names plus your own stocks (not the whole market)." : "";
+    : sets.includes("movers") ? "Top movers = today's biggest gainers and losers among about 30 big names plus your own stocks (not the whole market)."
+    : sets.includes("penny") ? "Penny stocks = the biggest movers under $5 among a short list of about 25 low-priced, heavily traded names (not every penny stock). Very volatile." : "";
   $("#cryptoChips").innerHTML = crypto.map(k => `<button data-s="${k}" class="on">${k.replace("-USD", "")} ✕</button>`).join("") || `<span class="hint">No coins yet. Add one below.</span>`;
   $("#cryptoQuick").innerHTML = CRYPTO_QUICK.filter(k => !crypto.includes(k + "-USD")).map(k => `<button data-add="${k}">+ ${k}</button>`).join("");
   $("#stockChips").innerHTML = syms.map(k => `<button data-s="${k}" class="on">${STOCK_LABEL[k] || k} ✕</button>`).join("") || `<span class="hint">No symbols yet. Add one below.</span>`;
@@ -1805,6 +1806,7 @@ const Demo = (() => {
       const sets = S.stock_sets || ["big"], one = k => [k, STOCK_SAMPLE[k] || [k.replace("^", "").replace("-USD", ""), 100, 0]];
       const groups = [["big", "MARKETS", ["^GSPC", "^DJI", "^IXIC"]], ["mine", "STOCKS", S.stocks || []], ["crypto", "CRYPTO", S.crypto || []]]
         .filter(g => sets.includes(g[0]) && g[2].length).map(g => [g[1], g[2].map(one)]);
+      if (sets.includes("penny")) groups.splice(2, 0, ["PENNY STOCKS", [["SNDL", ["SNDL", 1.62, 7.4]], ["PLUG", ["PLUG", 2.31, 5.1]], ["FCEL", ["FCEL", 3.1, -4.6]], ["AMC", ["AMC", 2.9, -3.2]]]]);
       if (sets.includes("movers")) groups.splice(2, 0, ["TOP MOVERS", [["PLTR", ["PLTR", 81.5, 6.8]], ["TSLA", ["TSLA", 412.8, 5.6]], ["NVDA", ["NVDA", 181.23, -4.2]], ["INTC", ["INTC", 24.1, -3.1]]]]);
       for (const [label, q] of groups) {
         out.push([`  ${label}  `, "#00d28c", "hdr"]);
