@@ -62,8 +62,12 @@ PANEL_MAP     = [(1, 0, False), (1, 1, False),      # output 1 -> panels 1 and 2
 if BONNET == "single":                              # one output: all of them in a row
     PANEL_MAP = [(1, i, False) for i in range(PANELS)]
 PANEL_MAP = PANEL_MAP[:PANELS]                      # fewer panels wired up: use the first ones
-if PI_AT_RIGHT:                                     # the Pi's ribbon is on the right-hand panel: the chain runs right to left
-    PANEL_MAP = PANEL_MAP[::-1]
+if PI_AT_RIGHT:
+    # Wired from the right (what's built): port 1 = the two far-right panels, port 2 = the middle one, port 3 = the two
+    # far-left. In each pair the right-hand panel plugs into the bonnet and the left one chains off it. Panels are added
+    # from the right, so with 2, 3, 4 panels the ports fill in this order. Listed here right to left:
+    FROM_RIGHT = [(1, 0, False), (1, 1, False), (2, 0, False), (3, 0, False), (3, 1, False)]
+    PANEL_MAP = FROM_RIGHT[:PANELS][::-1] if BONNET != "single" else [(1, i, False) for i in range(PANELS)][::-1]
 if PANELS_FLIPPED:
     PANEL_MAP = [(o, sp, not fl) for o, sp, fl in PANEL_MAP]
 FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
