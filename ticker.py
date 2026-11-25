@@ -25,7 +25,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ------------------------------------------------------------------ settings
 TIMEZONE      = "America/Detroit"   # game times and the clock always show in this time zone, whatever the Pi is set to
-PANELS        = 5          # 128x64 P2.5 panels chained left-to-right (5 x 320 mm = ~5.25 ft)
+def _panel_count():
+    """How many 128x64 panels are wired up (each is 320 mm). Everything is laid out and centered for this many.
+    Set it with a file named panels.txt next to ticker.py (just the number, e.g. 2), or the TICKER_PANELS variable.
+    Updates from GitHub never touch panels.txt. Default 5 (~5.25 ft)."""
+    try:
+        n = int(os.environ.get("TICKER_PANELS") or open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "panels.txt")).read().strip())
+    except (OSError, ValueError):
+        n = 5
+    return max(1, min(5, n))
+PANELS        = _panel_count()   # 128x64 P2.5 panels chained left-to-right
 ROWS, COLS    = 64, 128
 W             = COLS * PANELS   # 640 x 64 pixels
 K             = ROWS // 32      # drawing scale (sizes below were first worked out for a 32-tall strip)
@@ -45,7 +54,8 @@ BONNET        = "triple"   # "triple" = Adafruit Triple LED Matrix Bonnet #6358,
 PANEL_MAP     = [(1, 0, False), (1, 1, False),      # output 1 -> panels 1 and 2
                  (2, 0, False), (2, 1, False),      # output 2 -> panels 3 and 4
                  (3, 0, False)]                     # output 3 -> panel 5
-if BONNET == "single":                              # one output: all 5 in a row
+PANEL_MAP = PANEL_MAP[:PANELS]                      # fewer panels wired up: use the first ones
+if BONNET == "single":                              # one output: all of them in a row
     PANEL_MAP = [(1, i, False) for i in range(PANELS)]
 FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 os.environ["TZ"] = TIMEZONE
@@ -99,7 +109,9 @@ PARLAYLABS = "https://callis11.github.io/parlay-lab"
 PL_REFRESH = 600           # check ParlayLabs every 10 minutes
 PL_SPORTS  = {"NFL": "", "NBA": "/nba", "CFB": "/cfb", "CBB": "/cbb"}
 WX_DEFAULT_PLACE = "Somerset Center, Michigan"   # weather town (change it on the phone: town name or ZIP)
-DEFAULT_STOCKS = ["^GSPC", "^DJI", "^IXIC", "AAPL", "NVDA", "TSLA"]   # symbols on the stock scroll (change on the phone)
+DEFAULT_STOCKS = ["AAPL", "NVDA", "TSLA"]          # "My stocks" (change on the phone)
+BIG_INDEXES = ["^GSPC", "^DJI", "^IXIC"]           # "The big ones": S&P 500, Dow, Nasdaq
+DEFAULT_CRYPTO = ["BTC-USD", "ETH-USD", "SOL-USD"]
 STOCK_ALERT_CHOICES = (2, 3, 5)                   # "moved this many % today" choices for the stock-mover alert
 
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
@@ -132,6 +144,8 @@ class Control:
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
             "sports_on": True, "stocks_on": True, "stocks": list(DEFAULT_STOCKS), "wx_on": True, "wx_place": WX_DEFAULT_PLACE, "wx_parts": ["now", "forecast"],
+            "wx_places": [WX_DEFAULT_PLACE], "wx_days": 3, "wx_mode": "scroll", "wx_secs": 8, "wx_every": -1,
+            "stock_sets": ["big"], "crypto": list(DEFAULT_CRYPTO), "stock_mode": "scroll", "stock_secs": 8, "stock_every": -1,
             "wx_alerts": True, "wx_alert_level": "warnings", "stock_alerts": True, "stock_alert_pct": 3,
             "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off",
             # pictures: which ones (empty = all), one played on its own, seconds each, order, change style,
@@ -168,6 +182,8 @@ class Control:
         self.warm_themes()
 
     def update(self, d, save=True):
+        if d.get("wx_place") and "wx_places" not in d:    # older single-town setting
+            d = dict(d, wx_places=[d["wx_place"]])
         if d.get("game_id") and "game_ids" not in d:      # older single-game setting
             d = dict(d, game_ids=[d["game_id"]])
         for k, v in d.items():
@@ -211,7 +227,21 @@ class Control:
         self.pl_count = max(1, min(10, int(self.pl_count)))
         self.sports_on, self.stocks_on, self.wx_on = bool(self.sports_on), bool(self.stocks_on), bool(self.wx_on)
         self.stocks = clean_symbols(self.stocks)
-        self.wx_place = (str(self.wx_place or "").strip() or WX_DEFAULT_PLACE)[:60]
+        places = []
+        for pl_ in (self.wx_places or []):
+            pl_ = str(pl_).strip()[:60]
+            if pl_ and pl_.lower() not in [q.lower() for q in places]:
+                places.append(pl_)
+        self.wx_places = places[:WX_MAX_PLACES] or [(str(self.wx_place or "").strip() or WX_DEFAULT_PLACE)[:60]]
+        self.wx_place = self.wx_places[0]                 # first town: also used for the severe-weather alerts
+        self.wx_days = 5 if str(self.wx_days) == "5" else 3
+        self.stock_sets = [x for x in STOCK_SETS if x in (self.stock_sets or [])]
+        self.crypto = clean_symbols(self.crypto)
+        for kind in ("wx", "stock"):
+            setattr(self, kind + "_mode", getattr(self, kind + "_mode") if getattr(self, kind + "_mode") in SHOW_MODES else "scroll")
+            setattr(self, kind + "_secs", min(SCREEN_SECS, key=lambda v: abs(v - int(getattr(self, kind + "_secs")))))
+            e = int(getattr(self, kind + "_every"))
+            setattr(self, kind + "_every", e if e in SCREEN_EVERY else -1)
         self.wx_parts = [x for x in (self.wx_parts or []) if x in WX_PARTS]
         self.wx_alerts, self.stock_alerts = bool(self.wx_alerts), bool(self.stock_alerts)
         self.wx_alert_level = "watches" if self.wx_alert_level == "watches" else "warnings"
@@ -695,6 +725,15 @@ STOCK_NAMES = {"^GSPC": "S&P 500", "^DJI": "DOW", "^IXIC": "NASDAQ", "^RUT": "RU
 STOCKS_COLOR, WX_COLOR = (0, 210, 140), (120, 190, 255)
 LIGHT, RAIN_BLUE, SNOW_BLUE, STORM = (200, 200, 200), (70, 150, 255), (170, 225, 255), (255, 120, 40)
 WX_PARTS = ("now", "forecast")
+WX_MAX_PLACES = 4
+STOCK_SETS = ("big", "mine", "movers", "crypto")   # what the stock part shows (any mix)
+SHOW_MODES = ("scroll", "screen", "both")          # in the scroll, held on screen for a few seconds, or both
+SCREEN_SECS = (4, 6, 8, 12, 20)                    # how long each screen stays
+SCREEN_EVERY = (-1, 2, 5, 10)                      # how often screens pop up: after each lap / every N minutes
+STOCK_MOVER_SEC, STOCK_MOVER_CLOSED_SEC = 300, 1800
+# "Top movers" = the biggest % movers today among these big names (plus your own stocks), not the whole market
+MOVER_UNIVERSE = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "JPM", "V", "LLY", "WMT", "XOM", "UNH",
+                  "MA", "COST", "HD", "NFLX", "AMD", "ORCL", "CRM", "BAC", "KO", "PEP", "DIS", "INTC", "BA", "PLTR", "UBER", "GM", "F"]
 
 def yahoo_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) ParlayLabsTicker"})
@@ -722,7 +761,7 @@ def fetch_stock(sym, loader=None):
     price = float(m["regularMarketPrice"])
     prev = float(m.get("previousClose") or m.get("chartPreviousClose") or price)
     chg = price - prev
-    return {"sym": sym, "name": STOCK_NAMES.get(sym, sym.lstrip("^")), "price": price, "chg": chg,
+    return {"sym": sym, "name": STOCK_NAMES.get(sym, sym[:-4] if sym.endswith("-USD") else sym.lstrip("^")), "price": price, "chg": chg,
             "pct": 100 * chg / prev if prev else 0.0}
 
 def fetch_stocks(symbols, loader=None, old=None):
@@ -737,20 +776,60 @@ def fetch_stocks(symbols, loader=None, old=None):
                 quotes.append(old[sym])
     return quotes, bad
 
-def stock_segments(data, ctl):
-    """Stocks part of the scroll: STOCKS label, then AAPL 227.52 +0.55% for each symbol (green up, red down)."""
-    if not ctl.stocks_on or not data:
+def fmt_price(p):
+    return f"{p:,.2f}" if p >= 1 else f"{p:.4f}"
+
+def wanted_symbols(ctl):
+    """Every symbol the picked sets need quotes for (movers are fetched separately)."""
+    out = []
+    if "big" in ctl.stock_sets:
+        out += BIG_INDEXES
+    if "mine" in ctl.stock_sets:
+        out += ctl.stocks
+    if "crypto" in ctl.stock_sets:
+        out += ctl.crypto
+    return list(dict.fromkeys(out))
+
+def pick_movers(quotes, n=3):
+    """Biggest gainers first, then the biggest losers."""
+    ups = sorted([q for q in quotes if q["pct"] > 0], key=lambda q: -q["pct"])[:n]
+    downs = sorted([q for q in quotes if q["pct"] < 0], key=lambda q: q["pct"])[:n]
+    return ups + downs
+
+def stock_groups(feed, ctl):
+    """[(label, color, quotes)] for what's picked on the phone: the big indexes, my stocks, top movers, crypto.
+    Quotes that have gone stale are left out rather than showing old prices."""
+    if not ctl.stocks_on:
         return []
-    by_sym = {q["sym"]: q for q in data["quotes"]}
-    quotes = [by_sym[s] for s in ctl.stocks if s in by_sym]
-    if not quotes:
+    now, data = time.time(), feed.stocks
+    live = data and (feed.demo or not ((data["open"] or "crypto" in ctl.stock_sets) and now - data["at"] > 600))
+    by = {q["sym"]: q for q in data["quotes"]} if live else {}
+    closed = " · CLOSED" if live and not data["open"] else ""
+    pick = lambda syms: [by[x] for x in syms if x in by]
+    groups = []
+    if "big" in ctl.stock_sets:
+        groups.append((f"MARKETS{closed}", STOCKS_COLOR, pick(BIG_INDEXES)))
+    if "mine" in ctl.stock_sets:
+        groups.append((f"STOCKS{closed}", STOCKS_COLOR, pick(ctl.stocks)))
+    mv = feed.movers
+    if "movers" in ctl.stock_sets and mv and (feed.demo or now - mv["at"] < 7200):
+        groups.append((f"TOP MOVERS{closed if live else ''}", (255, 170, 60), pick_movers(mv["quotes"])))
+    if "crypto" in ctl.stock_sets:
+        groups.append(("CRYPTO", (255, 150, 40), pick(ctl.crypto)))
+    return [g for g in groups if g[2]]
+
+def stock_segments(groups, ctl):
+    """Stock part of the scroll: a label per group, then AAPL 227.52 +0.55% for each (green up, red down)."""
+    if ctl.stock_mode not in ("scroll", "both"):
         return []
-    segs = [(f"  STOCKS{'' if data['open'] else ' · CLOSED'}  ", STOCKS_COLOR, "hdr")]
-    for q in quotes:
-        pct = round(q["pct"], 2)
-        col = GREEN if pct > 0 else RED if pct < 0 else GRAY
-        segs += [(f"{q['name']} ", WHITE), (f"{q['price']:,.2f} ", LIGHT),
-                 (f"{'+' if pct >= 0 else '-'}{abs(pct):.2f}%", col), DOT]
+    segs = []
+    for label, color, quotes in groups:
+        segs.append((f"  {label}  ", color, "hdr"))
+        for q in quotes:
+            pct = round(q["pct"], 2)
+            col = GREEN if pct > 0 else RED if pct < 0 else GRAY
+            segs += [(f"{q['name']} ", WHITE), (f"{fmt_price(q['price'])} ", LIGHT),
+                     (f"{'+' if pct >= 0 else '-'}{abs(pct):.2f}%", col), DOT]
     return segs
 
 # WMO weather codes (what Open-Meteo reports) -> words and a color
@@ -794,7 +873,7 @@ def fetch_weather(loc, loader=None):
     q = (f"?latitude={loc['lat']}&longitude={loc['lon']}"
          "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m"
          "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
-         f"&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone={urllib.parse.quote(TIMEZONE, safe='')}&forecast_days=4")
+         f"&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone={urllib.parse.quote(TIMEZONE, safe='')}&forecast_days=6")
     j = (loader or get_json)(WX_API + q)
     c, d = j["current"], j["daily"]
     def day(i):
@@ -806,40 +885,37 @@ def fetch_weather(loc, loader=None):
             "wind": round(c["wind_speed_10m"]), "wdir": compass(c["wind_direction_10m"]),
             "hi": today["hi"], "lo": today["lo"], "rain": today["rain"], "days": [day(i) for i in range(1, len(d["time"]))]}
 
-def wx_segments(wx, ctl):
-    """Weather part of the scroll: where, now (temp + sky), the details, then the next few days."""
-    if not ctl.wx_on or not wx or wx.get("place") != ctl.wx_place:
+def wx_segments(wxs, ctl):
+    """Weather part of the scroll: for each town, where, now (temp + sky), the details, then the next 3 or 5 days."""
+    if not ctl.wx_on or ctl.wx_mode not in ("scroll", "both"):
         return []
-    segs = []
-    if "now" in ctl.wx_parts:
-        desc, dc = wx_text(wx["code"])
-        segs += [(f"{place_label(ctl.wx_place)} ", WHITE), ("", None, "wx", wx["code"]), (f"{wx['temp']}°  ", temp_color(wx["temp"])), (desc, dc), DOT]
-        det = [(f"H {wx['hi']}° L {wx['lo']}°  ", LIGHT)]
-        if wx["rain"] >= 20:
-            det.append((f"Rain {wx['rain']}%  ", RAIN_BLUE))
-        if abs(wx["feels"] - wx["temp"]) >= 5:
-            det.append((f"Feels {wx['feels']}°  ", LIGHT))
-        det.append((f"Wind {wx['wdir']} {wx['wind']}", GRAY))
-        segs += det + [DOT]
-    if "forecast" in ctl.wx_parts:
-        for dy in wx["days"][:3]:
-            desc, dc = wx_text(dy["code"])
-            segs += [(f"{dy['name']} ", (0, 180, 255)), ("", None, "wx", dy["code"]), (f"{dy['hi']}°/{dy['lo']}°  ", WHITE), (desc, dc)]
-            if dy["rain"] >= 30:
-                segs.append((f"  {dy['rain']}%", RAIN_BLUE))
-            segs.append(DOT)
+    segs, many = [], len(wxs) > 1
+    for place, wx in wxs.items():
+        label = place_label(place)
+        if "now" in ctl.wx_parts:
+            desc, dc = wx_text(wx["code"])
+            segs += [(f"{label} ", WHITE), ("", None, "wx", wx["code"]), (f"{wx['temp']}°  ", temp_color(wx["temp"])), (desc, dc), DOT]
+            det = [(f"H {wx['hi']}° L {wx['lo']}°  ", LIGHT)]
+            if wx["rain"] >= 20:
+                det.append((f"Rain {wx['rain']}%  ", RAIN_BLUE))
+            if abs(wx["feels"] - wx["temp"]) >= 5:
+                det.append((f"Feels {wx['feels']}°  ", LIGHT))
+            det.append((f"Wind {wx['wdir']} {wx['wind']}", GRAY))
+            segs += det + [DOT]
+        if "forecast" in ctl.wx_parts:
+            for i, dy in enumerate(wx["days"][:ctl.wx_days]):
+                desc, dc = wx_text(dy["code"])
+                if i == 0 and (many or "now" not in ctl.wx_parts):
+                    segs.append((f"{label}  ", WHITE))
+                segs += [(f"{dy['name']} ", (0, 180, 255)), ("", None, "wx", dy["code"]), (f"{dy['hi']}°/{dy['lo']}°  ", WHITE), (desc, dc)]
+                if dy["rain"] >= 30:
+                    segs.append((f"  {dy['rain']}%", RAIN_BLUE))
+                segs.append(DOT)
     return [(f"  WEATHER  ", WX_COLOR, "hdr")] + segs if segs else []
 
 def extra_segments(feed, ctl):
-    """Stocks + weather for the scroll (and the one-at-a-time cards), hiding anything that has gone stale."""
-    now, out = time.time(), []
-    stocks = feed.stocks
-    if stocks and not feed.demo and stocks["open"] and now - stocks["at"] > 600:
-        stocks = None                                    # market open but no fresh quote in 10 min: don't show old prices
-    wx = feed.wx
-    if wx and not feed.demo and now - wx["at"] > 3 * 3600:
-        wx = None
-    return stock_segments(stocks, ctl) + wx_segments(wx, ctl)
+    """Stocks + weather for the scroll (and the one-at-a-time cards)."""
+    return stock_segments(stock_groups(feed, ctl), ctl) + wx_segments(feed.wxs_fresh(), ctl)
 
 # ---- weather icons: drawn big then shrunk so the edges are smooth on the LEDs (same shapes as the demo page)
 SUN_C, CLOUD_C, RAINCLOUD_C, STORMCLOUD_C = (255, 190, 0), (200, 200, 200), (150, 156, 168), (105, 110, 122)
@@ -908,6 +984,127 @@ def wx_icon(kind, size):
     out = im.resize((size, size), Image.LANCZOS)
     _icons[(kind, size)] = out
     return out
+
+# ---- weather / stock screens: held on the whole strip for a few seconds (instead of crawling)
+HEAD_H = 20
+RULE   = (35, 35, 50)
+
+def stock_per_screen():
+    """How many quotes fit side by side on this strip (6 on the full 5 panels, 2 on two panels)."""
+    return max(2, min(6, W // 104))
+
+def fit_size(text, max_w, start, lo=11):
+    for size in range(start, lo - 1, -1):
+        if font(size).getlength(text) <= max_w:
+            return size
+    return lo
+
+def runs_width(runs, f):
+    return sum(f.getlength(t) for t, _ in runs)
+
+def draw_runs(d, x, cy, runs, f):
+    for t, col in runs:
+        d.text((x, cy), t, font=f, fill=col, anchor="lm")
+        x += f.getlength(t)
+
+def screen_header(d, text, color, short=None):
+    f = font(16)
+    for t in [text] + (short or []):                      # a shorter strip: drop words until it fits
+        if f.getlength(t) <= W - 14:
+            break
+    d.text((8, HEAD_H // 2), t, font=f, fill=color, anchor="lm")
+    d.line([(0, HEAD_H), (W, HEAD_H)], fill=RULE)
+
+def wx_days_per_screen():
+    return max(2, min(5, W // 75))
+
+def wx_screen_frame(wx, kind, days=3, start=0):
+    """'Right now' or the next 3/5 days for one town, laid out across the whole strip."""
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    place = place_label(wx["place"])
+    top, bh = HEAD_H + 2, ROWS - HEAD_H - 2
+    if kind == "now":
+        screen_header(d, f"WEATHER  ·  {place}  ·  NOW", WX_COLOR, [f"{place}  ·  NOW", place])
+        desc, dc = wx_text(wx["code"])
+        temp = f"{wx['temp']}°"
+        parts = [[(f"H {wx['hi']}° L {wx['lo']}°", LIGHT)]]
+        if wx["rain"] >= 20:
+            parts.append([(f"Rain {wx['rain']}%", RAIN_BLUE)])
+        if abs(wx["feels"] - wx["temp"]) >= 5:
+            parts.append([(f"Feels {wx['feels']}°", LIGHT)])
+        parts.append([(f"Wind {wx['wdir']} {wx['wind']}", GRAY)])
+        for sc in (1.0, 0.85, 0.72, 0.6):                 # a shorter strip: fewer details first, then smaller
+            isz = int((bh - 2) * sc)
+            ft, fd, fs = font(int(36 * sc)), font(int(20 * sc)), font(max(10, int(15 * sc)))
+            while True:
+                det = [r for i, pt in enumerate(parts) for r in (pt if i == 0 else [("     ", LIGHT)] + pt)]
+                right_w = max(fd.getlength(desc), runs_width(det, fs))
+                total = isz + 16 + ft.getlength(temp) + 26 + right_w
+                if total <= W - 12 or len(parts) == 1:
+                    break
+                parts.pop()                               # wind goes first, then feels-like, then rain
+            if total <= W - 12:
+                break
+        x = max(4, (W - total) / 2)
+        ic = wx_icon(wx_kind(wx["code"]), isz)
+        img.paste(ic, (int(x), top + (bh - isz) // 2), ic)
+        x += isz + 16
+        d.text((x, top + bh / 2), temp, font=ft, fill=temp_color(wx["temp"]), anchor="lm")
+        x += ft.getlength(temp) + 26
+        d.text((x, top + 9), desc, font=fd, fill=dc, anchor="lm")
+        draw_runs(d, x, top + 30, det, fs)
+    else:
+        shown = wx["days"][:days][start:start + wx_days_per_screen()]
+        n = len(shown)
+        screen_header(d, f"WEATHER  ·  {place}  ·  NEXT {min(days, len(wx['days']))} DAYS", WX_COLOR,
+                      [f"{place}  ·  NEXT {min(days, len(wx['days']))} DAYS", place])
+        colw, big = W / n, n <= 3 and W / n >= 190
+        isz = 38 if big else 30 if colw >= 105 else 0       # narrow columns: no icons, just the day and temps
+        for i, dy in enumerate(shown):
+            cx = i * colw
+            if i:
+                d.line([(cx, top + 2), (cx, ROWS - 3)], fill=RULE)
+            temps = [(f"{dy['hi']}°", WHITE), ("/", GRAY), (f"{dy['lo']}°", (150, 175, 210))]
+            tsz = fit_size("".join(t for t, _ in temps), colw - isz - (34 if isz else 14), 22 if big else 19)
+            ftm, fnm, frn = font(tsz), font(16 if big else 15), font(14)
+            rain_w = frn.getlength(f"  {dy['rain']}%")
+            show_rain = dy["rain"] >= 30 and fnm.getlength(dy["name"]) + rain_w <= colw - 12     # narrow column: skip the rain %
+            tw = max(runs_width(temps, ftm), fnm.getlength(dy["name"]) + (rain_w if show_rain else 0))
+            x = cx + (colw - (isz + (8 if isz else 0) + tw)) / 2
+            if isz:
+                ic = wx_icon(wx_kind(dy["code"]), isz)
+                img.paste(ic, (int(x), top + (bh - isz) // 2), ic)
+                x += isz + 8
+            d.text((x, top + 10), dy["name"], font=fnm, fill=(0, 180, 255), anchor="lm")
+            if show_rain:
+                d.text((x + fnm.getlength(dy["name"]), top + 10), f"  {dy['rain']}%", font=frn, fill=RAIN_BLUE, anchor="lm")
+            draw_runs(d, x, top + 31, temps, ftm)
+    return img
+
+def stock_screen_frame(data):
+    """One group of quotes (markets, my stocks, top movers, crypto) side by side: name and change on top, price below."""
+    label, color, quotes = data
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    screen_header(d, label.strip(), color)
+    top, n = HEAD_H + 2, len(quotes)
+    colw = W / n
+    for i, q in enumerate(quotes):
+        pct = round(q["pct"], 2)
+        col = GREEN if pct > 0 else RED if pct < 0 else GRAY
+        ptxt = f"{'+' if pct >= 0 else '-'}{abs(pct):.2f}%"
+        x0, x1 = i * colw + 10, (i + 1) * colw - 10
+        if i:
+            d.line([(i * colw, top + 2), (i * colw, ROWS - 3)], fill=RULE)
+        s1 = fit_size(q["name"] + "   " + ptxt, x1 - x0, 17 if n <= 4 else 14)
+        f1 = font(s1)
+        d.text((x0, top + 10), q["name"], font=f1, fill=WHITE, anchor="lm")
+        d.text((x1, top + 10), ptxt, font=f1, fill=col, anchor="rm")
+        price = fmt_price(q["price"])
+        d.text((x0, top + 31), price, font=font(fit_size(price, x1 - x0, 24 if n <= 4 else 21)), fill=(215, 215, 215), anchor="lm")
+    return img
+
 
 def wx_piece(code, h=ROWS):
     """Weather icon as a strip piece (black behind it) for the scroll."""
@@ -2051,6 +2248,8 @@ def pinned_frame(games, t, ctl):
             break
     else:
         pics = [game_line(g, odds, TOP_H, 20) for g in games]
+    # a short strip: a game wider than the whole screen shrinks to fit (never clipped), centered
+    pics = [p if p.width <= W - 8 else p.resize((W - 8, max(1, round(p.height * (W - 8) / p.width))), Image.LANCZOS) for p in pics]
     pages, cur, w = [], [], 0
     for p in pics:
         if cur and w + gap + p.width > W:
@@ -2065,7 +2264,7 @@ def pinned_frame(games, t, ctl):
     for i, p in enumerate(page):
         if i:
             d.line([(x - gap // 2, 6), (x - gap // 2, TOP_H - 7)], fill=(60, 60, 60))
-        img.paste(p.crop((0, 0, min(p.width, W - x), TOP_H)), (x, 0))
+        img.paste(p.crop((0, 0, min(p.width, W - x), TOP_H)), (x, (TOP_H - p.height) // 2 if p.height < TOP_H else 0))
         x += p.width + gap
     if len(pages) > 1:                                    # little dots: which page this is
         for i in range(len(pages)):
@@ -2384,8 +2583,10 @@ class Feed:
         self.strip_off = self.strip_mask = None
         self.pinned, self.bottom, self.bottom_off = [], None, None   # split screen
         self.cards, self.warn = [], []
-        self.stocks, self.wx = None, None          # latest quotes / weather (see extras_loop)
+        self.stocks, self.movers = None, None      # latest quotes / today's top movers (see extras_loop)
+        self.wxs, self.wx_statuses = {}, {}        # latest weather per town
         self.stock_bad, self.wx_status, self.wx_loc = [], "", {}
+        self.screens_alone = False                 # nothing else is on, so weather/stock screens just stay up
         self.extra_kick = False
         self.notices = []                          # takeovers waiting to play (severe weather, big stock moves)
         self.wxa, self.wxa_at, self.wxa_seen, self.wxa_status = [], 0, {}, ""
@@ -2430,25 +2631,29 @@ class Feed:
     def extras_loop(self):
         """Stocks and weather, in their own thread. Only fetches what's switched on, and again when you change
         the symbols or the town."""
-        last_s = last_w = last_a = 0
+        last_s = last_w = last_a = last_m = 0
         key_s = key_w = key_a = None
         while True:
             ctl, now = self.ctl, time.time()
             if self.extra_kick:
-                self.extra_kick, last_s, last_w, last_a = False, 0, 0, 0
-            ks, kw = (ctl.stocks_on, tuple(ctl.stocks)), (ctl.wx_on, ctl.wx_place)
+                self.extra_kick, last_s, last_w, last_a, last_m = False, 0, 0, 0, 0
+            ks, kw = (ctl.stocks_on, tuple(wanted_symbols(ctl)), "movers" in ctl.stock_sets), (ctl.wx_on, tuple(ctl.wx_places))
             if ks != key_s:
-                key_s, last_s = ks, 0
+                key_s, last_s, last_m = ks, 0, 0
             if kw != key_w:
                 key_w, last_w = kw, 0
             ka = (ctl.wx_alerts, ctl.wx_place, ctl.wx_alert_level)
             if ka != key_a:
                 key_a, last_a = ka, 0
             if self.demo:
-                self.stocks, self.wx = demo_stocks(ctl), demo_weather(ctl)
+                self.stocks, self.movers = demo_stocks(ctl), demo_movers()
+                self.wxs = {pl_: demo_weather(pl_) for pl_ in ctl.wx_places}
+                self.wx_statuses = {pl_: "sample weather" for pl_ in ctl.wx_places}
             else:
-                if ctl.stocks_on and ctl.stocks and now - last_s >= (STOCK_OPEN_SEC if market_open() else STOCK_CLOSED_SEC):
+                if ctl.stocks_on and wanted_symbols(ctl) and now - last_s >= (STOCK_OPEN_SEC if market_open() or "crypto" in ctl.stock_sets else STOCK_CLOSED_SEC):
                     self.update_stocks(); last_s = time.time()
+                if ctl.stocks_on and "movers" in ctl.stock_sets and now - last_m >= (STOCK_MOVER_SEC if market_open() else STOCK_MOVER_CLOSED_SEC):
+                    self.update_movers(); last_m = time.time()
                 if ctl.wx_on and now - last_w >= WX_REFRESH:
                     self.update_weather(); last_w = time.time()
                 if ctl.wx_alerts and now - last_a >= WXA_REFRESH:
@@ -2457,12 +2662,20 @@ class Feed:
 
     def update_stocks(self):
         old = {q["sym"]: q for q in (self.stocks or {}).get("quotes", [])}
-        quotes, self.stock_bad = fetch_stocks(self.ctl.stocks, old=old)
+        syms = wanted_symbols(self.ctl)
+        quotes, self.stock_bad = fetch_stocks(syms, old=old)
         if quotes:                                   # "at" only moves when something fresh came in (old quotes go stale)
-            fresh = len(self.stock_bad) < len(self.ctl.stocks)
+            fresh = len(self.stock_bad) < len(syms)
             self.stocks = {"quotes": quotes, "open": market_open(),
                            "at": time.time() if fresh else (self.stocks or {}).get("at", time.time())}
             self.check_movers(quotes)
+
+    def update_movers(self):
+        """Today's biggest movers among the big names (plus your own stocks): quotes every few minutes."""
+        syms = list(dict.fromkeys(MOVER_UNIVERSE + [x for x in self.ctl.stocks if not x.startswith("^")]))
+        quotes, _ = fetch_stocks(syms)
+        if quotes:
+            self.movers = {"quotes": quotes, "at": time.time()}
 
     def check_movers(self, quotes):
         """Flash once per symbol, per direction, per day when it's moved the chosen % while the market is open."""
@@ -2471,7 +2684,7 @@ class Feed:
             return
         day = datetime.now().strftime("%Y-%m-%d")
         for q in quotes:
-            if q["sym"] in self.stock_bad or abs(q["pct"]) < ctl.stock_alert_pct:
+            if q["sym"] in self.stock_bad or q["sym"].endswith("-USD") or abs(q["pct"]) < ctl.stock_alert_pct:
                 continue
             key = (q["sym"], q["pct"] > 0, day)
             if key not in self.stock_fired:
@@ -2487,7 +2700,7 @@ class Feed:
                 if place != WX_DEFAULT_PLACE:
                     raise
                 loc = {"lat": WX_FALLBACK[0], "lon": WX_FALLBACK[1], "title": place}
-            self.wx_loc = {place: loc}
+            self.wx_loc[place] = loc
         return loc
 
     def update_wx_alerts(self):
@@ -2520,13 +2733,42 @@ class Feed:
         return self.notices.pop(0) if self.notices else None
 
     def update_weather(self):
-        place = self.ctl.wx_place
-        try:
-            loc = self.locate_cached(place)
-            self.wx = dict(fetch_weather(loc), place=place, at=time.time())
-            self.wx_status = loc["title"]
-        except Exception as e:
-            self.wx_status = f"error: {e}"
+        places = list(self.ctl.wx_places)
+        data, statuses = {}, {}
+        for place in places:
+            try:
+                loc = self.locate_cached(place)
+                data[place] = dict(fetch_weather(loc), place=place, at=time.time())
+                statuses[place] = loc["title"]
+            except Exception as e:
+                statuses[place] = f"error: {e}"
+                if place in self.wxs:
+                    data[place] = self.wxs[place]           # keep the last good one (it's hidden after 3 hours)
+        self.wxs, self.wx_statuses = data, statuses
+        self.wx_status = statuses.get(places[0], "")
+
+    def wxs_fresh(self):
+        """Weather per town in the phone's order, leaving out any that is 3+ hours old."""
+        now = time.time()
+        return {p: self.wxs[p] for p in self.ctl.wx_places if p in self.wxs and (self.demo or now - self.wxs[p]["at"] <= 3 * 3600)}
+
+    def screen_list(self, kind=None):
+        """Screens for the 'held on screen' style: [("stock", (label, color, quotes)) or ("wx", (weather, "now"|"forecast"))]."""
+        ctl, out = self.ctl, []
+        if kind in (None, "stock") and ctl.stocks_on and ctl.stock_mode in ("screen", "both"):
+            for label, color, quotes in stock_groups(self, ctl):
+                n = stock_per_screen()
+                for i in range(0, len(quotes), n):
+                    out.append(("stock", (label, color, quotes[i:i + n])))
+        if kind in (None, "wx") and ctl.wx_on and ctl.wx_mode in ("screen", "both"):
+            for wx in self.wxs_fresh().values():
+                if "now" in ctl.wx_parts:
+                    out.append(("wx", (wx, "now", 0)))
+                if "forecast" in ctl.wx_parts:
+                    per = wx_days_per_screen()
+                    for i in range(0, min(ctl.wx_days, len(wx["days"])), per):      # a short strip shows the days in pages
+                        out.append(("wx", (wx, "forecast", i)))
+        return out
 
     def shown_games(self):
         """Games on the ticker: the ones picked on the phone (incl. My teams / Live / Close),
@@ -2546,6 +2788,8 @@ class Feed:
         build = time_segments if ctl.group == "time" else score_segments
         game_segs = build(games, None, ctl.show_odds(), "week", raw)
         segs = self.warn + game_segs + pl         # warnings, games, then ParlayLabs, stocks, weather
+        # nothing in the scroll but there are weather/stock screens: they just stay up (no going back to a blank ticker)
+        self.screens_alone = bool(self.screen_list()) and not segs and not (ctl.msg_in_scroll and ctl.message.strip())
         if not segs and not (ctl.sports_on or ctl.pl_on or ctl.stocks_on or ctl.wx_on):
             segs = [("Everything is switched off - turn something on from your phone", GRAY)]
         if ctl.msg_in_scroll and ctl.message.strip():
@@ -2754,17 +2998,23 @@ class Feed:
 def demo_stocks(ctl):
     """Pretend quotes for --demo / --sim (no internet needed)."""
     sample = {"^GSPC": (6812.34, 0.42), "^DJI": (47921.10, 0.18), "^IXIC": (23104.55, -0.31), "AAPL": (278.52, 0.84),
-              "NVDA": (181.23, -1.62), "TSLA": (412.80, 2.37)}
+              "NVDA": (181.23, -1.62), "TSLA": (412.80, 2.37), "MSFT": (487.10, 0.55), "BTC-USD": (97250.40, 1.12),
+              "ETH-USD": (3412.75, -0.64), "SOL-USD": (241.18, 3.05), "DOGE-USD": (0.3842, -2.2)}
     quotes = []
-    for sym in ctl.stocks:
+    for sym in wanted_symbols(ctl):
         price, pct = sample.get(sym, (100.0, 0.0))
-        quotes.append({"sym": sym, "name": STOCK_NAMES.get(sym, sym.lstrip("^")), "price": price,
-                       "chg": price * pct / 100, "pct": pct})
+        quotes.append({"sym": sym, "name": STOCK_NAMES.get(sym, sym[:-4] if sym.endswith("-USD") else sym.lstrip("^")),
+                       "price": price, "chg": price * pct / 100, "pct": pct})
     return {"quotes": quotes, "open": True, "at": time.time()}
 
-def demo_weather(ctl):
-    days = [("WED", 61, 41, 30, 60), ("THU", 71, 33, 25, 70), ("FRI", 2, 36, 24, 10)]
-    return {"temp": 34, "feels": 27, "code": 3, "wind": 12, "wdir": "NW", "hi": 39, "lo": 28, "rain": 40, "place": ctl.wx_place,
+def demo_movers():
+    sample = [("NVDA", 181.23, -4.2), ("TSLA", 412.80, 5.6), ("AMD", 164.30, 3.9), ("INTC", 24.10, -3.1), ("PLTR", 81.50, 6.8),
+              ("META", 601.20, -1.9), ("AAPL", 278.52, 0.84)]
+    return {"quotes": [{"sym": x, "name": x, "price": pr, "chg": pr * pc / 100, "pct": pc} for x, pr, pc in sample], "at": time.time()}
+
+def demo_weather(place):
+    days = [("WED", 61, 41, 30, 60), ("THU", 71, 33, 25, 70), ("FRI", 2, 36, 24, 10), ("SAT", 3, 38, 27, 20), ("SUN", 0, 44, 31, 0)]
+    return {"temp": 34, "feels": 27, "code": 3, "wind": 12, "wdir": "NW", "hi": 39, "lo": 28, "rain": 40, "place": place,
             "at": time.time(), "days": [{"name": n, "code": c, "hi": h, "lo": l, "rain": r} for n, c, h, l, r in days]}
 
 def demo_parlaylabs():
@@ -2851,7 +3101,7 @@ def make_handler(ctl, feed):
                 self.send(200, dict(ctl.as_dict(), games=games, has_image=bool(ctl.lib.ready_ids()), alert_teams=teams,
                                     pictures=ctl.lib.list(), pic_version=ctl.lib.version,
                                     feed_ok=feed_ok, feed_error=feed.last_error,
-                                    wx_status=feed.wx_status, stock_bad=feed.stock_bad,
+                                    wx_status=feed.wx_status, wx_statuses=feed.wx_statuses, stock_bad=feed.stock_bad,
                                     wxa_status=feed.wxa_status, wxa_now=[a["event"] for a in feed.alerts_now()],
                                     last_ok=int(stale)))
             elif path == "/api/frame.png":
@@ -3081,6 +3331,13 @@ def run_display(ctl, feed, matrix):
     inter, lap, last_pic, pic_n = None, False, time.time(), 0   # pictures popping up in the ticker
     inter_last = None
     show_t0, show_n, show_inter = time.time(), 0, None  # Shows: on their own, or popping up in the ticker
+    scr_inter = None                                    # weather / stock screens held on the strip for a few seconds
+    scr_state = {"wx": {"last": time.time(), "lap": False}, "stock": {"last": time.time(), "lap": False}}
+
+    def mark_lap():
+        for st in scr_state.values():
+            st["lap"] = True
+
     while True:
         nt = feed.next_notice()
         if nt:                                    # severe weather / big stock move: takeover, then back to what was showing
@@ -3099,11 +3356,45 @@ def run_display(ctl, feed, matrix):
             seen, x, img_i = ctl.version, W, 0
             card_i, card_t0 = 0, time.time()
             inter, lap, last_pic = None, False, time.time()
-            show_t0, show_inter = time.time(), None
+            show_t0, show_inter, scr_inter = time.time(), None, None
             feed.build_strip()                    # league picks may have changed
 
         mode = ctl.mode
         shuffle = ctl.pic_order == "shuffle"
+
+        # ---- weather / stock screens: held for a few seconds, then back to the ticker (or they just stay if nothing else is on)
+        if mode == "scroll" and show_inter is None and inter is None:
+            if scr_inter is None:
+                if feed.screens_alone:
+                    scr_inter = {"alone": True, "i": 0, "start": time.time(), "from": frame.copy(), "queue": []}
+                else:
+                    for kind in ("stock", "wx"):
+                        queue = feed.screen_list(kind)
+                        every, st = (ctl.stock_every if kind == "stock" else ctl.wx_every), scr_state[kind]
+                        if queue and (st["lap"] if every < 0 else time.time() - st["last"] >= every * 60):
+                            st["lap"] = False
+                            scr_inter = {"alone": False, "i": 0, "start": time.time(), "from": frame.copy(), "queue": queue}
+                            break
+            if scr_inter is not None:
+                if scr_inter["alone"]:
+                    scr_inter["queue"] = feed.screen_list()
+                queue = scr_inter["queue"]
+                if not queue or (scr_inter["alone"] and not feed.screens_alone) or (not scr_inter["alone"] and scr_inter["i"] >= len(queue)):
+                    for st in scr_state.values():
+                        st["last"], st["lap"] = time.time(), False
+                    scr_inter = None
+                else:
+                    kind, data = queue[scr_inter["i"] % len(queue)]
+                    t = time.time() - scr_inter["start"]
+                    if t >= (ctl.stock_secs if kind == "stock" else ctl.wx_secs):
+                        scr_inter["i"] += 1
+                        scr_inter["start"], scr_inter["from"] = time.time(), frame.copy()
+                        continue
+                    img = stock_screen_frame(data) if kind == "stock" else wx_screen_frame(data[0], data[1], ctl.wx_days, data[2])
+                    if t < 0.4:                   # fade in from what was showing
+                        img = Image.blend(scr_inter["from"], img, t / 0.4)
+                    show(img); time.sleep(1 / 30)
+                    continue
 
         # ---- a show popping up in the ticker (after each lap, or every few minutes); they take turns
         tick_shows = [sh for sh in ctl.shows if sh["in_ticker"] and sh["steps"]]
@@ -3191,6 +3482,7 @@ def run_display(ctl, feed, matrix):
             ImageDraw.Draw(img).line([(0, TOP_H), (W, TOP_H)], fill=(35, 35, 50))
             if x < -bottom.width or x > W:
                 x, lap = W, True
+                mark_lap()
             img.paste(bottom, (x, ROWS - BOTTOM_H))
             show(img)
             step = speed_step(ctl.speed)
@@ -3203,6 +3495,8 @@ def run_display(ctl, feed, matrix):
             if t >= length:
                 card_i, card_t0 = (card_i + 1) % len(cards), time.time()
                 lap = lap or card_i == 0
+                if card_i == 0:
+                    mark_lap()
                 continue
             show(with_motion(card_frame(card, t, ctl), t, length, ctl.motion))
             time.sleep(1 / 40)
@@ -3225,6 +3519,7 @@ def run_display(ctl, feed, matrix):
             x -= step
             if x < -strip.width:
                 x, lap = W, True
+                mark_lap()
             time.sleep(step / ctl.speed)
 
 # ------------------------------------------------------------------ test helpers
