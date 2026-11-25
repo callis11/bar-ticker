@@ -22,7 +22,7 @@ ticker-seam-plate, ticker-seam-psu-cradle.
 
 HARDWARE (panel inserts are M4)
   M4 x 10 + printed washer: straps (16), edge clips (10), end brackets (4)
-  M4 x 30 + washers: 8 (4 per plate, through plate + leg). Add washers until the screw stops ~1 mm short of
+  M4 x 30 + 1 printed washer: 8 (4 per plate, through plate + 18 mm leg, ~6 mm into the insert). If it bottoms out, add a washer;
      the insert bottom (check depth with an M4 x 16 first).
   2 x M4 x 8 + 2 regular M4 washers: supply to its plate (bolt it on the bench first)
   4 x M2.5 x 8 (Pi), 4 x #8 x 3/4" (fuse block)

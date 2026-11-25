@@ -39,9 +39,9 @@ def windows(part, xs):
             part = part - rbox(x - WIN_X - 1.7, y - WIN_Y - 1.7, x + WIN_X + 1.7, y + WIN_Y + 1.7, -1, T + 2, 2.0)
     return part
 
-LEG = 14.0                         # raised parts: plate underside this high off the panel frame, so the ribbon
+LEG = 18.0                         # raised parts: plate underside this high off the panel frame, so the ribbon
                                    # connectors (IN/OUT, 1-2" in from each end, center of the panel) and the power
-                                   # plug fit underneath. Screws for raised parts: M4 x 25.
+                                   # plug fit underneath. 18 mm (11/25): the panel power plug is a JST VH4 (16.5 mm above the board, ~7.5 mm above the frame) and its wires need room to bend. Screws: M4 x 30 (~6 mm into the insert).
 def legs(part, xs, ys=(-INS_Y, INS_Y)):
     """Hollow legs under a plate that sits at z=LEG..LEG+T: one around each insert, window straight through."""
     for x in xs:

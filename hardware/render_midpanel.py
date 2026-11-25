@@ -1,7 +1,7 @@
 # 3D renders of the 11/25 mid-panel layout (straps at every seam, Pi plate on Panel 3, supply plate on Panel 2).
 import numpy as np, trimesh, pyvista as pv
 pv.OFF_SCREEN = True
-LEG, T = 14.0, 4.0
+LEG, T = 18.0, 4.0
 def stl(n): return trimesh.load(n)
 def bx(x0, y0, z0, x1, y1, z1):
     return trimesh.creation.box(extents=[x1-x0, y1-y0, z1-z0]).apply_translation([(x0+x1)/2, (y0+y1)/2, (z0+z1)/2])
@@ -24,11 +24,11 @@ def plate(name, cx):
         for y in (-66, 66):
             l = stl("ticker-leg.stl"); l.apply_translation([cx + x, y, 0]); add(l, "#5aa9e6")
 plate("ticker-pi-mount.stl", 0)
-add(bx(55.0-42.5, -28, 26, 55.0+42.5, 28, 27.6), PI)              # Pi 4
-add(bx(55.0-32.5, -28, 38, 55.0+32.5, 28, 39.6), "#1f5f3a")       # bonnet
-add(bx(-52.5-44, -44, 24, -52.5+44, 44, 61), FUSE)                # fuse block
+add(bx(55.0-42.5, -28, 30, 55.0+42.5, 28, 31.6), PI)              # Pi 4
+add(bx(55.0-32.5, -28, 42, 55.0+32.5, 28, 43.6), "#1f5f3a")       # bonnet
+add(bx(-52.5-44, -44, 28, -52.5+44, 44, 65), FUSE)                # fuse block
 plate("ticker-psu-plate.stl", -320)
-add(bx(-320-98.5, -49, 18, -320+98.5, 49, 63), PSU)               # 5V 30A supply
+add(bx(-320-98.5, -49, 22, -320+98.5, 49, 64), PSU)               # 5V 30A supply
 for i, cx in enumerate(centers):                                  # edge clips, top + bottom
     x = cx - (117 if cx in (0, -320) else 31)
     c = stl("ticker-edge-clip.stl"); c.apply_translation([x, 0, 0]); add(c, PRINT); add(mirror_y(c), PRINT)
