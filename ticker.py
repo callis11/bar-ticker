@@ -15,7 +15,7 @@ Try it on a PC:     python3 ticker.py --sim --demo        (control page at http:
 Scroll GIF:         python3 ticker.py --preview
 Alert GIF:          python3 ticker.py --test-alert td     (td / win / close)
 """
-import argparse, colorsys, io, json, math, os, random, re, tempfile, time, threading, urllib.parse, urllib.request
+import argparse, colorsys, io, json, math, os, random, re, subprocess, sys, tempfile, time, threading, urllib.parse, urllib.request
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageSequence
@@ -3242,6 +3242,21 @@ def make_handler(ctl, feed):
                     ctl.update(json.loads(body or b"{}"))
                 elif path == "/api/refresh":                 # the phone's refresh button: pull everything now
                     feed.force = True
+                elif path in ("/api/update", "/api/restart"):   # the phone's Update / Restart buttons
+                    here, msg = os.path.dirname(os.path.abspath(__file__)), "Restarting"
+                    if path == "/api/update":
+                        before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=here, capture_output=True, text=True).stdout.strip()
+                        r = subprocess.run(["git", "pull", "--ff-only", "-q"], cwd=here, capture_output=True, text=True, timeout=90)
+                        if r.returncode:
+                            return self.send(500, {"error": "Update failed: " + ((r.stderr or r.stdout).strip()[-160:] or "git pull")})
+                        after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=here, capture_output=True, text=True).stdout.strip()
+                        msg = "Updated, restarting" if before != after else "Already up to date, restarting"
+                    def restart():
+                        time.sleep(1.0)                       # let the answer reach the phone first
+                        if subprocess.run(["systemctl", "restart", "ticker"], capture_output=True).returncode:
+                            os.execv(sys.executable, [sys.executable] + sys.argv)      # not running as a service: restart in place
+                    threading.Thread(target=restart, daemon=True).start()
+                    return self.send(200, {"restarting": True, "msg": msg})
                 elif path == "/api/test-alert":              # preview an alert theme on the ticker
                     d = json.loads(body or b"{}")
                     feed.test_alert(d["team"], d["kind"])

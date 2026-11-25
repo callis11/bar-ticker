@@ -455,6 +455,8 @@
   <p class="hint">How often the whole board checks ESPN. Lions, Pistons, MSU and the games you picked always check every 5 seconds when they're live. If scores stop updating, slow this down.</p>
   <div class="switch"><span>Team alerts <small class="dim">(all your teams; set them up on the Alerts tab)</small></span><input type="checkbox" id="alerts"></div>
   <div class="switch"><span>College rankings (#12 MSU)</span><input type="checkbox" id="ranks"></div>
+  <div class="row3" style="grid-template-columns:1fr 1fr;margin-top:10px"><button class="btn" id="updateBtn">Update &amp; restart</button><button class="btn ghost" id="restartBtn">Restart</button></div>
+  <p class="hint">Update gets the newest ticker code from GitHub, then restarts (about 10 seconds). It also does this by itself every couple of minutes. Restart just restarts, for when something looks stuck.</p>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -2949,6 +2951,24 @@ const Demo = (() => {
   } catch { toast("Couldn't reach the ticker"); }
   b.classList.remove("spin");
 };
+
+async function restartTicker(path, working) {
+  if (DEMO) return toast("Not available in the demo");
+  const btns = [$("#updateBtn"), $("#restartBtn")]; btns.forEach(b => b.disabled = true); toast(working);
+  try {
+    const r = await api(path, {method:"POST", body:"{}"});
+    toast(r.msg + "…");
+    await new Promise(r => setTimeout(r, 4000));
+    for (let i = 0; i < 40; i++) {                       // wait for it to come back, then reload the page (it may have changed)
+      try { const x = await fetch("/api/state", {cache:"no-store"}); if (x.ok) return location.reload(); } catch {}
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    toast("Still starting. Reload in a minute");
+  } catch (e) { toast(e.message || "Couldn't reach the ticker"); }
+  btns.forEach(b => b.disabled = false);
+}
+$("#updateBtn").onclick = () => restartTicker("/api/update", "Checking for updates…");
+$("#restartBtn").onclick = () => restartTicker("/api/restart", "Restarting…");
 
 async function start() {
     $("#demoBar").classList.add("on");
