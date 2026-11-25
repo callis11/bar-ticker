@@ -11,7 +11,7 @@
 #   ticker-edge-clip.stl       long edges: insert -> 90-degree flange screwed to the top/bottom 1x4  print 10
 #   ticker-end-bracket.stl     outer ends: flange for the wood side board  print 1
 #   ticker-end-bracket-switch.stl  same, with a notch in the flange for the power switch  print 1
-#   ticker-end-washer.stl      slider washer under each M3 screw (windows are oversized)  print 30
+#   ticker-end-washer.stl      slider washer under each M4 screw (windows are oversized)  print 30
 #
 # Panel inserts are M4 (confirmed 11/24). Screws: M4 x 10 mm (+ printed washer) for flat parts; M4 x 25 for the raised parts (Pi mount, PSU base). Windows allow +/-6 mm along and +/-4 mm up/down,
 # so small measuring errors don't matter. x = along the ticker (0 = seam or end edge), y = up/down
@@ -147,7 +147,7 @@ for x in PSU_BOLT_X:                                               # room for th
         psub = psub - rbox(x - 9, a, x + 9, b, LEG - 1, T + 2, 3.0)
 for x in (-DECK_X, DECK_X):                                        # M3 clearance + nut trap underneath
     for y in (-DECK_Y, DECK_Y):
-        psub = psub - cyl(x, y, LEG - 1, T + 2, 3.4, 24)
+        psub = psub - cyl(x, y, LEG - 1, T + 2, 3.7, 24)
         psub = psub - Cy(2.6, 3.2, 3.2, 6).translate([x, y, LEG - 0.01])
 psub = raised_windows(psub, (-INS_X, INS_X))
 psub = psub - box(-0.6, -BASE_H / 2 - 1, LEG + T - 0.8, 0.6, BASE_H / 2 + 1, LEG + T + 1)   # seam marker
@@ -161,7 +161,7 @@ for y in (-58.5, 58.5):                                           # stiffening l
     deck = deck + box(-BL, y - 1.5, DECK_T, BL, y + 1.5, DECK_T + 5)
 for px in (-DECK_X, DECK_X):                                      # countersunk holes onto the base (nut underneath)
     for py in (-DECK_Y, DECK_Y):
-        deck = deck - cyl(px, py, -1, DECK_T + 2, 3.4, 24)
+        deck = deck - cyl(px, py, -1, DECK_T + 2, 3.7, 24)
         deck = deck - Cy(2.0, 1.7, 3.6, 24).translate([px, py, DECK_T - 1.99])
 for hx in PSU_BOLT_X:                                                 # M4 windows for the supply
     for s_ in (-1, 1):
