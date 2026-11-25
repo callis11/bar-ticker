@@ -25,16 +25,21 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ------------------------------------------------------------------ settings
 TIMEZONE      = "America/Detroit"   # game times and the clock always show in this time zone, whatever the Pi is set to
-def _panel_count():
-    """How many 128x64 panels are wired up (each is 320 mm). Everything is laid out and centered for this many.
-    Set it with a file named panels.txt next to ticker.py (just the number, e.g. 2), or the TICKER_PANELS variable.
-    Updates from GitHub never touch panels.txt. Default 5 (~5.25 ft)."""
-    try:
-        n = int(os.environ.get("TICKER_PANELS") or open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "panels.txt")).read().strip())
-    except (OSError, ValueError):
-        n = 5
-    return max(1, min(5, n))
-PANELS        = _panel_count()   # 128x64 P2.5 panels chained left-to-right
+def _panel_cfg():
+    """(panel count, Pi end at the right?, panels upside down?) from panels.txt next to ticker.py, e.g. `2 right`.
+    The number is how many 128x64 panels are wired up (each is 320 mm); everything is laid out and centered for it.
+    Add `right` if the Pi's ribbon plugs into the RIGHT-hand panel (as you face the front) and the others chain off
+    it toward the left. Add `flip` if the panels come up upside down. TICKER_PANELS=3 also works (number only).
+    Updates from GitHub never touch panels.txt. No file = 5 panels, Pi end at the left."""
+    words = (os.environ.get("TICKER_PANELS") or "").split()
+    if not words:
+        try:
+            words = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "panels.txt")).read().lower().split()
+        except OSError:
+            words = []
+    n = next((int(w) for w in words if w.isdigit()), 5)
+    return max(1, min(5, n)), "right" in words, "flip" in words
+PANELS, PI_AT_RIGHT, PANELS_FLIPPED = _panel_cfg()   # 128x64 P2.5 panels chained left-to-right
 ROWS, COLS    = 64, 128
 W             = COLS * PANELS   # 640 x 64 pixels
 K             = ROWS // 32      # drawing scale (sizes below were first worked out for a 32-tall strip)
@@ -54,9 +59,13 @@ BONNET        = "triple"   # "triple" = Adafruit Triple LED Matrix Bonnet #6358,
 PANEL_MAP     = [(1, 0, False), (1, 1, False),      # output 1 -> panels 1 and 2
                  (2, 0, False), (2, 1, False),      # output 2 -> panels 3 and 4
                  (3, 0, False)]                     # output 3 -> panel 5
-PANEL_MAP = PANEL_MAP[:PANELS]                      # fewer panels wired up: use the first ones
 if BONNET == "single":                              # one output: all of them in a row
     PANEL_MAP = [(1, i, False) for i in range(PANELS)]
+PANEL_MAP = PANEL_MAP[:PANELS]                      # fewer panels wired up: use the first ones
+if PI_AT_RIGHT:                                     # the Pi's ribbon is on the right-hand panel: the chain runs right to left
+    PANEL_MAP = PANEL_MAP[::-1]
+if PANELS_FLIPPED:
+    PANEL_MAP = [(o, sp, not fl) for o, sp, fl in PANEL_MAP]
 FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 os.environ["TZ"] = TIMEZONE
 if hasattr(time, "tzset"):
