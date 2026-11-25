@@ -158,6 +158,8 @@ class Control:
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
             "sports_on": True, "stocks_on": True, "stocks": list(DEFAULT_STOCKS), "wx_on": True, "wx_place": WX_DEFAULT_PLACE, "wx_parts": ["now", "forecast"],
             "wx_places": [WX_DEFAULT_PLACE], "wx_days": 3, "wx_mode": "scroll", "wx_secs": 8, "wx_every": -1,
+            # each section picks its own style: "scroll" (in the crawl) or a held one (fade/flash/cut/slide/push), one item at a time
+            "sports_style": None, "pl_style": None, "stock_style": None, "wx_style": None, "sports_every": -1, "pl_every": -1,
             "stock_sets": ["big"], "crypto": list(DEFAULT_CRYPTO), "stock_mode": "scroll", "stock_secs": 8, "stock_every": -1,
             "wx_alerts": True, "wx_alert_level": "warnings", "stock_alerts": True, "stock_alert_pct": 3,
             "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off",
@@ -250,11 +252,17 @@ class Control:
         self.wx_days = 5 if str(self.wx_days) == "5" else 3
         self.stock_sets = [x for x in STOCK_SETS if x in (self.stock_sets or [])]
         self.crypto = clean_symbols(self.crypto)
-        for kind in ("wx", "stock"):
-            setattr(self, kind + "_mode", getattr(self, kind + "_mode") if getattr(self, kind + "_mode") in SHOW_MODES else "scroll")
-            setattr(self, kind + "_secs", min(SCREEN_SECS, key=lambda v: abs(v - int(getattr(self, kind + "_secs")))))
+        legacy = self.motion if self.motion in MOTIONS else "scroll"          # the old single "How it moves" choice
+        for kind in ("sports", "pl", "stock", "wx"):
+            st = getattr(self, kind + "_style")
+            if st not in MOTIONS:                                              # not chosen yet: carry over the old setting
+                old = getattr(self, kind + "_mode", "scroll")
+                st = ("fade" if legacy == "scroll" else legacy) if old in ("screen", "both") else legacy
+            setattr(self, kind + "_style", st)
             e = int(getattr(self, kind + "_every"))
             setattr(self, kind + "_every", e if e in SCREEN_EVERY else -1)
+        for kind in ("wx", "stock"):
+            setattr(self, kind + "_secs", min(SCREEN_SECS, key=lambda v: abs(v - int(getattr(self, kind + "_secs")))))
         self.wx_parts = [x for x in (self.wx_parts or []) if x in WX_PARTS]
         self.wx_alerts, self.stock_alerts = bool(self.wx_alerts), bool(self.stock_alerts)
         self.wx_alert_level = "watches" if self.wx_alert_level == "watches" else "warnings"
@@ -833,7 +841,7 @@ def stock_groups(feed, ctl):
 
 def stock_segments(groups, ctl):
     """Stock part of the scroll: a label per group, then AAPL 227.52 +0.55% for each (green up, red down)."""
-    if ctl.stock_mode not in ("scroll", "both"):
+    if ctl.stock_style != "scroll":
         return []
     segs = []
     for label, color, quotes in groups:
@@ -900,7 +908,7 @@ def fetch_weather(loc, loader=None):
 
 def wx_segments(wxs, ctl):
     """Weather part of the scroll: for each town, where, now (temp + sky), the details, then the next 3 or 5 days."""
-    if not ctl.wx_on or ctl.wx_mode not in ("scroll", "both"):
+    if not ctl.wx_on or ctl.wx_style != "scroll":
         return []
     segs, many = [], len(wxs) > 1
     for place, wx in wxs.items():
@@ -2595,7 +2603,7 @@ class Feed:
         self.strip = text_strip([("Loading…", GRAY)])
         self.strip_off = self.strip_mask = None
         self.pinned, self.bottom, self.bottom_off = [], None, None   # split screen
-        self.cards, self.warn = [], []
+        self.sports_cards, self.pl_cards, self.warn = [], [], []
         self.stocks, self.movers = None, None      # latest quotes / today's top movers (see extras_loop)
         self.wxs, self.wx_statuses = {}, {}        # latest weather per town
         self.stock_bad, self.wx_status, self.wx_loc = [], "", {}
@@ -2767,14 +2775,19 @@ class Feed:
         return {p: self.wxs[p] for p in self.ctl.wx_places if p in self.wxs and (self.demo or now - self.wxs[p]["at"] <= 3 * 3600)}
 
     def screen_list(self, kind=None):
-        """Screens for the 'held on screen' style: [("stock", (label, color, quotes)) or ("wx", (weather, "now"|"forecast"))]."""
+        """Held items, one at a time: ("sports"|"pl", card), ("stock", (label, color, quotes)), ("wx", (weather, "now"|"forecast", start)).
+        Only for the sections whose style isn't Scroll."""
         ctl, out = self.ctl, []
-        if kind in (None, "stock") and ctl.stocks_on and ctl.stock_mode in ("screen", "both"):
+        if kind in (None, "sports") and ctl.sports_on and ctl.sports_style != "scroll":
+            out += [("sports", c) for c in self.sports_cards]
+        if kind in (None, "pl") and ctl.pl_style != "scroll":
+            out += [("pl", c) for c in self.pl_cards]
+        if kind in (None, "stock") and ctl.stocks_on and ctl.stock_style != "scroll":
             for label, color, quotes in stock_groups(self, ctl):
                 n = stock_per_screen()
                 for i in range(0, len(quotes), n):
                     out.append(("stock", (label, color, quotes[i:i + n])))
-        if kind in (None, "wx") and ctl.wx_on and ctl.wx_mode in ("screen", "both"):
+        if kind in (None, "wx") and ctl.wx_on and ctl.wx_style != "scroll":
             for wx in self.wxs_fresh().values():
                 if "now" in ctl.wx_parts:
                     out.append(("wx", (wx, "now", 0)))
@@ -2798,14 +2811,19 @@ class Feed:
         ctl = self.ctl
         games, raw = self.shown_games()
         self.warn = wx_alert_segments(self, ctl)                        # active warnings go first
-        pl = pl_segments(self.pl, ctl) + extra_segments(self, ctl)      # ParlayLabs, then stocks, then weather
+        pl_core = pl_segments(self.pl, ctl)
+        pl = (pl_core if ctl.pl_style == "scroll" else []) + extra_segments(self, ctl)      # ParlayLabs, then stocks, then weather
         build = time_segments if ctl.group == "time" else score_segments
-        game_segs = build(games, None, ctl.show_odds(), "week", raw)
+        game_segs = build(games, None, ctl.show_odds(), "week", raw) if ctl.sports_style == "scroll" else []
         segs = self.warn + game_segs + pl         # warnings, games, then ParlayLabs, stocks, weather
-        # nothing in the scroll but there are weather/stock screens: they just stay up (no going back to a blank ticker)
+        self.sports_cards = self.game_cards(games)
+        self.pl_cards = make_cards(pl_core)[1:]                          # the clock card isn't one of them
+        # nothing in the scroll but there are held items: they just keep cycling (no going back to a blank ticker)
         self.screens_alone = bool(self.screen_list()) and not segs and not (ctl.msg_in_scroll and ctl.message.strip())
         if not segs and not (ctl.sports_on or ctl.pl_on or ctl.stocks_on or ctl.wx_on):
             segs = [("Everything is switched off - turn something on from your phone", GRAY)]
+        elif not segs and not self.screens_alone:
+            segs = [("Waiting for the next update…", GRAY)]
         if ctl.msg_in_scroll and ctl.message.strip():
             # your message comes around before each league (and before ParlayLabs)
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
@@ -2822,13 +2840,12 @@ class Feed:
             logos = len(os.listdir(LOGO_DIR)) if os.path.isdir(LOGO_DIR) else 0
         except OSError:
             logos = 0
-        sig = (repr(segs), repr(self.pinned_games()), ctl.version, datetime.now().strftime("%H%M"), LOOK, logos)
+        sig = (repr(segs), repr(self.sports_cards), repr(self.pl_cards), repr(self.pinned_games()), ctl.version, datetime.now().strftime("%H%M"), LOOK, logos)
         if sig == self._strip_sig:
             return
         self._strip_sig = sig
         self.strip = text_strip(segs)
         self.build_split(pl, build)
-        self.cards = self.make_ticker_cards(pl, games, segs)
         # blink: a copy with the message blanked out, swapped in for the "off" moments
         self.strip_off = text_strip(segs, hide_msg=True) if ctl.msg_in_scroll and ctl.effect == "blink" else None
         # fireworks: which pixels are text, so sparks can go behind the words
@@ -2862,7 +2879,7 @@ class Feed:
         rest = [g for g in games if g["id"] not in ids]
         if not rest:                                     # you picked only the held games: show the rest of your sports
             rest, raw = [g for g in visible_games(self.games, ctl.leagues, ctl.days) if g["id"] not in ids], False
-        segs = self.warn + build(rest, None, ctl.show_odds(), "week", raw) + pl
+        segs = self.warn + (build(rest, None, ctl.show_odds(), "week", raw) if ctl.sports_style == "scroll" else []) + pl
         if ctl.msg_in_scroll and ctl.message.strip():
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
             note = [(f"   {ctl.message.strip()}   ", col, "msg"), DOT]
@@ -2875,23 +2892,16 @@ class Feed:
         self.bottom = text_strip(segs, h=BOTTOM_H)
         self.bottom_off = text_strip(segs, hide_msg=True, h=BOTTOM_H) if ctl.msg_in_scroll and ctl.effect == "blink" else None
 
-    def make_ticker_cards(self, pl, games, segs):
-        """One-at-a-time cards: clock, your message, ParlayLabs items, then each game as a big scoreboard."""
-        ctl = self.ctl
-        pl_cards = make_cards(pl)                # clock + ParlayLabs, as text cards
-        cards = pl_cards[:1] + make_cards(self.warn)[1:]      # clock, then any active warnings
-        if ctl.msg_in_scroll and ctl.message.strip():
-            col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
-            cards.append({"label": None, "segs": [(ctl.message.strip(), col)], "msg": True})
+    def game_cards(self, games):
+        """Each game as a big scoreboard card, in the same order as the scroll."""
         order = {"in": 0, "pre": 1, "post": 2}
-        if ctl.group == "time":
+        if self.ctl.group == "time":
             games = sorted(games, key=lambda g: (order[g["state"]],
                            (g.get("start") or 0) * (-1 if g["state"] == "post" else 1)))
         else:
             lg_order = {l: i for i, (l, _, _) in enumerate(LEAGUES)}
             games = sorted(games, key=lambda g: (lg_order.get(g["league"], 9), order[g["state"]], g.get("start") or 0))
-        cards += [{"label": None, "segs": [], "msg": False, "game": g} for g in games]
-        return cards + pl_cards[1:]              # games first, then ParlayLabs
+        return [{"label": None, "segs": [], "msg": False, "game": g} for g in games]
 
     def note_finishes(self):
         now = time.time()
@@ -3377,7 +3387,16 @@ def run_display(ctl, feed, matrix):
     show_t0, show_n, show_inter = time.time(), 0, None  # Shows: on their own, or popping up in the ticker
     pacer = Pacer()
     scr_inter = None                                    # weather / stock screens held on the strip for a few seconds
-    scr_state = {"wx": {"last": time.time(), "lap": False}, "stock": {"last": time.time(), "lap": False}}
+    KINDS = ("sports", "pl", "stock", "wx")
+    scr_state = {k: {"last": time.time(), "lap": False} for k in KINDS}
+
+    def item_len(kind, data):
+        return ctl.stock_secs if kind == "stock" else ctl.wx_secs if kind == "wx" else card_length(data, ctl)
+
+    def item_frame(kind, data, t):
+        if kind == "stock": return stock_screen_frame(data)
+        if kind == "wx": return wx_screen_frame(data[0], data[1], ctl.wx_days, data[2])
+        return card_frame(data, t, ctl)
 
     def mark_lap():
         for st in scr_state.values():
@@ -3413,9 +3432,9 @@ def run_display(ctl, feed, matrix):
                 if feed.screens_alone:
                     scr_inter = {"alone": True, "i": 0, "start": time.time(), "from": frame.copy(), "queue": []}
                 else:
-                    for kind in ("stock", "wx"):
+                    for kind in KINDS:
                         queue = feed.screen_list(kind)
-                        every, st = (ctl.stock_every if kind == "stock" else ctl.wx_every), scr_state[kind]
+                        every, st = getattr(ctl, kind + "_every"), scr_state[kind]
                         if queue and (st["lap"] if every < 0 else time.time() - st["last"] >= every * 60):
                             st["lap"] = False
                             scr_inter = {"alone": False, "i": 0, "start": time.time(), "from": frame.copy(), "queue": queue}
@@ -3431,14 +3450,13 @@ def run_display(ctl, feed, matrix):
                 else:
                     kind, data = queue[scr_inter["i"] % len(queue)]
                     t = time.time() - scr_inter["start"]
-                    if t >= (ctl.stock_secs if kind == "stock" else ctl.wx_secs):
+                    length = item_len(kind, data)
+                    if t >= length:
                         scr_inter["i"] += 1
                         scr_inter["start"], scr_inter["from"] = time.time(), frame.copy()
                         continue
-                    img = stock_screen_frame(data) if kind == "stock" else wx_screen_frame(data[0], data[1], ctl.wx_days, data[2])
-                    if t < 0.4:                   # fade in from what was showing
-                        img = Image.blend(scr_inter["from"], img, t / 0.4)
-                    show(img); time.sleep(1 / 30)
+                    show(with_motion(item_frame(kind, data, t), t, length, getattr(ctl, kind + "_style")))
+                    time.sleep(1 / 40)
                     continue
 
         # ---- a show popping up in the ticker (after each lap, or every few minutes); they take turns
@@ -3535,18 +3553,6 @@ def run_display(ctl, feed, matrix):
                 mark_lap()
             img.paste(bottom, (x, ROWS - BOTTOM_H))
             show(img)
-        elif ctl.motion != "scroll" and feed.cards:   # one item at a time
-            cards = feed.cards
-            card = cards[card_i % len(cards)]
-            length, t = card_length(card, ctl), time.time() - card_t0
-            if t >= length:
-                card_i, card_t0 = (card_i + 1) % len(cards), time.time()
-                lap = lap or card_i == 0
-                if card_i == 0:
-                    mark_lap()
-                continue
-            show(with_motion(card_frame(card, t, ctl), t, length, ctl.motion))
-            time.sleep(1 / 40)
         else:                                     # scroll everything
             n = pacer.step(ctl.speed)
             if n == 0:

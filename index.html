@@ -238,6 +238,7 @@
     <p class="hint"><b>Sports</b>: tap as many as you want, or All. <b>My teams</b> always shows all four (Lions, Pistons, MSU football, MSU basketball): each one's game if it's on, today or just ended, otherwise its next game with day, date, time and odds once posted. <b>Live games</b> adds games as they start and keeps each one on 15 minutes after it ends. <b>Close games</b> follows games that are late and within one score. Live, Close and Select all stick to the sports you picked. You can also tap any game to add it. With nothing picked, the ticker shows every game in your sports.</p>
   </details>
 
+  <div class="styleBlock" data-kind="sports"></div>
   <div class="keep">                            <!-- one piece, so the laptop's two columns never split it -->
   </div>
   <div id="secPl">
@@ -251,6 +252,7 @@
     <button data-n="3">Top 3</button><button data-n="5">Top 5</button><button data-n="8">Top 8</button></div>
   <div class="chips wrap" id="plSports"></div>
   <div class="chips wrap" id="propTypes"></div>
+  <div class="styleBlock" data-kind="pl"></div>
   <p class="hint" style="margin:0 0 4px">From your ParlayLabs site, mixed in with the games: your record, this week's featured parlays with what $10 pays, and the best player overs with how often each player has hit it lately.</p>
   </div>
   </div>
@@ -282,12 +284,7 @@
   </div>
   <div class="chips wrap" id="cryptoQuick" style="margin-bottom:4px"></div>
   </div>
-  <p class="hint" style="margin:6px 0 6px">How it shows</p>
-  <div class="seg" id="stockMode"><button data-v="scroll">Scroll</button><button data-v="screen">Hold on screen</button><button data-v="both">Both</button></div>
-  <div id="stockScreenBox">
-    <div class="seg" id="stockSecs"><span class="segLabel">Stays</span><button data-v="4">4s</button><button data-v="6">6s</button><button data-v="8">8s</button><button data-v="12">12s</button><button data-v="20">20s</button></div>
-    <div class="seg" id="stockEvery"><span class="segLabel">Comes up</span><button data-v="-1">Each lap</button><button data-v="2">2 min</button><button data-v="5">5 min</button><button data-v="10">10 min</button></div>
-  </div>
+  <div class="styleBlock" data-kind="stock"></div>
   <p class="hint" id="stockHint" style="margin:0 0 4px"></p>
   <div class="switch" style="margin:12px 0 10px"><span style="font-weight:600">Big move alerts</span><input type="checkbox" id="stockAlOn"></div>
   <div id="stockAlBox">
@@ -312,12 +309,7 @@
   </div>
   <div class="chips wrap" id="wxParts"><button data-p="now">Right now</button><button data-p="forecast">Forecast</button></div>
   <div class="seg" id="wxDays"><span class="segLabel">Forecast</span><button data-v="3">3 days</button><button data-v="5">5 days</button></div>
-  <p class="hint" style="margin:6px 0 6px">How it shows</p>
-  <div class="seg" id="wxMode"><button data-v="scroll">Scroll</button><button data-v="screen">Hold on screen</button><button data-v="both">Both</button></div>
-  <div id="wxScreenBox">
-    <div class="seg" id="wxSecs"><span class="segLabel">Stays</span><button data-v="4">4s</button><button data-v="6">6s</button><button data-v="8">8s</button><button data-v="12">12s</button><button data-v="20">20s</button></div>
-    <div class="seg" id="wxEvery"><span class="segLabel">Comes up</span><button data-v="-1">Each lap</button><button data-v="2">2 min</button><button data-v="5">5 min</button><button data-v="10">10 min</button></div>
-  </div>
+  <div class="styleBlock" data-kind="wx"></div>
   <p class="hint" id="wxHint" style="margin:0 0 4px"></p>
   <div class="switch" style="margin:12px 0 10px"><span style="font-weight:600">Severe weather alerts</span><input type="checkbox" id="wxAlOn"></div>
   <div id="wxAlBox">
@@ -344,11 +336,7 @@
   <p class="hint" style="margin-top:0" id="lookHint"></p>
   <div class="switch"><span>Team logos <small class="dim">(next to the team names)</small></span><input type="checkbox" id="logosOn"></div>
 
-  <h2 class="sect">How it moves</h2>
-  <div class="chips wrap" id="motionPick">
-    <button data-m="scroll">Scroll</button><button data-m="cut">Cut</button><button data-m="fade">Fade</button>
-    <button data-m="flash">Flash</button><button data-m="slide">Slide up</button><button data-m="push">Slide left</button>
-  </div>
+  <h2 class="sect">Speed &amp; timing</h2>
   <label class="row" for="speed"><span>Speed</span><span id="speedV"></span></label>
   <input type="range" id="speed" min="20" max="200" step="10">
   <div class="seg" id="holdPick"><span class="segLabel">Each item stays</span>
@@ -630,13 +618,14 @@ function render() {
   document.querySelectorAll("#lookPick button").forEach(b => b.classList.toggle("on", b.dataset.l === (S.look || "classic")));
   $("#lookHint").textContent = LOOK_HINT[S.look || "classic"] || "";
   $("#logosOn").checked = S.logos !== false;
-  document.querySelectorAll("#motionPick button").forEach(b => b.classList.toggle("on", b.dataset.m === (S.motion || "scroll")));
   document.querySelectorAll("#holdPick button").forEach(b => b.classList.toggle("on", +b.dataset.h === S.hold));
-  $("#holdPick").style.display = (S.motion || "scroll") === "scroll" ? "none" : "";
+  { const heldCards = ["sports", "pl"].some(k => (S[k + "_style"] || "scroll") !== "scroll");
+    $("#holdPick").style.display = heldCards ? "" : "none";
+    $("#motionHint").textContent = heldCards
+      ? "Speed is the crawl, and how fast long cards (like parlays) slide across. \u201cEach item stays\u201d is how long a game or ParlayLabs card holds."
+      : "Speed is how fast the crawl moves."; }
   $("#speed").value = S.speed || 80; $("#speedV").textContent = speedWord(S.speed || 80);
-  $("#motionHint").textContent = (S.motion || "scroll") === "scroll"
-    ? "The classic crawl: games, odds and ParlayLabs flow by. Speed sets how fast."
-    : "One item at a time: games as a big scoreboard, ParlayLabs with a small label on top. Speed sets how fast long ones (like parlays) crawl across.";
+  document.querySelectorAll(".styleBlock").forEach(el => { el.innerHTML = styleBlock(el.dataset.kind); });
   $("#plOn").checked = !!S.pl_on; $("#plBox").hidden = !S.pl_on;
   { const sp = S.sports_on !== false;                    // a part that's off: its whole settings section goes away
     $("#secGames").hidden = $("#secOdds").hidden = $("#secPin").hidden = !sp;
@@ -656,8 +645,6 @@ function render() {
     : sets.includes("movers") ? "Top movers = today's biggest gainers and losers among about 30 big names plus your own stocks (not the whole market)." : "";
   $("#cryptoChips").innerHTML = crypto.map(k => `<button data-s="${k}" class="on">${k.replace("-USD", "")} ✕</button>`).join("") || `<span class="hint">No coins yet. Add one below.</span>`;
   $("#cryptoQuick").innerHTML = CRYPTO_QUICK.filter(k => !crypto.includes(k + "-USD")).map(k => `<button data-add="${k}">+ ${k}</button>`).join("");
-  segOn("#stockMode", S.stock_mode || "scroll"); segOn("#stockSecs", S.stock_secs || 8); segOn("#stockEvery", S.stock_every ?? -1);
-  $("#stockScreenBox").hidden = (S.stock_mode || "scroll") === "scroll";
   $("#stockChips").innerHTML = syms.map(k => `<button data-s="${k}" class="on">${STOCK_LABEL[k] || k} ✕</button>`).join("") || `<span class="hint">No symbols yet. Add one below.</span>`;
   $("#stockIdx").innerHTML = STOCK_INDEXES.filter(([k]) => !syms.includes(k)).map(([k, n]) => `<button data-add="${k}">+ ${n}</button>`).join("");
   $("#stockHint").textContent = (S.stock_bad || []).length
@@ -666,8 +653,7 @@ function render() {
   $("#wxOn").checked = S.wx_on !== false; $("#wxBox").hidden = S.wx_on === false;
   { const pl = S.wx_places || [S.wx_place], st = S.wx_statuses || {};
     $("#wxPlaces").innerHTML = pl.map(p => `<button data-p="${esc(p)}" class="on">${esc(p.split(",")[0])}${String(st[p] || "").startsWith("error") ? " ⚠" : ""} ✕</button>`).join("");
-    segOn("#wxDays", S.wx_days || 3); segOn("#wxMode", S.wx_mode || "scroll"); segOn("#wxSecs", S.wx_secs || 8); segOn("#wxEvery", S.wx_every ?? -1);
-    $("#wxScreenBox").hidden = (S.wx_mode || "scroll") === "scroll"; }
+    segOn("#wxDays", S.wx_days || 3); }
   document.querySelectorAll("#wxParts button").forEach(b => b.classList.toggle("on", (S.wx_parts || []).includes(b.dataset.p)));
   $("#stockAlOn").checked = S.stock_alerts !== false; $("#stockAlBox").hidden = S.stock_alerts === false;
   document.querySelectorAll("#stockAlPct button").forEach(b => b.classList.toggle("on", +b.dataset.v === (S.stock_alert_pct || 3)));
@@ -679,7 +665,7 @@ function render() {
   { const st = S.wx_statuses || {}, bad = Object.keys(st).filter(p => String(st[p]).startsWith("error"));
     $("#wxHint").textContent = !S.wx_status && !Object.keys(st).length ? "Type a town and state, or a ZIP code, then tap Add."
       : bad.length ? `Couldn't find or load ${bad.map(p => "\u201c" + p + "\u201d").join(", ")}. Try \u201cTown, State\u201d or a ZIP code, and tap it to remove.`
-      : (S.wx_mode || "scroll") === "scroll" ? "Updates every 10 minutes. Severe-weather alerts use the first place."
+      : (S.wx_style || "scroll") === "scroll" ? "Updates every 10 minutes. Severe-weather alerts use the first place."
       : "Updates every 10 minutes. If nothing else is on, the weather just stays up. Severe-weather alerts use the first place."; }
   document.querySelectorAll("#plParts button").forEach(b => b.classList.toggle("on", (S.pl_parts || []).includes(b.dataset.p)));
   document.querySelectorAll("#groupPick button").forEach(b => b.classList.toggle("on", b.dataset.g === (S.group || "league")));
@@ -895,7 +881,29 @@ const LOOK_HINT = {classic: "Two lines per game with a league-colored edge and c
   big: "One line, extra big letters and numbers, easy to read from across the room. Leading score in yellow."};
 $("#logosOn").onchange = e => save({logos: e.target.checked}, e.target.checked ? "Team logos on" : "Team logos off");
 $("#lookPick").onclick = e => { const b = e.target.closest("button"); if (b) save({look:b.dataset.l}, b.textContent + " look"); };
-$("#motionPick").onclick = e => { const b = e.target.closest("button"); if (b) save({mode:"scroll", motion:b.dataset.m}, b.textContent); };
+const STYLES = [["scroll", "Scroll"], ["cut", "Cut"], ["fade", "Fade"], ["flash", "Flash"], ["slide", "Slide up"], ["push", "Slide left"]];
+const STYLE_WHO = {sports: "scores", pl: "ParlayLabs", stock: "stocks", wx: "weather"};
+function styleBlock(kind) {
+  const st = S[kind + "_style"] || "scroll", held = st !== "scroll", every = S[kind + "_every"] ?? -1, secs = S[kind + "_secs"] || 8;
+  const b = (attr, v, label, on) => `<button data-kind="${kind}" ${attr}="${v}" class="${on ? "on" : ""}">${label}</button>`;
+  let h = `<p class="hint" style="margin:8px 0 6px">How ${STYLE_WHO[kind]} show</p><div class="chips wrap">${STYLES.map(([k, n]) => b("data-style", k, n, k === st)).join("")}</div>`;
+  if (held) {
+    if (kind === "stock" || kind === "wx")
+      h += `<div class="seg"><span class="segLabel">Stays</span>${[4, 6, 8, 12, 20].map(v => b("data-secs", v, v + "s", v === secs)).join("")}</div>`;
+    h += `<div class="seg"><span class="segLabel">Comes up</span>${[[-1, "Each lap"], [2, "2 min"], [5, "5 min"], [10, "10 min"]].map(([v, n]) => b("data-every", v, n, v === every)).join("")}</div>`;
+  }
+  h += `<p class="hint" style="margin:4px 0 4px">${held
+    ? `One at a time with a ${STYLES.find(z => z[0] === st)[1].toLowerCase()} effect, in between the crawl. If nothing else is crawling, it just keeps going.`
+    : "Part of the crawl."}</p>`;
+  return h;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest(".styleBlock button"); if (!b) return;
+  const k = b.dataset.kind;
+  if (b.dataset.style) save({mode: "scroll", [k + "_style"]: b.dataset.style}, `${STYLE_WHO[k][0].toUpperCase() + STYLE_WHO[k].slice(1)}: ${b.textContent.toLowerCase()}`);
+  else if (b.dataset.secs) save({[k + "_secs"]: +b.dataset.secs}, `Stays ${b.textContent}`);
+  else if (b.dataset.every) save({[k + "_every"]: +b.dataset.every}, `Comes up: ${b.textContent.toLowerCase()}`);
+});
 $("#holdPick").onclick = e => { const b = e.target.closest("button"); if (b) save({hold:+b.dataset.h}, `Each item stays ${b.dataset.h} sec`); };
 let t4; $("#speed").oninput = e => { $("#speedV").textContent = speedWord(+e.target.value); clearTimeout(t4); t4 = setTimeout(() => save({speed:+e.target.value}), 250); };
 document.addEventListener("click", e => {          // tap the words of a switch row to flip it too
@@ -939,15 +947,9 @@ $("#wxPlaces").onclick = e => { const b = e.target.closest("button"), pl = S.wx_
   if (pl.length <= 1) return toast("Keep at least one place");
   save({wx_places: pl.filter(p => p !== b.dataset.p)}, b.dataset.p.split(",")[0] + " removed"); };
 $("#wxDays").onclick = e => { const b = e.target.closest("button"); if (b) save({wx_days: +b.dataset.v}, b.textContent + " ahead"); };
-$("#wxMode").onclick = e => { const b = e.target.closest("button"); if (b) save({wx_mode: b.dataset.v}, "Weather: " + b.textContent.toLowerCase()); };
-$("#wxSecs").onclick = e => { const b = e.target.closest("button"); if (b) save({wx_secs: +b.dataset.v}, "Weather stays " + b.textContent); };
-$("#wxEvery").onclick = e => { const b = e.target.closest("button"); if (b) save({wx_every: +b.dataset.v}, "Weather comes up: " + b.textContent.toLowerCase()); };
 $("#stockSets").onclick = e => { const b = e.target.closest("button"); if (!b) return;
   const on = new Set(S.stock_sets || []); on.has(b.dataset.s) ? on.delete(b.dataset.s) : on.add(b.dataset.s);
   save({stock_sets: [...on]}, on.size ? "Stocks updated" : "No stocks picked"); };
-$("#stockMode").onclick = e => { const b = e.target.closest("button"); if (b) save({stock_mode: b.dataset.v}, "Stocks: " + b.textContent.toLowerCase()); };
-$("#stockSecs").onclick = e => { const b = e.target.closest("button"); if (b) save({stock_secs: +b.dataset.v}, "Stocks stay " + b.textContent); };
-$("#stockEvery").onclick = e => { const b = e.target.closest("button"); if (b) save({stock_every: +b.dataset.v}, "Stocks come up: " + b.textContent.toLowerCase()); };
 function addCoin(raw) {
   let sym = String(raw || "").trim().toUpperCase().replace(/\s+/g, ""); if (!sym) return;
   if (!sym.includes("-")) sym += "-USD";
@@ -1601,8 +1603,8 @@ const Demo = (() => {
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
            group:"league", days:"week", pl_parts:["record","parlays","props"], pl_on:false, logos:true,
            sports_on:true, stocks_on:true, stocks:["AAPL","NVDA","TSLA"], wx_on:true, wx_place:"Somerset Center, Michigan", wx_parts:["now","forecast"],
-           wx_places:["Somerset Center, Michigan"], wx_days:3, wx_mode:"scroll", wx_secs:8, wx_every:-1,
-           stock_sets:["big"], crypto:["BTC-USD","ETH-USD","SOL-USD"], stock_mode:"scroll", stock_secs:8, stock_every:-1,
+           wx_places:["Somerset Center, Michigan"], wx_days:3, wx_style:"scroll", wx_secs:8, wx_every:-1, sports_style:"scroll", pl_style:"scroll", stock_style:"scroll", sports_every:-1, pl_every:-1,
+           stock_sets:["big"], crypto:["BTC-USD","ETH-USD","SOL-USD"], stock_secs:8, stock_every:-1,
            wx_alerts:true, wx_alert_level:"warnings", stock_alerts:true, stock_alert_pct:3, show_every:-1, show_id:"",
            shows:[{id:"golions", name:"Go Lions", in_ticker:false, c1:"#0076b6", c2:"#ffffff",
                    steps:[{kind:"words", text:"GO LIONS!", fx:"steady", bg:"color", secs:5, side:"left", w:0.4, fade:false}]}],
@@ -1797,14 +1799,14 @@ const Demo = (() => {
     }
     wxVer++;
   }
-  function extraSegs() {
-    const out = [];
-    if (S.stocks_on !== false) {
+  function extraSegs(kind = null, force = false) {
+    const out = [], scroll = k => (!kind || kind === k) && (force || (S[k + "_style"] || "scroll") === "scroll");
+    if (S.stocks_on !== false && scroll("stock")) {
       const sets = S.stock_sets || ["big"], one = k => [k, STOCK_SAMPLE[k] || [k.replace("^", "").replace("-USD", ""), 100, 0]];
       const groups = [["big", "MARKETS", ["^GSPC", "^DJI", "^IXIC"]], ["mine", "STOCKS", S.stocks || []], ["crypto", "CRYPTO", S.crypto || []]]
         .filter(g => sets.includes(g[0]) && g[2].length).map(g => [g[1], g[2].map(one)]);
       if (sets.includes("movers")) groups.splice(2, 0, ["TOP MOVERS", [["PLTR", ["PLTR", 81.5, 6.8]], ["TSLA", ["TSLA", 412.8, 5.6]], ["NVDA", ["NVDA", 181.23, -4.2]], ["INTC", ["INTC", 24.1, -3.1]]]]);
-      for (const [label, q] of (S.stock_mode === "screen" ? [] : groups)) {
+      for (const [label, q] of groups) {
         out.push([`  ${label}  `, "#00d28c", "hdr"]);
         for (const [, [name, price, pct]] of q) {
           const r = Math.round(pct * 100) / 100;
@@ -1814,7 +1816,7 @@ const Demo = (() => {
       }
     }
     const w = wxData;
-    if (S.wx_on !== false && w && w.place === (S.wx_place || "Somerset Center, Michigan")) {
+    if (S.wx_on !== false && scroll("wx") && w && w.place === (S.wx_place || "Somerset Center, Michigan")) {
       const parts = S.wx_parts || [], body = [];
       if (parts.includes("now")) {
         const [desc, dc] = wxText(w.code);
@@ -1849,25 +1851,27 @@ const Demo = (() => {
       if (parts.includes("props")) { const ov = PL.topOvers(b.overs || [], b.sport, S.prop_types || [], n); if (ov.length) body.push(["TOP OVERS  ", C.blue, "sub"], ...ov); }
       if (body.length) plSegs.push([`  PARLAYLABS ${b.sport}  `, C.gold, "hdr"], ...body);
     }
-    plSegs.push(...extraSegs());                  // then stocks and weather
-    lastPL = plSegs;
+    lastPL = [...plSegs];                         // ParlayLabs on its own (its cards)
+    if ((S.pl_style || "scroll") !== "scroll") plSegs.length = 0;
+    plSegs.push(...extraSegs());                  // then stocks and weather (the ones that scroll)
     const order = {in:0, pre:1, post:2};
     const sameDay = (a, b) => a.toDateString() === b.toDateString();
     // games: what you picked, or every game in the chosen sports
     const shown = S.sports_on === false ? [] : override || (picks ? pickedGames() : games.filter(x => want(x.league) &&
       (S.days !== "today" || x.state === "in" || (x.start && sameDay(new Date(x.start * 1000), new Date())))));
     if (!override) lastShown = shown;
+    const shownG = (S.sports_style || "scroll") === "scroll" ? shown : [];     // games in the crawl
     const gameSeg = x => ["", null, "game", x];          // drawn as a two-line block (gameBlock)
     if (S.group === "time") {                     // LIVE, then each start time, then FINAL
       const slot = ts => { const d = new Date(ts * 1000), clock = d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
         return sameDay(d, new Date()) ? clock : `${d.toLocaleDateString([], {weekday:"short"}).toUpperCase()} ${clock}`; };
-      const groups = [["LIVE", C.red, shown.filter(x => x.state === "in")]];
-      for (const x of shown.filter(x => x.state === "pre").sort((a, b) => a.start - b.start || a.league.localeCompare(b.league))) {
+      const groups = [["LIVE", C.red, shownG.filter(x => x.state === "in")]];
+      for (const x of shownG.filter(x => x.state === "pre").sort((a, b) => a.start - b.start || a.league.localeCompare(b.league))) {
         const label = slot(x.start);
         if (groups[groups.length - 1][0] !== label) groups.push([label, C.blue, []]);
         groups[groups.length - 1][2].push(x);
       }
-      groups.push(["FINAL", "#969696", shown.filter(x => x.state === "post").sort((a, b) => b.start - a.start)]);
+      groups.push(["FINAL", "#969696", shownG.filter(x => x.state === "post").sort((a, b) => b.start - a.start)]);
       for (const [label, col, gs] of groups) {
         if (!gs.length) continue;
         segs.push([`  ${label}  `, col, "hdr"]);
@@ -1875,7 +1879,7 @@ const Demo = (() => {
       }
     }
     for (const lg of (S.group === "time" ? [] : Object.keys(ESPN).filter(want))) {
-      const list = shown.filter(x => x.league === lg).sort((a, b) => order[a.state] - order[b.state]);
+      const list = shownG.filter(x => x.league === lg).sort((a, b) => order[a.state] - order[b.state]);
       if (!list.length) continue;
       segs.push([`  ${lg}  `, LEAGUE_COLORS[lg], "hdr"]);
       for (const x of list) segs.push(gameSeg(x), ["  •  ", C.dot]);
@@ -2254,6 +2258,7 @@ const Demo = (() => {
   }
   const cardSize = c => cardLayout(c)[0];
   function cardLength(c) {
+    if (c.secs) return c.secs;
     if (c.game || cardSize(c)) return S.hold;
     return Math.max(S.hold, (W + lineW(cardLayout(c)[1][0], FONT_PX)) / S.speed);
   }
@@ -2283,7 +2288,7 @@ const Demo = (() => {
     });
     return cardCanvas;
   }
-  function drawWithMotion(cnv, t, len, m = S.motion) {
+  function drawWithMotion(cnv, t, len, m = "cut") {
     const tr = 0.3;
     clear();
     if (m === "push") { const p = 0.4, dx = t < p ? W * (1 - t / p) : t > len - p ? -W * (t - (len - p)) / p : 0; g.drawImage(cnv, Math.round(dx), 0); return; }
@@ -2293,19 +2298,20 @@ const Demo = (() => {
     g.drawImage(cnv, 0, 0);
   }
 
-  let stripOff = null;
+  let stripOff = null, aloneHeld = false, heldRun = null;
   function buildStrip() {
     const segs = segments();
-    // one-at-a-time: clock, message, ParlayLabs items, then each game as a big scoreboard
-    const plCards = makeCards(lastPL);
-    cards = plCards.slice(0, 1).concat(makeCards(lastWarn).slice(1));
-    if (S.msg_in_scroll && (S.message || "").trim())
-      cards.push({label:null, segs:[[S.message.trim(), S.effect === "rainbow" ? "rainbow" : S.color]], msg:true});
+    // held items (any section whose style isn't Scroll): one at a time, each with its own effect
+    const held = (k, list, secs) => (S[k + "_style"] || "scroll") === "scroll" ? [] : list.map(c => Object.assign(c, {style: S[k + "_style"], secs}));
     const order = {in:0, pre:1, post:2}, lgo = Object.keys(ESPN);
     const sorted = [...lastShown].sort(S.group === "time"
       ? (a, b) => order[a.state] - order[b.state] || (a.state === "post" ? b.start - a.start : a.start - b.start)
       : (a, b) => lgo.indexOf(a.league) - lgo.indexOf(b.league) || order[a.state] - order[b.state] || a.start - b.start);
-    cards.push(...sorted.map(z => ({label:null, segs:[], msg:false, game:z})), ...plCards.slice(1));
+    cards = [...held("sports", sorted.map(z => ({label:null, segs:[], msg:false, game:z}))),
+             ...held("pl", makeCards(lastPL).slice(1)),
+             ...held("stock", S.stocks_on === false ? [] : makeCards(extraSegs("stock", true)).slice(1), S.stock_secs || 8),
+             ...held("wx", S.wx_on === false ? [] : makeCards(extraSegs("wx", true)).slice(1), S.wx_secs || 8)];
+    aloneHeld = cards.length > 0 && segs.length <= 1 && !(S.msg_in_scroll && (S.message || "").trim());
     strip = makeStrip(segs);
     stripOff = S.msg_in_scroll && S.effect === "blink" ? makeStrip(segs, true) : null;
     // split screen: held games on top, everything else on one line underneath
@@ -2781,8 +2787,8 @@ const Demo = (() => {
       if (t < (showing.notice ? showing.notice.secs : alertLen(themeOf(showing.key)))) { showing.notice ? drawNotice(showing.notice, t) : drawAlert(showing, t); return requestAnimationFrame(tick); }
       showing = null; x = W;
     }
-    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.pl_on, S.sports_on, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin, S.look, fontsReady, S.show_id, S.logos, S.stocks_on, S.stocks, S.wx_on, S.wx_place, S.wx_parts, wxVer, S.wx_alerts, warnActive()]);
-    if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; inter = null; lastPic = now; lapDone = false; showInter = null; showT0 = now; }
+    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.pl_on, S.sports_on, S.sports_style, S.pl_style, S.stock_style, S.wx_style, S.stock_sets, S.crypto, S.wx_days, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin, S.look, fontsReady, S.show_id, S.logos, S.stocks_on, S.stocks, S.wx_on, S.wx_place, S.wx_parts, wxVer, S.wx_alerts, warnActive()]);
+    if (key !== seen) { seen = key; x = W; msg = null; heldRun = null; buildStrip(); cardI = 0; cardT0 = now; inter = null; lastPic = now; lapDone = false; showInter = null; showT0 = now; }
     const tickShows = (S.shows || []).filter(z => z.in_ticker && (z.steps || []).length);
     if (S.mode === "scroll" && !inter && !showInter && +(S.show_every ?? -1) && tickShows.length) {   // a show between laps
       if (S.show_every < 0 ? lapDone : now - lastPic >= S.show_every * 60000) {
@@ -2833,10 +2839,14 @@ const Demo = (() => {
       if (x < -bottom.width || x > W) x = W;
       g.drawImage(b, Math.round(x), H - BOTTOM_H); x -= S.speed * dt;
       if (x < -bottom.width) { x = W; buildStrip(); lapDone = true; }
-    } else if ((S.motion || "scroll") !== "scroll" && cards.length) {
-      let c = cards[cardI % cards.length], len = cardLength(c), t = (now - cardT0) / 1000;
-      if (t >= len) { cardI = (cardI + 1) % cards.length; cardT0 = now; if (cardI === 0) { buildStrip(); lapDone = true; } c = cards[cardI % cards.length]; len = cardLength(c); t = 0; }
-      drawWithMotion(drawCard(c, t), t, len);
+    } else if (S.mode === "scroll" && cards.length && (heldRun || aloneHeld || lapDone)) {
+      if (!heldRun) { heldRun = {i: 0, t0: now}; lapDone = false; }
+      let c = cards[heldRun.i % cards.length], len = cardLength(c), t = (now - heldRun.t0) / 1000;
+      if (t >= len) {
+        heldRun.i++; heldRun.t0 = now; t = 0;
+        if (heldRun.i >= cards.length) { buildStrip(); heldRun = aloneHeld ? {i: 0, t0: now} : null; x = W; }
+      }
+      if (heldRun) { c = cards[heldRun.i % cards.length]; len = cardLength(c); drawWithMotion(drawCard(c, t), t, len, c.style); }
     } else {
       const t = now / 1000, s2 = stripOff && blinkOff(t) ? stripOff : strip, xi = Math.round(x);
       clear();
@@ -2963,7 +2973,7 @@ async function start() {
       const tx = d.transaction("kv", mode), q = f(tx.objectStore("kv")); tx.oncomplete = () => ok(q && q.result); tx.onerror = () => bad(tx.error); }); };
     return {get: k => run("readonly", st => st.get(k)), set: (k, v) => run("readwrite", st => st.put(v, k)), del: k => run("readwrite", st => st.delete(k))};
   })();
-  const SAVE_KEYS = ["themes", "favorites", "shows", "show_every", "pic_ids", "pic_secs", "pic_order", "pic_fx", "pic_every", "pic_boost", "message", "color", "effect", "sports_on", "stocks_on", "stocks", "stock_sets", "crypto", "stock_mode", "stock_secs", "stock_every", "wx_on", "wx_place", "wx_places", "wx_days", "wx_mode", "wx_secs", "wx_every", "wx_parts", "wx_alerts", "wx_alert_level", "stock_alerts", "stock_alert_pct"];
+  const SAVE_KEYS = ["themes", "favorites", "shows", "show_every", "pic_ids", "pic_secs", "pic_order", "pic_fx", "pic_every", "pic_boost", "message", "color", "effect", "sports_on", "stocks_on", "stocks", "stock_sets", "crypto", "stock_style", "stock_secs", "stock_every", "sports_style", "pl_style", "sports_every", "pl_every", "wx_on", "wx_place", "wx_places", "wx_days", "wx_style", "wx_secs", "wx_every", "wx_parts", "wx_alerts", "wx_alert_level", "stock_alerts", "stock_alert_pct"];
   let saveT = 0, stored = new Set();
   function persist() {
     clearTimeout(saveT);
