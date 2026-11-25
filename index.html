@@ -207,6 +207,15 @@
 </div>
 
 <div class="card panel" data-panel="scroll">
+  <h2>What's on the ticker</h2>
+  <div class="switch"><span>Scores &amp; odds <small class="dim">(games + team alerts)</small></span><input type="checkbox" id="showSports"></div>
+  <div class="switch"><span>ParlayLabs bets</span><input type="checkbox" id="showPl"></div>
+  <div class="switch"><span>Stocks</span><input type="checkbox" id="showStocks"></div>
+  <div class="switch"><span>Weather</span><input type="checkbox" id="showWx"></div>
+  <div class="hint" id="showHint"></div>
+</div>
+
+<div class="card panel" data-panel="scroll">
   <h2>Games</h2>
   <div class="chips wrap" id="leagues"></div>
   <div class="quick">
@@ -588,6 +597,10 @@ function render() {
     ? "The classic crawl: games, odds and ParlayLabs flow by. Speed sets how fast."
     : "One item at a time: games as a big scoreboard, ParlayLabs with a small label on top. Speed sets how fast long ones (like parlays) crawl across.";
   $("#plOn").checked = !!S.pl_on; $("#plBox").hidden = !S.pl_on;
+  $("#showSports").checked = S.sports_on !== false; $("#showPl").checked = !!S.pl_on;
+  $("#showStocks").checked = S.stocks_on !== false; $("#showWx").checked = S.wx_on !== false;
+  { const on = [S.sports_on !== false && "scores", S.pl_on && "ParlayLabs", S.stocks_on !== false && "stocks", S.wx_on !== false && "weather"].filter(Boolean);
+    $("#showHint").textContent = on.length ? "Showing: " + on.join(", ") + "." : "Everything is off. The ticker will just say so until you turn something on."; }
   // stocks + weather
   const syms = S.stocks || [];
   $("#stocksOn").checked = S.stocks_on !== false; $("#stocksBox").hidden = S.stocks_on === false;
@@ -862,6 +875,10 @@ $("#wxPlace").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $(
 $("#wxParts").onclick = e => { const b = e.target.closest("button"); if (!b) return;
   const on = new Set(S.wx_parts || []); on.has(b.dataset.p) ? on.delete(b.dataset.p) : on.add(b.dataset.p);
   save({wx_parts: [...on]}, on.size ? "Weather updated" : "No weather in the scroll"); };
+$("#showSports").onchange = e => save({sports_on: e.target.checked}, e.target.checked ? "Scores on" : "Scores off");
+$("#showPl").onchange = e => save({pl_on: e.target.checked}, e.target.checked ? "ParlayLabs bets on" : "ParlayLabs bets off");
+$("#showStocks").onchange = e => save({stocks_on: e.target.checked}, e.target.checked ? "Stocks on" : "Stocks off");
+$("#showWx").onchange = e => save({wx_on: e.target.checked}, e.target.checked ? "Weather on" : "Weather off");
 $("#plOn").onchange = e => save({pl_on: e.target.checked}, e.target.checked ? "ParlayLabs bets on" : "ParlayLabs bets off");
 $("#plParts").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -1492,7 +1509,7 @@ const Demo = (() => {
   let S = {mode:"scroll", leagues:[], game_ids:[], rotate:10, message:"GO LIONS!", color:"#ffbe00", brightness:60,
            tv_delay:0, alerts:true, fit:"contain", refresh:5, odds:["ou","ml"], odds_on:true, msg_in_scroll:false, effect:"steady",
            group:"league", days:"week", pl_parts:["record","parlays","props"], pl_on:false, logos:true,
-           stocks_on:true, stocks:["^GSPC","^DJI","^IXIC","AAPL","NVDA","TSLA"], wx_on:true, wx_place:"Somerset Center, Michigan", wx_parts:["now","forecast"],
+           sports_on:true, stocks_on:true, stocks:["^GSPC","^DJI","^IXIC","AAPL","NVDA","TSLA"], wx_on:true, wx_place:"Somerset Center, Michigan", wx_parts:["now","forecast"],
            wx_alerts:true, wx_alert_level:"warnings", stock_alerts:true, stock_alert_pct:3, show_every:-1, show_id:"",
            shows:[{id:"golions", name:"Go Lions", in_ticker:false, c1:"#0076b6", c2:"#ffffff",
                    steps:[{kind:"words", text:"GO LIONS!", fx:"steady", bg:"color", secs:5, side:"left", w:0.4, fade:false}]}],
@@ -1740,7 +1757,7 @@ const Demo = (() => {
     const order = {in:0, pre:1, post:2};
     const sameDay = (a, b) => a.toDateString() === b.toDateString();
     // games: what you picked, or every game in the chosen sports
-    const shown = override || (picks ? pickedGames() : games.filter(x => want(x.league) &&
+    const shown = S.sports_on === false ? [] : override || (picks ? pickedGames() : games.filter(x => want(x.league) &&
       (S.days !== "today" || x.state === "in" || (x.start && sameDay(new Date(x.start * 1000), new Date())))));
     if (!override) lastShown = shown;
     const gameSeg = x => ["", null, "game", x];          // drawn as a two-line block (gameBlock)
@@ -2039,7 +2056,7 @@ const Demo = (() => {
     return cnv;
   }
   function pinnedGames() {                        // games held on the top row (split screen), or none
-    const pin = S.pin || "off";
+    const pin = S.sports_on === false ? "off" : (S.pin || "off");
     if (pin === "mine") return myGames().filter(z => z.state === "in");
     if (pin === "live") return games.filter(z => z.state === "in" && (!(S.leagues || []).length || S.leagues.includes(z.league)))
       .sort((a, b) => !!mine(b) - !!mine(a) || isClose(b) - isClose(a) || a.league.localeCompare(b.league));
@@ -2667,7 +2684,7 @@ const Demo = (() => {
       if (t < (showing.notice ? showing.notice.secs : alertLen(themeOf(showing.key)))) { showing.notice ? drawNotice(showing.notice, t) : drawAlert(showing, t); return requestAnimationFrame(tick); }
       showing = null; x = W;
     }
-    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.pl_on, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin, S.look, fontsReady, S.show_id, S.logos, S.stocks_on, S.stocks, S.wx_on, S.wx_place, S.wx_parts, wxVer, S.wx_alerts, warnActive()]);
+    const key = JSON.stringify([S.mode, S.game_ids, S.message, S.color, S.leagues, S.odds, S.odds_on, S.msg_in_scroll, S.effect, S.group, S.days, S.pl_parts, S.pl_on, S.sports_on, S.motion, S.pl_count, S.pl_sports, S.prop_types, S.ranks, S.hold, S.pin, S.look, fontsReady, S.show_id, S.logos, S.stocks_on, S.stocks, S.wx_on, S.wx_place, S.wx_parts, wxVer, S.wx_alerts, warnActive()]);
     if (key !== seen) { seen = key; x = W; msg = null; buildStrip(); cardI = 0; cardT0 = now; inter = null; lastPic = now; lapDone = false; showInter = null; showT0 = now; }
     const tickShows = (S.shows || []).filter(z => z.in_ticker && (z.steps || []).length);
     if (S.mode === "scroll" && !inter && !showInter && +(S.show_every ?? -1) && tickShows.length) {   // a show between laps
@@ -2848,7 +2865,7 @@ async function start() {
       const tx = d.transaction("kv", mode), q = f(tx.objectStore("kv")); tx.oncomplete = () => ok(q && q.result); tx.onerror = () => bad(tx.error); }); };
     return {get: k => run("readonly", st => st.get(k)), set: (k, v) => run("readwrite", st => st.put(v, k)), del: k => run("readwrite", st => st.delete(k))};
   })();
-  const SAVE_KEYS = ["themes", "favorites", "shows", "show_every", "pic_ids", "pic_secs", "pic_order", "pic_fx", "pic_every", "pic_boost", "message", "color", "effect", "stocks_on", "stocks", "wx_on", "wx_place", "wx_parts", "wx_alerts", "wx_alert_level", "stock_alerts", "stock_alert_pct"];
+  const SAVE_KEYS = ["themes", "favorites", "shows", "show_every", "pic_ids", "pic_secs", "pic_order", "pic_fx", "pic_every", "pic_boost", "message", "color", "effect", "sports_on", "stocks_on", "stocks", "wx_on", "wx_place", "wx_parts", "wx_alerts", "wx_alert_level", "stock_alerts", "stock_alert_pct"];
   let saveT = 0, stored = new Set();
   function persist() {
     clearTimeout(saveT);

@@ -131,7 +131,7 @@ class Control:
             "group": "league", "days": "week", "pl_parts": ["record", "parlays", "props"], "pl_on": False,
             "speed": SCROLL_SPEED, "motion": "scroll", "hold": 5,
             "pl_count": 5, "pl_sports": [], "prop_types": [], "game_motion": "slide", "ranks": True,
-            "stocks_on": True, "stocks": list(DEFAULT_STOCKS), "wx_on": True, "wx_place": WX_DEFAULT_PLACE, "wx_parts": ["now", "forecast"],
+            "sports_on": True, "stocks_on": True, "stocks": list(DEFAULT_STOCKS), "wx_on": True, "wx_place": WX_DEFAULT_PLACE, "wx_parts": ["now", "forecast"],
             "wx_alerts": True, "wx_alert_level": "warnings", "stock_alerts": True, "stock_alert_pct": 3,
             "game_speed": SCROLL_SPEED, "msg_on_image": False, "pin": "off",
             # pictures: which ones (empty = all), one played on its own, seconds each, order, change style,
@@ -209,7 +209,7 @@ class Control:
         self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push", "scroll") else "slide"
         self.game_speed = max(20, min(200, int(self.game_speed)))
         self.pl_count = max(1, min(10, int(self.pl_count)))
-        self.stocks_on, self.wx_on = bool(self.stocks_on), bool(self.wx_on)
+        self.sports_on, self.stocks_on, self.wx_on = bool(self.sports_on), bool(self.stocks_on), bool(self.wx_on)
         self.stocks = clean_symbols(self.stocks)
         self.wx_place = (str(self.wx_place or "").strip() or WX_DEFAULT_PLACE)[:60]
         self.wx_parts = [x for x in (self.wx_parts or []) if x in WX_PARTS]
@@ -2532,6 +2532,8 @@ class Feed:
         """Games on the ticker: the ones picked on the phone (incl. My teams / Live / Close),
         or every game in the chosen sports when nothing is picked."""
         ctl = self.ctl
+        if not ctl.sports_on:                            # scores switched off on the phone
+            return [], True
         if ctl.game_ids:
             return self.picked(), True
         return visible_games(self.games, ctl.leagues, ctl.days), True
@@ -2544,6 +2546,8 @@ class Feed:
         build = time_segments if ctl.group == "time" else score_segments
         game_segs = build(games, None, ctl.show_odds(), "week", raw)
         segs = self.warn + game_segs + pl         # warnings, games, then ParlayLabs, stocks, weather
+        if not segs and not (ctl.sports_on or ctl.pl_on or ctl.stocks_on or ctl.wx_on):
+            segs = [("Everything is switched off - turn something on from your phone", GRAY)]
         if ctl.msg_in_scroll and ctl.message.strip():
             # your message comes around before each league (and before ParlayLabs)
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
@@ -2566,6 +2570,8 @@ class Feed:
     def pinned_games(self):
         """Games held on the top row (split screen), or [] for the normal full-height ticker."""
         ctl, now = self.ctl, []
+        if not ctl.sports_on:
+            return now
         live = lambda g: g["state"] == "in" or self.linger_left(g)
         if ctl.pin == "mine":
             now = [g for g in self.my_games() if live(g)]
@@ -2738,7 +2744,7 @@ class Feed:
 
     def next_alert(self):
         q = self.watcher.queue
-        if not self.ctl.alerts:
+        if not self.ctl.alerts or not self.ctl.sports_on:     # team alerts are scores: off with them
             q.clear()
             return None
         if q and time.time() - q[0].at >= self.ctl.tv_delay:   # hold it to line up with the TV
