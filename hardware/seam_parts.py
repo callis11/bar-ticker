@@ -218,7 +218,7 @@ eb_sw = eb - box(-1, -SW_NOTCH, SW_Z - 25, L + 1, SW_NOTCH, FL_H + 1)
 save(eb_sw, "ticker-end-bracket-switch.stl")
 
 # ---- slider washer: bridges a window under the M4 screw head (the panel inserts are M4)
-save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 4.5, 32), "ticker-end-washer.stl")   # M4 clearance
+save(rbox(-9, -7, 9, 7, 0, 2.0, 2.5) - cyl(0, 0, -1, 4.0, 4.8, 32), "ticker-end-washer.stl")   # M4 clearance (+ allowance: printed holes come out small)
 
 # ---- preview sheet
 import matplotlib; matplotlib.use("Agg")
