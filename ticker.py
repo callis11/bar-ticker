@@ -3257,6 +3257,11 @@ def make_handler(ctl, feed):
                             os.execv(sys.executable, [sys.executable] + sys.argv)      # not running as a service: restart in place
                     threading.Thread(target=restart, daemon=True).start()
                     return self.send(200, {"restarting": True, "msg": msg})
+                elif path == "/api/panel-check":             # label every panel with its Bonnet port for 60 s
+                    ctl.port_test_until = 0 if getattr(ctl, "port_test_until", 0) > time.time() else time.time() + 60
+                    return self.send(200, {"on": ctl.port_test_until > time.time(),
+                                           "panels_txt": f"{PANELS}{' right' if PI_AT_RIGHT else ''}{' flip' if PANELS_FLIPPED else ''}",
+                                           "map": PANEL_MAP})
                 elif path == "/api/test-alert":              # preview an alert theme on the ticker
                     d = json.loads(body or b"{}")
                     feed.test_alert(d["team"], d["kind"])
@@ -3389,6 +3394,24 @@ def test_panels_frame():
         centered(d, str(i + 1), font(52), c, cx=i * COLS + COLS // 2, cy=ROWS // 2)
     return img
 
+def port_test_image():
+    """Panel check: skips the panel order completely. Every spot on every Bonnet output gets its own label
+    ("PORT 2" + "1st" / "2nd" in the chain), so whatever each panel shows is exactly where its ribbon goes.
+    A panel that stays dark here has no signal (ribbon, IN/OUT, power) - it's not the panel order."""
+    chain = max(spot for _, spot, _ in PANEL_MAP) + 1
+    outs = max(out for out, _, _ in PANEL_MAP)
+    img = Image.new("RGB", (COLS * chain, ROWS * outs))
+    d = ImageDraw.Draw(img)
+    cols = [(255, 60, 60), (0, 220, 90), (60, 160, 255)]
+    for o in range(outs):
+        for sp in range(chain):
+            c, x0, y0 = cols[o % 3], sp * COLS, o * ROWS
+            d.rectangle([x0, y0, x0 + COLS - 1, y0 + ROWS - 1], outline=c, width=2)
+            centered(d, f"PORT {o + 1}", font(30), c, cx=x0 + COLS // 2, cy=y0 + 22)
+            centered(d, ("1st", "2nd", "3rd")[sp] if sp < 3 else f"#{sp + 1}", font(22), (255, 255, 255),
+                     cx=x0 + COLS // 2, cy=y0 + 48)
+    return img
+
 def run_test_panels(ctl):
     """Shows the panel numbers until Ctrl-C (stop the ticker service first)."""
     matrix = open_matrix(ctl)
@@ -3409,7 +3432,10 @@ def run_display(ctl, feed, matrix):
             matrix.brightness = ctl.brightness
         frame.paste((0, 0, 0), (0, 0, W, ROWS))
         frame.paste(img, (x, 0))
-        canvas.SetImage(to_panels(frame))
+        if time.time() < getattr(ctl, "port_test_until", 0):   # "Panel check" button on the phone page
+            canvas.SetImage(port_test_image())
+        else:
+            canvas.SetImage(to_panels(frame))
         canvas = matrix.SwapOnVSync(canvas)
         now_ = time.monotonic()
         if now_ - show.last_copy >= 0.25:           # the phone's live preview only needs a few frames a second

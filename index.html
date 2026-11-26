@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261117152838">
+<meta name="build" content="20261126020737">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -456,6 +456,8 @@
   <div class="switch"><span>Team alerts <small class="dim">(all your teams; set them up on the Alerts tab)</small></span><input type="checkbox" id="alerts"></div>
   <div class="switch"><span>College rankings (#12 MSU)</span><input type="checkbox" id="ranks"></div>
   <div class="row3" style="grid-template-columns:1fr 1fr;margin-top:10px"><button class="btn" id="updateBtn">Update &amp; restart</button><button class="btn ghost" id="restartBtn">Restart</button></div>
+  <button class="btn ghost" id="panelCheckBtn" style="width:100%;margin-top:10px">Panel check (shows each panel's port for 60 s)</button>
+  <p class="hint" id="panelCheckMsg"></p>
   <p class="hint">Update gets the newest ticker code from GitHub, then restarts (about 10 seconds). It also does this by itself every couple of minutes. Restart just restarts, for when something looks stuck.</p>
 </div>
 
@@ -2969,6 +2971,12 @@ async function restartTicker(path, working) {
 }
 $("#updateBtn").onclick = () => restartTicker("/api/update", "Checking for updates…");
 $("#restartBtn").onclick = () => restartTicker("/api/restart", "Restarting…");
+$("#panelCheckBtn").onclick = async () => {
+  const r = await fetch("/api/panel-check", {method: "POST"}).then(r => r.json()).catch(() => null);
+  $("#panelCheckMsg").textContent = !r ? "Couldn't reach the ticker." : r.on
+    ? "Each panel now shows PORT 1/2/3 and 1st/2nd. Panels that stay dark get no signal. Tap again to stop. Set up for: " + r.panels_txt
+    : "Panel check off.";
+};
 
 async function start() {
     $("#demoBar").classList.add("on");
