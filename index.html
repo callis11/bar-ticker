@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126032419">
+<meta name="build" content="20261126034707">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -228,6 +228,7 @@
     <button id="pickShown">Select all</button>
     <button id="pickNone">Clear</button>
   </div>
+  <div class="chips wrap" id="followMenu" hidden style="margin:2px 0 8px"></div>
   <div id="games"></div>
   <button class="more" id="moreGames" hidden></button>
   <p class="hint" id="gamesHint" style="margin:6px 0 10px"></p>
@@ -724,9 +725,10 @@ function renderGames() {
   const liveTok = (S.game_ids || []).find(i => isTok(i, "@live"));
   const liveOn = !!liveTok;
   $("#pickLive").classList.toggle("on", liveOn);
-  $("#pickLive").textContent = liveOn ? tokLabel(liveTok, "Live") : (sportsOn().size ? `Live ${sportsName()}` : "Live games");
+  $("#pickLive").textContent = (liveOn ? tokLabel(liveTok, "Live") : "Live games") + (followOpen === "@live" ? " ▴" : " ▾");
   $("#pickClose").classList.toggle("on", following);
-  $("#pickClose").textContent = following ? tokLabel(closeTok, "Close") : (sportsOn().size ? `Close ${sportsName()}` : "Close games");
+  $("#pickClose").textContent = (following ? tokLabel(closeTok, "Close") : "Close games") + (followOpen === "@close" ? " ▴" : " ▾");
+  renderFollowMenu();
   const games = S.games || [], sp = sportsOn();
   $("#leagues").innerHTML = `<button data-l="" class="${sp.size ? "" : "on"}">All sports</button>` +
     SPORTS.map(([k, n]) => `<button data-l="${k}" class="${sp.has(k) ? "on" : ""}">${n}</button>`).join("");
@@ -843,30 +845,49 @@ $("#pickMine").onclick = () => {
   ids.add("@mine");
   setGames([...ids], "Following the Lions, Pistons and MSU. Next games show when they're not playing");
 };
-$("#pickClose").onclick = () => {
-  const ids = new Set(S.game_ids || []);
-  const had = [...ids].filter(i => isTok(i, "@close"));
-  had.forEach(i => ids.delete(i));
-  if (had.length) return setGames([...ids], ids.size ? "Stopped following close games" : undefined);
-  ids.add(sportsOn().size ? `@close:${sportsTag()}` : "@close");
-  const now = (S.games || []).filter(g => g.close && inSports(g)).length;
-  setGames([...ids], now ? `Following ${now} close game${now > 1 ? "s" : ""}` : "Following close games. Scrolling until one gets tight");
+// Live / Close: tap to drop down the sports to follow (All sports or any mix); tap again to close it
+var followOpen = null;                                     // "@live" | "@close" | null
+function followSports(base) {                              // null = off, [] = all sports, ["NFL", ...] = those
+  const tok = (S.game_ids || []).find(i => isTok(i, base));
+  return tok === undefined ? null : tok.includes(":") ? tok.split(":")[1].split(",") : [];
+}
+function renderFollowMenu() {
+  const m = $("#followMenu");
+  if (!followOpen) { m.hidden = true; return; }
+  const cur = followSports(followOpen), word = followOpen === "@live" ? "Live" : "Close";
+  m.hidden = false;
+  m.innerHTML = `<button data-fs="*" class="${cur && !cur.length ? "on" : ""}">All sports</button>` +
+    SPORTS.map(([k, n]) => `<button data-fs="${k}" class="${cur && cur.includes(k) ? "on" : ""}">${n}</button>`).join("") +
+    `<button data-fs="-" class="${cur === null ? "on" : ""}">${word} off</button>`;
+}
+function setFollow(base, sports) {                         // sports: null off, [] all, [...] some
+  const ids = (S.game_ids || []).filter(i => !isTok(i, base));
+  const word = base === "@live" ? "live" : "close";
+  if (sports === null) return setGames(ids, `Not following ${word} games`);
+  ids.push(sports.length ? `${base}:${[...sports].sort().join(",")}` : base);
+  setGames(ids, `Following ${word} games: ${sports.length ? [...sports].sort().join(" + ") : "all sports"}`);
+}
+["#pickLive", "#pickClose"].forEach(sel => $(sel).onclick = () => {
+  const base = sel === "#pickLive" ? "@live" : "@close";
+  followOpen = followOpen === base ? null : base;
+  renderFollowMenu();
+});
+$("#followMenu").onclick = e => {
+  const b = e.target.closest("button"); if (!b || !followOpen) return;
+  const cur = followSports(followOpen), v = b.dataset.fs;
+  if (v === "-") setFollow(followOpen, null);
+  else if (v === "*") setFollow(followOpen, []);
+  else {
+    const set = new Set(cur && cur.length ? cur : []);
+    set.has(v) ? set.delete(v) : set.add(v);
+    setFollow(followOpen, set.size ? [...set] : null);
+  }
 };
 $("#moreGames").onclick = () => {
   gamesOpen = !gamesOpen;
   try { localStorage.setItem("gamesOpen", gamesOpen ? "1" : "0"); } catch {}
   renderGames();
   if (!gamesOpen) $("#games").scrollIntoView({block:"nearest", behavior:"smooth"});
-};
-$("#pickLive").onclick = () => {
-  const ids = new Set(S.game_ids || []);
-  const had = [...ids].filter(i => isTok(i, "@live"));
-  had.forEach(i => ids.delete(i));
-  if (had.length) return setGames([...ids], ids.size ? "Stopped following live games" : undefined);
-  ids.add(sportsOn().size ? `@live:${sportsTag()}` : "@live");
-  const n = (S.games || []).filter(g => g.state === "in" && inSports(g)).length;
-  const what = sportsOn().size ? `live ${sportsName()} games` : "live games";
-  setGames([...ids], n ? `Following ${n} ${what}. New ones join when they start` : `Following ${what}. They'll join when they start`);
 };
 $("#pickNone").onclick = () => setGames([]);
 $("#colors").innerHTML = COLORS.map(c => `<button data-c="${c}" style="background:${c}" aria-label="color ${c}"></button>`).join("");
