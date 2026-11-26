@@ -38,8 +38,17 @@ def _panel_cfg():
         except OSError:
             words = []
     n = next((int(w) for w in words if w.isdigit()), 5)
-    return max(1, min(5, n)), "right" in words, "flip" in words
-PANELS, PI_AT_RIGHT, PANELS_FLIPPED = _panel_cfg()   # 128x64 P2.5 panels chained left-to-right
+    custom = []                                     # "map 3:1 2:1 2:2 1:1": port:place for each panel, left to right
+    for w in words[words.index("map") + 1:] if "map" in words else []:
+        try:
+            o, sp = w.rstrip("f").split(":")
+            custom.append((int(o), int(sp) - 1, w.endswith("f")))
+        except ValueError:
+            break
+    if custom:
+        n = len(custom)
+    return max(1, min(5, n)), "right" in words, "flip" in words, custom[:5]
+PANELS, PI_AT_RIGHT, PANELS_FLIPPED, CUSTOM_MAP = _panel_cfg()   # 128x64 P2.5 panels chained left-to-right
 ROWS, COLS    = 64, 128
 W             = COLS * PANELS   # 640 x 64 pixels
 K             = ROWS // 32      # drawing scale (sizes below were first worked out for a 32-tall strip)
@@ -68,6 +77,8 @@ if PI_AT_RIGHT:
     # from the right, so with 2, 3, 4 panels the ports fill in this order. Listed here right to left:
     FROM_RIGHT = [(1, 0, False), (1, 1, False), (2, 0, False), (3, 0, False), (3, 1, False)]
     PANEL_MAP = FROM_RIGHT[:PANELS][::-1] if BONNET != "single" else [(1, i, False) for i in range(PANELS)][::-1]
+if CUSTOM_MAP:                                      # set on the phone page (Wiring): exactly what's plugged in where
+    PANEL_MAP = CUSTOM_MAP
 if PANELS_FLIPPED:
     PANEL_MAP = [(o, sp, not fl) for o, sp, fl in PANEL_MAP]
 FONT_PATH     = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -3140,6 +3151,8 @@ def make_handler(ctl, feed):
                 if name == "manifest.json":
                     body = body.replace(b'"Bar Ticker"', b'"Bar Ticker Pi"')
                 self.send(200, body, STATIC_FILES[name])
+            elif path == "/api/wiring":
+                self.send(200, {"map": [[o, sp + 1] for o, sp, _ in PANEL_MAP], "flip": PANELS_FLIPPED})
             elif path == "/api/state":
                 games = [dict(g, mine=bool(mine(g)[0]), close=is_close(g), linger=feed.linger_left(g))
                          for g in feed.games]
@@ -3257,6 +3270,19 @@ def make_handler(ctl, feed):
                             os.execv(sys.executable, [sys.executable] + sys.argv)      # not running as a service: restart in place
                     threading.Thread(target=restart, daemon=True).start()
                     return self.send(200, {"restarting": True, "msg": msg})
+                elif path == "/api/wiring":                  # Wiring on the phone page: save panels.txt, restart
+                    d = json.loads(body or b"{}")
+                    pairs = [(int(o), int(sp)) for o, sp in d["map"]][:5]
+                    if not pairs or any(not (1 <= o <= 3 and 1 <= sp <= 2) for o, sp in pairs) or len(set(pairs)) != len(pairs):
+                        return self.send(400, {"error": "Each panel needs its own port + place (port 1-3, 1st or 2nd)"})
+                    with open(os.path.join(HERE, "panels.txt"), "w") as f:
+                        f.write(f"{len(pairs)} map " + " ".join(f"{o}:{sp}" for o, sp in pairs) + (" flip" if d.get("flip") else "") + "\n")
+                    def restart_w():
+                        time.sleep(1.0)
+                        if subprocess.run(["systemctl", "restart", "ticker"], capture_output=True).returncode:
+                            os.execv(sys.executable, [sys.executable] + sys.argv)
+                    threading.Thread(target=restart_w, daemon=True).start()
+                    return self.send(200, {"restarting": True, "msg": "Wiring saved, restarting"})
                 elif path == "/api/panel-check":             # label every panel with its Bonnet port for 60 s
                     ctl.port_test_until = 0 if getattr(ctl, "port_test_until", 0) > time.time() else time.time() + 60
                     return self.send(200, {"on": ctl.port_test_until > time.time(),

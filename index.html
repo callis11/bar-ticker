@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126020737">
+<meta name="build" content="20261126021557">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -458,6 +458,14 @@
   <div class="row3" style="grid-template-columns:1fr 1fr;margin-top:10px"><button class="btn" id="updateBtn">Update &amp; restart</button><button class="btn ghost" id="restartBtn">Restart</button></div>
   <button class="btn ghost" id="panelCheckBtn" style="width:100%;margin-top:10px">Panel check (shows each panel's port for 60 s)</button>
   <p class="hint" id="panelCheckMsg"></p>
+  <div id="wiringBox" style="margin-top:10px">
+    <b>Wiring</b>
+    <p class="hint">For each panel, left to right as you face the front: which Bonnet port its ribbon comes from, and whether it's the 1st panel on that ribbon (plugged into the Bonnet) or the 2nd (chained off the 1st). Panel check shows you this.</p>
+    <div class="row3" style="grid-template-columns:auto 1fr;align-items:center;gap:6px;margin:6px 0">Panels: <select id="wiringCount"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div>
+    <div id="wiringRows"></div>
+    <label style="display:block;margin:6px 0"><input type="checkbox" id="wiringFlip"> Panels are upside down</label>
+    <button class="btn" id="wiringSave" style="width:100%">Save wiring &amp; restart</button>
+  </div>
   <p class="hint">Update gets the newest ticker code from GitHub, then restarts (about 10 seconds). It also does this by itself every couple of minutes. Restart just restarts, for when something looks stuck.</p>
 </div>
 
@@ -2971,6 +2979,28 @@ async function restartTicker(path, working) {
 }
 $("#updateBtn").onclick = () => restartTicker("/api/update", "Checking for updates…");
 $("#restartBtn").onclick = () => restartTicker("/api/restart", "Restarting…");
+let wiring = [[1,1],[1,2],[2,1],[2,2],[3,1]];
+function drawWiring() {
+  const n = +$("#wiringCount").value;
+  while (wiring.length < n) wiring.push([3, 2]);
+  $("#wiringRows").innerHTML = wiring.slice(0, n).map((w, i) => `<div style="display:flex;gap:6px;align-items:center;margin:4px 0">
+    <span style="width:72px">Panel ${i + 1}</span>
+    <select data-i="${i}" data-k="0">${[1,2,3].map(p => `<option value="${p}" ${w[0]==p?"selected":""}>Port ${p}</option>`).join("")}</select>
+    <select data-i="${i}" data-k="1"><option value="1" ${w[1]==1?"selected":""}>1st</option><option value="2" ${w[1]==2?"selected":""}>2nd</option></select></div>`).join("");
+  $("#wiringRows").querySelectorAll("select").forEach(s => s.onchange = () => { wiring[+s.dataset.i][+s.dataset.k] = +s.value; });
+}
+$("#wiringCount").onchange = drawWiring;
+if (!DEMO) fetch("/api/wiring").then(r => r.json()).then(w => {
+  wiring = w.map.map(x => [x[0], x[1]]); $("#wiringCount").value = wiring.length; $("#wiringFlip").checked = !!w.flip; drawWiring();
+}).catch(drawWiring); else drawWiring();
+$("#wiringSave").onclick = async () => {
+  if (DEMO) return toast("Not available in the demo");
+  const n = +$("#wiringCount").value;
+  try {
+    const r = await api("/api/wiring", {method:"POST", body: JSON.stringify({map: wiring.slice(0, n), flip: $("#wiringFlip").checked})});
+    toast(r.msg + "…"); await new Promise(r => setTimeout(r, 6000)); location.reload();
+  } catch (e) { toast(e.message || "Couldn't save"); }
+};
 $("#panelCheckBtn").onclick = async () => {
   const r = await fetch("/api/panel-check", {method: "POST"}).then(r => r.json()).catch(() => null);
   $("#panelCheckMsg").textContent = !r ? "Couldn't reach the ticker." : r.on
