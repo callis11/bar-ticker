@@ -2906,9 +2906,12 @@ class Feed:
         ids = {g["id"] for g in self.pinned}
         games, raw = self.shown_games()
         rest = [g for g in games if g["id"] not in ids]
-        if not rest:                                     # you picked only the held games: show the rest of your sports
+        # you picked games: the bottom only shows the other games you picked (never every game), plus ParlayLabs/stocks/weather
+        if not rest and not (ctl.pin == "picked" or ctl.game_ids):
             rest, raw = [g for g in visible_games(self.games, ctl.leagues, ctl.days) if g["id"] not in ids], False
-        segs = self.warn + (build(rest, None, ctl.show_odds(), "week", raw) if ctl.sports_style == "scroll" else []) + pl
+        segs = self.warn + (build(rest, None, ctl.show_odds(), "week", raw) if ctl.sports_style == "scroll" and rest else []) + pl
+        if not segs:                                     # nothing else to show underneath: the time of day
+            segs = [(datetime.now().strftime("%-I:%M %p").lower(), GRAY)]
         if ctl.msg_in_scroll and ctl.message.strip():
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
             note = [(f"   {ctl.message.strip()}   ", col, "msg"), DOT]
