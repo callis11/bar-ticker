@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126042653">
+<meta name="build" content="20261126043349">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -720,7 +720,7 @@ function render() {
   $("#oddsOn").checked = S.odds_on !== false;
   $("#oddsPick").style.opacity = S.odds_on === false ? .35 : 1;
   renderGames();
-  renderExtras();
+  if (window.renderExtras) window.renderExtras();
 }
 
 function shownGames() {
@@ -3078,6 +3078,7 @@ function renderExtras() {
     <span class="teams">${esc(m.text)}</span><span class="st">${m.days.length === 7 ? "Every day" : m.days.map(d => DAY_NAMES[d]).join(" ")} ${fmt(m.start)}-${fmt(m.end)}</span>
     <button class="btn ghost" data-del="${i}" style="width:auto;margin:0 0 0 6px;padding:2px 10px">✕</button></div>`).join("");
 }
+window.renderExtras = renderExtras;                 // this part of the page sits inside another block: let render() reach it
 $("#extraOn").onchange = e => save({extra_on: e.target.checked}, e.target.checked ? "Extras on" : "Extras off");
 $("#extraPick").onclick = e => { const b = e.target.closest("button"); if (b) save({extras: toggleList(S.extras || Object.keys(EXTRA_NAMES), b.dataset.x)}, EXTRA_NAMES[b.dataset.x]); };
 $("#extraStyle").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({extra_style: b.dataset.v}, "Extras: " + b.textContent.toLowerCase()); };
