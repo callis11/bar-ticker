@@ -3089,9 +3089,11 @@ class Feed:
 
     def next_alert(self):
         q = self.watcher.queue
-        if not self.ctl.alerts or not self.ctl.sports_on:     # team alerts are scores: off with them
+        if not self.ctl.alerts:                              # the Team alerts switch: everything off
             q.clear()
             return None
+        if not self.ctl.sports_on:                           # scores switched off: your favorite teams still alert, no matter what
+            q[:] = [a for a in q if (a.game["league"], a.abbr) in MY_TEAMS]
         if q and time.time() - q[0].at >= self.ctl.tv_delay:   # hold it to line up with the TV
             return q.pop(0)
         return None
