@@ -1331,7 +1331,7 @@ def wx_alert_segments(feed, ctl):
 # ------------------------------------------------------------------ alerts
 # ---- alert themes: your own look for each team's touchdown / red zone / win / close-game alert
 ALERT_KINDS = {"NFL": ["td", "sack", "int", "fumble", "fg", "big", "redzone", "win", "close"], "CFB": ["td", "sack", "int", "fumble", "fg", "big", "redzone", "win", "close"],
-               "NBA": ["win", "close"], "CBB": ["win", "close"], "NHL": ["win", "close"], "MLB": ["win", "close"]}
+               "NBA": ["lead", "win", "close"], "CBB": ["lead", "win", "close"], "NHL": ["goal", "win", "close"], "MLB": ["run", "hr", "win", "close"]}
 
 def apply_favorites(favs):
     """Makes the phone's favorite-team list the one everything uses (gold games, My teams, alerts)."""
@@ -1423,7 +1423,9 @@ def default_words(name, kind):
     return {"td": ["TOUCHDOWN!", f"{name}!"], "redzone": ["RED ZONE", f"{name}!"],
             "win": [name, "WIN!"], "close": ["CLOSE GAME", name],
             "sack": ["SACK!", f"{name} D!"], "int": ["INTERCEPTION!", f"{name}!"], "fumble": ["FUMBLE!", f"{name} BALL!"],
-            "fg": ["FIELD GOAL!", f"{name}!"], "big": ["BIG PLAY!", f"{name}!"]}[kind]
+            "fg": ["FIELD GOAL!", f"{name}!"], "big": ["BIG PLAY!", f"{name}!"],
+            "goal": ["GOAL!", f"{name}!"], "run": ["RUN SCORES!", f"{name}!"], "hr": ["HOME RUN!", f"{name}!"],
+            "lead": ["LEAD CHANGE!", f"{name} AHEAD!"]}[kind]
 
 def default_theme(league, abbr, kind):
     if league == "ANY":                              # every game: flash, the score, back to the ticker
@@ -1505,6 +1507,22 @@ def play_alert(g, old):
         return "big", offense or g.get("play_team")
     return None, None
 
+def sport_events(g, old, side):
+    """Hockey goals, baseball runs / home runs, and basketball lead changes in the second half, for one side."""
+    sc, other = ("ascore", "hscore") if side == "away" else ("hscore", "ascore")
+    lg, out = g["league"], []
+    if g["state"] != "in" or old["state"] not in ("in", "pre"):
+        return out
+    if lg == "NHL" and g[sc] > old[sc]:
+        out.append("goal")
+    elif lg == "MLB" and g[sc] > old[sc]:
+        txt = (g.get("play_text") or "").lower()
+        out.append("hr" if "home run" in txt or "homer" in txt else "run")
+    elif lg in ("NBA", "CBB") and (g.get("period") or 0) >= (3 if lg == "NBA" else 2):
+        if g[sc] > g[other] and old[sc] <= old[other] and old[sc] + old[other] > 0:
+            out.append("lead")
+    return out
+
 class AlertWatcher:
     """Compares each refresh with the last one and queues alerts for my teams."""
     def __init__(self):
@@ -1533,6 +1551,9 @@ class AlertWatcher:
             kind, who = play_alert(g, old)
             if kind in ("sack", "int", "fumble", "fg", "big") and who in ("away", "home"):
                 self.queue.append(Alert(kind, g, g[who], info(who)))
+        for side in ("away", "home"):                    # hockey goals, baseball runs, basketball lead changes
+            for kind in sport_events(g, old, side):
+                self.queue.append(Alert(kind, g, g[side], info(side)))
         if old["state"] == "in" and g["state"] == "post" and g["ascore"] != g["hscore"]:
             win = "away" if g["ascore"] > g["hscore"] else "home"
             self.queue.append(Alert("win", g, g[win], info(win)))
@@ -1580,6 +1601,8 @@ class AlertWatcher:
                 kind, who = play_alert(g, old)
                 if kind and who == side:
                     self.queue.append(Alert(kind, g, abbr, team))
+            for kind in sport_events(g, old, side):     # hockey goals, baseball runs, basketball lead changes
+                self.queue.append(Alert(kind, g, abbr, team))
             # win: game just went final with my team ahead
             if old["state"] == "in" and g["state"] == "post" and my_now > opp:
                 self.queue.append(Alert("win", g, abbr, team))

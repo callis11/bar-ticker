@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126043722">
+<meta name="build" content="20261126043802">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -1089,7 +1089,7 @@ $("#oddsPick").onclick = e => {
 
 // ---------- team alerts: your favorite teams and each one's own touchdown / red zone / win / close-game look
 const KIND_LABEL = {td:"Touchdown", sack:"Sack", int:"Interception", fumble:"Fumble recovery", fg:"Field goal", big:"Big play",
-                    redzone:"Red zone", win:"Win", close:"Close game"};
+                    redzone:"Red zone", win:"Win", close:"Close game", goal:"Goal", run:"Run scores", hr:"Home run", lead:"Lead change"};
 const SPORT_LABEL = {NFL:"NFL", CFB:"College FB", NBA:"NBA", CBB:"College BB", NHL:"NHL", MLB:"MLB"};
 const STYLE_LABEL = [["switch", "GIF ↔ words"], ["over", "Words on the GIF"], ["side", "Side by side"], ["pics", "GIF only"], ["words", "Words only"], ["steps", "★ Build my own"]];
 const STYLE_HINT = {switch:"Your GIF plays, then the words, back and forth for the whole alert.",
@@ -1620,14 +1620,15 @@ const Demo = (() => {
   const MY = {"NFL|DET":["LIONS","#0076b6","#bec3c8"], "NBA|DET":["PISTONS","#c8102e","#1d428a"],
               "CFB|MSU":["SPARTANS","#009646","#ffffff"], "CBB|MSU":["SPARTANS","#009646","#ffffff"]};
   const START_FAVS = Object.entries(MY).map(([k, [name, c1, c2]]) => ({league: k.split("|")[0], abbr: k.split("|")[1], name, c1, c2}));
-  const ALERT_KINDS = {NFL:["td","sack","int","fumble","fg","big","redzone","win","close"], CFB:["td","sack","int","fumble","fg","big","redzone","win","close"], NBA:["win","close"],
-                       CBB:["win","close"], NHL:["win","close"], MLB:["win","close"]};
+  const ALERT_KINDS = {NFL:["td","sack","int","fumble","fg","big","redzone","win","close"], CFB:["td","sack","int","fumble","fg","big","redzone","win","close"], NBA:["lead","win","close"],
+                       CBB:["lead","win","close"], NHL:["goal","win","close"], MLB:["run","hr","win","close"]};
   function applyFavs() {                            // the phone's favorite-team list is the one everything uses
     for (const k of Object.keys(MY)) delete MY[k];
     for (const f of S.favorites || []) MY[`${f.league}|${f.abbr}`] = [f.name, f.c1, f.c2];
   }
   const defaultWords = (name, kind) => ({td:["TOUCHDOWN!", name + "!"], redzone:["RED ZONE", name + "!"], win:[name, "WIN!"], close:["CLOSE GAME", name],
-    sack:["SACK!", name + " D!"], int:["INTERCEPTION!", name + "!"], fumble:["FUMBLE!", name + " BALL!"], fg:["FIELD GOAL!", name + "!"], big:["BIG PLAY!", name + "!"]})[kind];
+    sack:["SACK!", name + " D!"], int:["INTERCEPTION!", name + "!"], fumble:["FUMBLE!", name + " BALL!"], fg:["FIELD GOAL!", name + "!"], big:["BIG PLAY!", name + "!"],
+    goal:["GOAL!", name + "!"], run:["RUN SCORES!", name + "!"], hr:["HOME RUN!", name + "!"], lead:["LEAD CHANGE!", name + " AHEAD!"]})[kind];
   const TEST_PLAYS = {sack:"Sacked at {opp} 28 for -7 yards", int:"Intercepted at {me} 40, returned 22 yards", fumble:"Fumble recovered by {me} at {opp} 31",
                       fg:"48 yard field goal is GOOD", big:"Pass complete for 41 yards to the {opp} 12"};
   function themeOf(key) {
