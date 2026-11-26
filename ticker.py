@@ -161,6 +161,8 @@ CFB_TOP25_ONLY = True      # college slates are huge; scroll only ranked teams +
 WHITE, GOLD, GREEN, RED, GRAY = (255,255,255), (255,190,0), (0,230,80), (255,40,40), (130,130,130)
 ODDS_COLOR, DOT = (0, 200, 200), ("  •  ", (60, 60, 60))
 
+EXTRAS = ["trivia", "lastnight", "standings", "countdown", "leaders"]   # what the Extras screens can show
+
 # ------------------------------------------------------------------ control state (set from the phone)
 class Control:
     KEYS = {"mode": "scroll", "leagues": [], "game_ids": [], "rotate": 10, "message": "GO LIONS!", "color": "#ffbe00",
@@ -184,6 +186,11 @@ class Control:
             "shows": [{"id": "golions", "name": "Go Lions", "in_ticker": False, "c1": "#0076b6", "c2": "#ffffff",
                        "steps": [{"kind": "words", "text": "GO LIONS!", "fx": "steady", "bg": "color", "secs": 5}]}],
             "show_id": "", "show_every": -1, "logos": True,
+            # Extras: trivia, last night's finals, standings, countdown to my teams' games, stat leaders (held screens)
+            "extra_on": True, "extras": list(EXTRAS), "extra_style": "fade", "extra_every": 5, "trivia_secs": 12,
+            "line_alerts": True, "wp_bar": False,
+            # your messages on a schedule: [{"text", "days": [0-6, Mon=0], "start": "16:00", "end": "18:00", "color"}]
+            "sched": [],
             # your own alert looks, per team and kind: {"NFL|DET|td": {...}} (see alert_theme)
             "themes": {},
             # favorite teams (gold, My teams, alerts): starts with the Lions, Pistons and MSU; add any team from the phone
@@ -251,6 +258,7 @@ class Control:
         self.favorites = apply_favorites(self.favorites)      # before themes: themes belong to favorite teams
         self.themes = clean_themes(self.themes)
         SHOW_RANKS["on"] = self.ranks
+        WP_BAR["on"] = bool(self.wp_bar)
         self.game_motion = self.game_motion if self.game_motion in ("cut", "fade", "flash", "slide", "push", "scroll") else "slide"
         self.game_speed = max(20, min(200, int(self.game_speed)))
         self.pl_count = max(1, min(10, int(self.pl_count)))
@@ -288,6 +296,24 @@ class Control:
         self.prop_types = [x for x in (self.prop_types or []) if x in PROP_TYPES]  # empty = all types
         if self.effect not in EFFECTS:
             self.effect = "steady"
+        self.extra_on, self.line_alerts, self.wp_bar = bool(self.extra_on), bool(self.line_alerts), bool(self.wp_bar)
+        self.extras = [x for x in EXTRAS if x in (self.extras or [])]
+        self.extra_style = self.extra_style if self.extra_style in MOTIONS and self.extra_style != "scroll" else "fade"
+        self.extra_every = int(self.extra_every) if int(self.extra_every) in SCREEN_EVERY else 5
+        self.trivia_secs = max(5, min(30, int(self.trivia_secs)))
+        sched = []
+        for m in (self.sched or [])[:12]:
+            try:
+                txt = str(m.get("text") or "").strip()[:80]
+                st, en = str(m.get("start") or "00:00")[:5], str(m.get("end") or "23:59")[:5]
+                datetime.strptime(st, "%H:%M"); datetime.strptime(en, "%H:%M")
+                days = sorted({int(x) for x in (m.get("days") or range(7)) if 0 <= int(x) <= 6})
+                col = str(m.get("color") or "#ffbe00")
+                if txt:
+                    sched.append({"text": txt, "days": days, "start": st, "end": en, "color": col if re.fullmatch(r"#[0-9a-fA-F]{6}", col) else "#ffbe00"})
+            except (TypeError, ValueError, AttributeError):
+                pass
+        self.sched = sched
         self.brightness = max(5, min(100, int(self.brightness)))
         self.tv_delay = max(0, min(120, int(self.tv_delay)))
         self.refresh = max(5, min(60, int(self.refresh)))
@@ -386,7 +412,23 @@ def parse_game(label, ev):
     ids = lambda c: {str(c.get("id") or ""), str((c.get("team") or {}).get("id") or "")} - {""}
     lp = sit.get("lastPlay") or {}                  # the play that just happened (sacks, picks, field goals...)
     lp_team = str((lp.get("team") or {}).get("id") or "")
+    prob = lp.get("probability") or {}
+    leaders = []                                    # [(cat, player, line)]: passing / rushing / receiving, or points...
+    cats = {"passingYards": "PASS", "rushingYards": "RUSH", "receivingYards": "REC", "points": "PTS",
+            "rebounds": "REB", "assists": "AST", "goals": "G", "assists ": "A"}
+    for grp in (comp.get("leaders") or []):
+        top = (grp.get("leaders") or [{}])[0]
+        if grp.get("name") in cats and top.get("athlete"):
+            leaders.append((cats[grp["name"]], top["athlete"].get("shortName") or "", top.get("displayValue") or ""))
+    if not leaders:                                 # basketball / hockey: leaders per team, take the best of each
+        for c in comp.get("competitors") or []:
+            for grp in (c.get("leaders") or [])[:1]:
+                top = (grp.get("leaders") or [{}])[0]
+                if top.get("athlete"):
+                    leaders.append((f"{(c.get('team') or {}).get('abbreviation', '')} {cats.get(grp.get('name'), (grp.get('abbreviation') or '').upper())}".strip(),
+                                    top["athlete"].get("shortName") or "", top.get("displayValue") or ""))
     return dict(
+        wp_home=prob.get("homeWinPercentage"), leaders=leaders[:3],
         tv=tv_channel(comp),
         play_id=str(lp.get("id") or ""), play_type=str((lp.get("type") or {}).get("text") or ""),
         play_text=str(lp.get("text") or ""), play_yds=lp.get("statYardage"),
@@ -1590,6 +1632,15 @@ def centered(d, text, f, color, cx=W // 2, cy=ROWS // 2):
     l, t, r, b = d.textbbox((0, 0), text, font=f)
     d.text((cx - (r - l) // 2 - l, cy - (b - t) // 2 - t), text, font=f, fill=color)
 
+def summary_frame(al, play, c1):
+    """The play that caused the alert, on the team color: "J. Gibbs 12 Yd Run (J. Bates Kick)"."""
+    img = Image.new("RGB", (W, ROWS), c1)
+    d = ImageDraw.Draw(img)
+    txt = WHITE if _lum(c1) < 150 else (0, 0, 0)
+    f, lines = wrap_fit(play, W - 16, ROWS - 6, start=26, lo=11)
+    draw_lines(d, lines, f, txt, W // 2, ROWS / 2)
+    return img
+
 def score_frame(al, t, c1, c2):
     """End of an alert: the score, big, with a pulsing team-color border."""
     img = game_frame(al.game)
@@ -1709,6 +1760,9 @@ def alert_frame(al, t, th=None, lib=None, boost=True):
     secs = th["secs"]
     tail = (4 if secs >= 8 else 2) if th["score"] else 0
     if t >= secs - tail:
+        play = (g.get("play_text") or "").strip()
+        if play and tail >= 4 and al.kind in ("td", "fg", "int", "fumble", "sack", "big") and t - (secs - tail) < 2.2:
+            return summary_frame(al, play, c1)          # who did it, then the score
         return score_frame(al, t, c1, c2)
     pics = [p for p in th["pics"] if p in ready]
     if not pics:                                         # no picture (yet): just the words, on the team color
@@ -1884,6 +1938,10 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
             draw_ball(d, gap_l + 5, ROWS / 2, bs)
         else:
             draw_ball(d, gap_r - 5 - 11 * bs, ROWS / 2, bs)
+    if WP_BAR["on"] and live and g.get("wp_home") is not None:   # win probability: away color | home color along the bottom
+        split = int(W * (1 - float(g["wp_home"])))
+        d.rectangle([0, ROWS - 2, split, ROWS - 1], fill=team_colors(g, "away")[0])
+        d.rectangle([split, ROWS - 2, W, ROWS - 1], fill=team_colors(g, "home")[0])
     if rotate:                                           # thin bar along the top = time until the next game
         d.rectangle([0, 0, int(W * (time.time() % rotate) / rotate), K - 1], fill=(50, 50, 80))
     return img
@@ -2699,6 +2757,7 @@ class Feed:
         self.wxa_test = None                       # (alert, until) while the phone's test button is showing a pretend alert
         self.stock_fired = set()                   # (symbol, up?, day) already flashed
         self.watcher = AlertWatcher()
+        self.standings, self.last_night, self.trivia, self.lines = [], [], load_trivia(), {}   # Extras
         threading.Thread(target=self.loop, daemon=True).start()
         threading.Thread(target=self.extras_loop, daemon=True).start()   # own thread: a slow quote never stalls the scores
 
@@ -2726,6 +2785,7 @@ class Feed:
                         last[label] = now
                 self.games = [g for l, _, _ in LEAGUES for g in by_league.get(l, [])]
                 self.watcher.check(self.games, self.ctl, {g["id"] for g in self.pinned_games()})
+                self.check_lines()
                 self.note_finishes()
                 if now - last_pl > PL_REFRESH:    # ParlayLabs files are big (~8 MB) and change slowly
                     self.pl, last_pl = parlaylabs() or self.pl, now
@@ -2764,6 +2824,10 @@ class Feed:
                     self.update_penny(); last_p = time.time()
                 if ctl.wx_on and now - last_w >= WX_REFRESH:
                     self.update_weather(); last_w = time.time()
+                if ctl.extra_on and "standings" in ctl.extras and now - getattr(self, "_st_at", 0) >= STANDINGS_SEC:
+                    self._st_at = time.time(); self.update_standings()
+                if ctl.extra_on and "lastnight" in ctl.extras and now - getattr(self, "_ln_at", 0) >= LASTNIGHT_SEC:
+                    self._ln_at = time.time(); self.last_night = fetch_last_night()
                 if ctl.wx_alerts and now - last_a >= WXA_REFRESH:
                     self.update_wx_alerts(); last_a = time.time()
             time.sleep(1)
@@ -2888,7 +2952,86 @@ class Feed:
                     per = wx_days_per_screen()
                     for i in range(0, min(ctl.wx_days, len(wx["days"])), per):      # a short strip shows the days in pages
                         out.append(("wx", (wx, "forecast", i)))
+        if kind in (None, "extra") and ctl.extra_on:
+            out += [("extra", x) for x in self.extra_items()]
         return out
+
+    def extra_items(self):
+        """Extras for one round: a trivia question, last night's finals, standings, countdowns, stat leaders."""
+        ctl, out = self.ctl, []
+        want = lambda g: not ctl.leagues or g["league"] in ctl.leagues or mine(g)[0]
+        if "countdown" in ctl.extras:
+            soon = [g for g in self.my_games() if g["state"] == "pre" and g.get("start") and 0 < g["start"] - time.time() < 7 * 86400]
+            out += [("countdown", g) for g in sorted(soon, key=lambda g: g["start"])[:2]]
+        if "leaders" in ctl.extras:
+            held = {g["id"] for g in self.pinned}
+            live = [g for g in self.games if g["state"] in ("in", "post") and g.get("leaders") and
+                    (mine(g)[0] or g["id"] in held or g["id"] in ctl.game_ids) and (g["state"] == "in" or self.linger_left(g))]
+            out += [("leaders", g) for g in live[:2]]
+        if "lastnight" in ctl.extras and self.last_night:
+            per = max(2, min(5, W // 105))
+            for lg, _, _ in LEAGUES:
+                gs = [g for g in self.last_night if g["league"] == lg and want(g)]
+                gs.sort(key=lambda g: (not mine(g)[0], not g.get("ranked")))
+                for i in range(0, min(len(gs), per * 2), per):
+                    out.append(("lastnight", (f"LAST NIGHT  ·  {lg}", gs[i:i + per])))
+        if "standings" in ctl.extras:
+            out += [("standings", st) for st in self.standings]
+        if "trivia" in ctl.extras and self.trivia:
+            ht = self.halftime()
+            if ht:                                       # halftime of a game you're watching: a trivia round, 3 in a row
+                n = int(time.time() // 60) * 3
+                return [("trivia", dict(self.trivia[(n + i) % len(self.trivia)], cat=f"HALFTIME TRIVIA  ·  {self.trivia[(n + i) % len(self.trivia)].get('cat', '')}"))
+                        for i in range(3)]
+            n = int(time.time() // max(60, (ctl.extra_every if ctl.extra_every > 0 else 3) * 60))
+            out.append(("trivia", self.trivia[n % len(self.trivia)]))
+        return out
+
+    def halftime(self):
+        """A game you're watching (my teams, held on top, or picked) that's at halftime right now, else None."""
+        ctl = self.ctl
+        if not (ctl.extra_on and "trivia" in ctl.extras):
+            return None
+        held = {g["id"] for g in self.pinned} | set(ctl.game_ids)
+        for g in self.games:
+            if g["state"] == "in" and "half" in (g.get("detail") or "").lower() and (mine(g)[0] or g["id"] in held):
+                return g
+        return None
+
+    def update_standings(self):
+        out = []
+        for label, path, _ in LEAGUES:
+            want = {ab for (lg, ab) in MY_TEAMS if lg == label}
+            if not want:
+                continue
+            try:
+                out += fetch_standings(label, path, want)
+            except Exception as e:
+                print("standings", label, e)
+        self.standings = out
+
+    def check_lines(self):
+        """Line-move alert: a spread moves 1.5+ points (or flips) / a total moves 2+ before kickoff."""
+        ctl = self.ctl
+        for g in self.games:
+            if g["state"] != "pre":
+                continue
+            sp, tot = spread_num(g), g.get("total")
+            old = self.lines.get(g["id"])
+            self.lines[g["id"]] = (sp, tot)
+            if old is None or not ctl.line_alerts or not ctl.sports_on or (ctl.leagues and g["league"] not in ctl.leagues and not mine(g)[0]):
+                continue
+            moved = []
+            if sp and old[0] and (sp[0] != old[0][0] or abs(sp[1] - old[0][1]) >= LINE_MOVE["spread"]):
+                moved.append(f"{old[0][0]} {old[0][1]:+g} → {sp[0]} {sp[1]:+g}")
+            try:
+                if tot and old[1] and abs(float(tot) - float(old[1])) >= LINE_MOVE["total"]:
+                    moved.append(f"O/U {old[1]} → {tot}")
+            except (TypeError, ValueError):
+                pass
+            if moved:
+                self.notices.append(Notice("line", "LINE MOVE  ·  " + "   ".join(moved),
+                                           f"{g['away']} @ {g['home']}  ·  {when(g)}", (0, 110, 150), "up", 9))
 
     def shown_games(self):
         """Games on the ticker: the ones picked on the phone (incl. My teams / Live / Close),
@@ -2908,7 +3051,7 @@ class Feed:
         pl = (pl_core if ctl.pl_style == "scroll" else []) + extra_segments(self, ctl)      # ParlayLabs, then stocks, then weather
         build = time_segments if ctl.group == "time" else score_segments
         game_segs = build(games, None, ctl.show_odds(), "week", raw) if ctl.sports_style == "scroll" else []
-        segs = self.warn + game_segs + pl         # warnings, games, then ParlayLabs, stocks, weather
+        segs = self.warn + sched_segments(ctl) + game_segs + pl   # warnings, your scheduled messages, games, ParlayLabs, stocks, weather
         self.sports_cards = self.game_cards(games)
         self.pl_cards = make_cards(pl_core)[1:]                          # the clock card isn't one of them
         # nothing in the scroll but there are held items: they just keep cycling (no going back to a blank ticker)
@@ -2975,7 +3118,7 @@ class Feed:
         rest = [g for g in games if g["id"] not in ids]
         if not rest:                                     # you picked only the held games: the rest of your sports crawls underneath
             rest, raw = [g for g in visible_games(self.games, ctl.leagues, ctl.days) if g["id"] not in ids], False
-        segs = self.warn + (build(rest, None, ctl.show_odds(), "week", raw) if ctl.sports_style == "scroll" else []) + pl
+        segs = self.warn + sched_segments(ctl) + (build(rest, None, ctl.show_odds(), "week", raw) if ctl.sports_style == "scroll" else []) + pl
         if ctl.msg_in_scroll and ctl.message.strip():
             col = "rainbow" if ctl.effect == "rainbow" else hex_rgb(ctl.color)
             note = [(f"   {ctl.message.strip()}   ", col, "msg"), DOT]
@@ -3184,6 +3327,221 @@ DEMO_GAMES = [
     fake("CFB", "MSU", "IOWA", 21, 17, "in", "3rd 9:58", period=3, hours=-2, hrank=22, down="2nd & 4", spot="IOWA 41", poss="away"),
     fake("CBB", "MSU", "DUKE", 0, 0, "pre", "Tue 9:00 PM EST", "DUKE -3", 148.5, mla="+130", mlh="-155", hours=72, arank=15, hrank=6),
 ]
+
+# ------------------------------------------------------------------ extras: trivia, last night, standings, countdown, stat leaders
+TRIVIA_FILE = os.path.join(HERE, "trivia.json")
+STANDINGS_SEC, LASTNIGHT_SEC = 1800, 1800
+LINE_MOVE = {"spread": 1.5, "total": 2.0}               # line-move alert when a spread / total moves this much
+
+def load_trivia():
+    try:
+        qs = [q for q in json.load(open(TRIVIA_FILE)) if q.get("q") and q.get("a")]
+    except (OSError, ValueError):
+        qs = []
+    random.Random(int(time.time() // 86400)).shuffle(qs)   # a new order every day
+    return qs
+
+def wrap_fit(text, max_w, max_h, start=30, lo=12, lines_max=2):
+    """Biggest font where the text fits in max_w x max_h on 1-2 lines: (font, [lines])."""
+    words = text.split()
+    for size in range(start, lo - 1, -1):
+        f = font(size)
+        lh = size * 1.12
+        if f.getlength(text) <= max_w and lh <= max_h:
+            return f, [text]
+        if lines_max >= 2 and 2 * lh <= max_h and len(words) > 1:
+            best = None
+            for i in range(1, len(words)):
+                a, b = " ".join(words[:i]), " ".join(words[i:])
+                w = max(f.getlength(a), f.getlength(b))
+                if w <= max_w and (best is None or w < best[0]):
+                    best = (w, [a, b])
+            if best:
+                return f, best[1]
+    f = font(lo)
+    return f, [text]
+
+def draw_lines(d, lines, f, color, cx, cy):
+    lh = f.size * 1.12
+    y0 = cy - lh * (len(lines) - 1) / 2
+    for i, ln in enumerate(lines):
+        d.text((cx, y0 + i * lh), ln, font=f, fill=color, anchor="mm")
+
+TRIVIA_COLOR, TRIVIA_ANS = (255, 190, 0), (0, 230, 120)
+
+def trivia_frame(q, t, ask):
+    """The question with a countdown, then the answer."""
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    if t < ask:
+        left = int(math.ceil(ask - t))
+        cat = q.get("cat", "SPORTS")
+        d.text((W // 2, 8), cat if cat.startswith("HALFTIME") else f"TRIVIA  ·  {cat}", font=font(13), fill=TRIVIA_COLOR, anchor="mm")
+        num_w = 34
+        f, lines = wrap_fit(q["q"], W - 16 - num_w, ROWS - 18, start=24)
+        draw_lines(d, lines, f, WHITE, (W - num_w) // 2, 16 + (ROWS - 16) / 2)
+        centered(d, str(left), font(26), TRIVIA_COLOR if left > 3 else RED, cx=W - num_w // 2 - 4, cy=ROWS // 2 + 6)
+    else:
+        d.text((W // 2, 8), "ANSWER", font=font(13), fill=TRIVIA_ANS, anchor="mm")
+        f, lines = wrap_fit(q["a"], W - 16, ROWS - 18, start=30)
+        draw_lines(d, lines, f, TRIVIA_ANS, W // 2, 16 + (ROWS - 16) / 2)
+    return img
+
+def standings_frame(data):
+    """A division / conference: each team in a box outlined in its color, with logo, record and rank."""
+    title, rows = data
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    d.text((W // 2, 8), title.upper(), font=font(13), fill=(0, 180, 255), anchor="mm")
+    n = max(1, min(len(rows), max(2, W // 100)))
+    rows = rows[:n]
+    bw = W / n
+    for i, r in enumerate(rows):
+        x0, x1 = int(i * bw) + 3, int((i + 1) * bw) - 3
+        y0, y1 = 17, ROWS - 2
+        col = GOLD if r["mine"] else r["color"] if _lum(r["color"]) >= 45 else (120, 120, 120)   # too dark to see on LEDs
+        d.rounded_rectangle([x0, y0, x1, y1], radius=4, outline=col, width=2)
+        x = x0 + 6
+        sz = y1 - y0 - 8
+        lg = team_logo({"league": r["league"], "alogo": r["logo"], "away": r["abbr"], "aid": r["id"]}, "away", sz) if r["logo"] else None
+        if lg:
+            paste_logo(img, lg, x, (y0 + y1) / 2, sz)
+            x += sz + 4
+        avail = x1 - 4 - x
+        f1 = font(fit_size(r["abbr"], avail, 18))
+        d.text((x + avail / 2, y0 + 12), r["abbr"], font=f1, fill=GOLD if r["mine"] else WHITE, anchor="mm")
+        f2 = font(fit_size(r["rec"], avail, 20))
+        d.text((x + avail / 2, y1 - 12), r["rec"], font=f2, fill=WHITE, anchor="mm")
+        d.text((x0 + 3, y0 + 2), str(i + 1), font=font(10), fill=GRAY)
+    return img
+
+def countdown_frame(g, t):
+    """LIONS KICKOFF IN 2:14:05 (days when it's further out)."""
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    abbr, info = mine(g)
+    name, c1, _ = info if info else (g["home"], GOLD, WHITE)
+    secs = max(0, int((g.get("start") or time.time()) - time.time()))
+    dd, rem = divmod(secs, 86400)
+    hh, rem = divmod(rem, 3600)
+    mm, ss = divmod(rem, 60)
+    clock = (f"{dd}d {hh}h {mm:02d}m" if dd else f"{hh}:{mm:02d}:{ss:02d}")
+    word = {"NFL": "KICKOFF", "CFB": "KICKOFF", "NHL": "PUCK DROP", "MLB": "FIRST PITCH"}.get(g["league"], "TIP-OFF")
+    opp = g["home"] if g["away"] == abbr else g["away"]
+    vs = ("@ " if g["away"] == abbr else "vs ") + opp
+    d.text((W // 2, 9), f"{name} {vs}  ·  {when(g)}", font=font(fit_size(f"{name} {vs}  ·  {when(g)}", W - 10, 14)), fill=LIGHT, anchor="mm")
+    head = f"{word} IN"
+    f = font(fit_size(head + "  " + clock, W - 20, 34))
+    tw = f.getlength(head + "  ")
+    total = tw + f.getlength(clock)
+    x = (W - total) / 2
+    d.text((x, 41), head, font=f, fill=c1 if _lum(c1) >= 40 else WHITE, anchor="lm")
+    d.text((x + tw, 41), clock, font=f, fill=WHITE, anchor="lm")
+    return img
+
+def results_frame(data):
+    """Last night's finals, a few at a time: winner bright, loser dimmed."""
+    title, games = data
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    d.text((W // 2, 8), title, font=font(13), fill=(0, 180, 255), anchor="mm")
+    n = len(games)
+    cw = W / max(1, n)
+    for i, g in enumerate(games):
+        cx = (i + 0.5) * cw
+        win_a = g["ascore"] > g["hscore"]
+        f = font(fit_size(f"{g['away']} {g['ascore']}", cw - 12, 19))
+        for row, (side, sc, win) in enumerate((("away", "ascore", win_a), ("home", "hscore", not win_a))):
+            col = (GOLD if mine(g)[0] == g[side] else WHITE) if win else (130, 130, 130)
+            d.text((cx, 27 + row * 21), f"{g[side]} {g[sc]}", font=f, fill=col, anchor="mm")
+    return img
+
+def leaders_frame(g):
+    """Stat leaders for a game: PASS  Goff 22/30 245 YDS 2 TD ..."""
+    img = Image.new("RGB", (W, ROWS))
+    d = ImageDraw.Draw(img)
+    head = f"{g['away']} {g['ascore']}  {g['home']} {g['hscore']}  ·  {g['detail']}"
+    d.text((W // 2, 8), head, font=font(fit_size(head, W - 10, 13)), fill=(0, 180, 255), anchor="mm")
+    rows = g.get("leaders") or []
+    n = len(rows)
+    rh = (ROWS - 16) / max(1, n)
+    for i, (cat, who, val) in enumerate(rows):
+        cy = 16 + (i + 0.5) * rh
+        runs = [(cat + "  ", (0, 200, 200)), (who + "  ", WHITE), (val, LIGHT)]
+        f = font(fit_size("".join(r[0] for r in runs), W - 16, min(18, int(rh) - 2)))
+        draw_runs(d, (W - runs_width(runs, f)) / 2, cy, runs, f)
+    return img
+
+def fetch_standings(league, path, want):
+    """The division (pro) or conference (college) of each team in `want` (abbrs): [(title, rows)]."""
+    url = {"NFL": "level=3", "NBA": "level=3", "NHL": "level=3", "MLB": "level=3"}.get(league)
+    base = f"https://site.api.espn.com/apis/v2/sports/{path}/standings"
+    if url:
+        data = get_json(f"{base}?{url}")
+    else:                                               # college: every conference (FBS / Division I)
+        data = get_json(f"{base}?group={'80' if league == 'CFB' else '50'}")
+    out, seen = [], set()
+    def walk(node):
+        entries = (node.get("standings") or {}).get("entries") or []
+        abbrs = {(e.get("team") or {}).get("abbreviation") for e in entries}
+        if entries and abbrs & want and node.get("name") not in seen:
+            seen.add(node.get("name"))
+            rows = []
+            for e in entries:
+                tm, st = e.get("team") or {}, {s.get("name"): s for s in e.get("stats") or []}
+                num = lambda k: float((st.get(k) or {}).get("value") or 0)
+                w_, l_, t_ = int(num("wins")), int(num("losses")), int(num("ties"))
+                logos = tm.get("logos") or []
+                rows.append({"abbr": tm.get("abbreviation", "?"), "id": str(tm.get("id") or ""), "league": league,
+                             "rec": f"{w_}-{l_}" + (f"-{t_}" if t_ else ""), "pct": num("winPercent"), "wins": w_,
+                             "color": _hexrgb(tm.get("color")) or GRAY, "logo": (logos[0].get("href") if logos else ""),
+                             "mine": (league, tm.get("abbreviation")) in MY_TEAMS})
+            rows.sort(key=lambda r: (-r["pct"], -r["wins"]))
+            out.append((node.get("name") or league, rows))
+        for c in node.get("children") or []:
+            walk(c)
+    walk(data)
+    return out
+
+def spread_num(g):
+    """("DET", -3.5) from ESPN's "DET -3.5" (None for "EVEN" / missing)."""
+    m = re.match(r"([A-Z]+)\s*([+-]?\d+(?:\.\d+)?)", g.get("spread") or "")
+    return (m.group(1), float(m.group(2))) if m else None
+
+def sched_active(m, now=None):
+    now = now or datetime.now()
+    hm = now.strftime("%H:%M")
+    if now.weekday() not in m["days"]:
+        return False
+    return m["start"] <= hm < m["end"] if m["start"] <= m["end"] else (hm >= m["start"] or hm < m["end"])   # overnight
+
+def sched_segments(ctl):
+    """Your scheduled messages that are on right now, for the front of the crawl."""
+    out = []
+    for m in ctl.sched:
+        if sched_active(m):
+            out += [(f"   {m['text']}   ", hex_rgb(m["color"])), DOT]
+    return out
+
+WP_BAR = {"on": False}       # the phone's "Win probability bar" switch
+
+def fetch_last_night():
+    """Yesterday's finals in every league (the whole slate), newest league order."""
+    day = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+    games = []
+    for label, path, _ in LEAGUES:
+        try:
+            data = get_json(f"{ESPN}/{path}/scoreboard?dates={day}" + ("&groups=50&limit=300" if label == "CBB" else "&groups=80" if label == "CFB" else ""))
+            for ev in data.get("events", []):
+                try:
+                    g = parse_game(label, ev)
+                    if g["state"] == "post":
+                        games.append(g)
+                except (KeyError, IndexError, ValueError):
+                    pass
+        except Exception as e:
+            print("last night", label, e)
+    return games
 
 # ------------------------------------------------------------------ control page / API
 STATIC_FILES = {"fonts/BarlowCondensed-Bold.ttf": "font/ttf", "fonts/Oswald-SemiBold.ttf": "font/ttf", "icon-32.png": "image/png", "icon-180.png": "image/png", "icon-192.png": "image/png",
@@ -3555,15 +3913,24 @@ def run_display(ctl, feed, matrix):
     show_t0, show_n, show_inter = time.time(), 0, None  # Shows: on their own, or popping up in the ticker
     pacer = Pacer()
     scr_inter = None                                    # weather / stock screens held on the strip for a few seconds
-    KINDS = ("sports", "pl", "stock", "wx")
+    KINDS = ("sports", "pl", "stock", "wx", "extra")
     scr_state = {k: {"last": time.time(), "lap": False} for k in KINDS}
 
     def item_len(kind, data):
+        if kind == "extra":
+            return ctl.trivia_secs + 6 if data[0] == "trivia" else 8
         return ctl.stock_secs if kind == "stock" else ctl.wx_secs if kind == "wx" else card_length(data, ctl)
 
     def item_frame(kind, data, t):
         if kind == "stock": return stock_screen_frame(data)
         if kind == "wx": return wx_screen_frame(data[0], data[1], ctl.wx_days, data[2])
+        if kind == "extra":
+            sub, x = data
+            if sub == "trivia": return trivia_frame(x, t, ctl.trivia_secs)
+            if sub == "standings": return standings_frame(x)
+            if sub == "countdown": return countdown_frame(x, t)
+            if sub == "lastnight": return results_frame(x)
+            if sub == "leaders": return leaders_frame(x)
         return card_frame(data, t, ctl)
 
     def mark_lap():
@@ -3603,6 +3970,8 @@ def run_display(ctl, feed, matrix):
                     for kind in KINDS:
                         queue = feed.screen_list(kind)
                         every, st = getattr(ctl, kind + "_every"), scr_state[kind]
+                        if kind == "extra" and feed.halftime():       # halftime: trivia every minute
+                            every = 1
                         if queue and (st["lap"] if every < 0 else time.time() - st["last"] >= every * 60):
                             st["lap"] = False
                             scr_inter = {"alone": False, "i": 0, "start": time.time(), "from": frame.copy(), "queue": queue}
