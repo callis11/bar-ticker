@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126034908">
+<meta name="build" content="20261126035333">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -464,8 +464,8 @@
   <p class="hint" id="panelCheckMsg"></p>
   <div id="wiringBox" style="margin-top:10px">
     <b>Wiring</b>
-    <p class="hint">For each panel, left to right as you face the front: which Bonnet port its ribbon comes from, and whether it's the 1st panel on that ribbon (plugged into the Bonnet) or the 2nd (chained off the 1st). Panel check shows you this.</p>
-    <div class="row3" style="grid-template-columns:auto 1fr;align-items:center;gap:6px;margin:6px 0">Panels: <select id="wiringCount"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div>
+    <p class="hint">All 5 panel spots, left to right as you face the front. Check the ones that are plugged in. For each: which Bonnet port its ribbon comes from, and whether it's the 1st panel on that ribbon (plugged into the Bonnet) or the 2nd (chained off the 1st). Panel check shows you this.</p>
+    <p class="hint" id="wiringSum" style="margin:4px 0"></p>
     <div id="wiringRows"></div>
     <label style="display:block;margin:6px 0"><input type="checkbox" id="wiringFlip"> Panels are upside down</label>
     <button class="btn" id="wiringSave" style="width:100%">Save wiring &amp; restart</button>
@@ -3013,25 +3013,25 @@ async function restartTicker(path, working) {
 }
 $("#updateBtn").onclick = () => restartTicker("/api/update", "Checking for updates…");
 $("#restartBtn").onclick = () => restartTicker("/api/restart", "Restarting…");
-let wiring = [[1,1],[1,2],[2,1],[2,2],[3,1]];
+let wiring = [[2,1,true],[2,2,true],[1,1,true],[1,2,true],[3,1,false]];   // 5 panel spots: [port, 1st/2nd, on]
 function drawWiring() {
-  const n = +$("#wiringCount").value;
-  while (wiring.length < n) wiring.push([3, 2]);
-  $("#wiringRows").innerHTML = wiring.slice(0, n).map((w, i) => `<div style="display:flex;gap:6px;align-items:center;margin:4px 0">
-    <span style="width:72px">Panel ${i + 1}</span>
+  while (wiring.length < 5) wiring.push([3, 2, false]);
+  $("#wiringRows").innerHTML = wiring.slice(0, 5).map((w, i) => `<div style="display:flex;gap:6px;align-items:center;margin:4px 0;opacity:${w[2] ? 1 : .45}">
+    <label style="width:92px;display:flex;gap:6px;align-items:center"><input type="checkbox" data-i="${i}" data-k="2" ${w[2] ? "checked" : ""}> Panel ${i + 1}</label>
     <select data-i="${i}" data-k="0">${[1,2,3].map(p => `<option value="${p}" ${w[0]==p?"selected":""}>Port ${p}</option>`).join("")}</select>
     <select data-i="${i}" data-k="1"><option value="1" ${w[1]==1?"selected":""}>1st</option><option value="2" ${w[1]==2?"selected":""}>2nd</option></select></div>`).join("");
-  $("#wiringRows").querySelectorAll("select").forEach(s => s.onchange = () => { wiring[+s.dataset.i][+s.dataset.k] = +s.value; });
+  $("#wiringRows").querySelectorAll("select,input").forEach(s => s.onchange = () => {
+    wiring[+s.dataset.i][+s.dataset.k] = s.type === "checkbox" ? s.checked : +s.value; drawWiring(); });
+  const on = wiring.filter(w => w[2]).length;
+  $("#wiringSum").textContent = `${on} of 5 panels on. The ticker spreads across the ones that are on, left to right. Turn a panel on when it's plugged in.`;
 }
-$("#wiringCount").onchange = drawWiring;
 if (!DEMO) fetch("/api/wiring").then(r => r.json()).then(w => {
-  wiring = w.map.map(x => [x[0], x[1]]); $("#wiringCount").value = wiring.length; $("#wiringFlip").checked = !!w.flip; drawWiring();
+  wiring = w.map.map(x => [x[0], x[1], x[2] !== false]); $("#wiringFlip").checked = !!w.flip; drawWiring();
 }).catch(drawWiring); else drawWiring();
 $("#wiringSave").onclick = async () => {
   if (DEMO) return toast("Not available in the demo");
-  const n = +$("#wiringCount").value;
   try {
-    const r = await api("/api/wiring", {method:"POST", body: JSON.stringify({map: wiring.slice(0, n), flip: $("#wiringFlip").checked})});
+    const r = await api("/api/wiring", {method:"POST", body: JSON.stringify({map: wiring.slice(0, 5), flip: $("#wiringFlip").checked})});
     if (!r.msg) return toast("The ticker is still running old code: restart the Pi (sudo reboot), then try again");
     toast(r.msg + "…"); await new Promise(r => setTimeout(r, 6000)); location.reload();
   } catch (e) { toast(e.message || "Couldn't save"); }
