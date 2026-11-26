@@ -1828,11 +1828,17 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     col = lambda team: GOLD if team == my else WHITE
     lead_a = not pre and g["ascore"] > g["hscore"]
     lead_h = not pre and g["hscore"] > g["ascore"]
-    lw = big.getlength(left)
-    centered(d, left,  big, col(g["away"]), cx=4 + E + lw // 2)
-    centered(d, right, big, col(g["home"]), cx=W - 4 - E - big.getlength(right) // 2)
-    if lead_a: d.rectangle([4 + E, ROWS - 3 * K, 4 + E + lw, ROWS - K - 1], fill=GREEN)
-    if lead_h: d.rectangle([W - 4 - E - big.getlength(right), ROWS - 3 * K, W - 4 - E, ROWS - K - 1], fill=GREEN)
+    lw, rw = big.getlength(left), big.getlength(right)
+    # the team that's ahead: its name and score sit on a block of its team color (no underline)
+    ca, cr = col(g["away"]), col(g["home"])
+    if lead_a:
+        fill, ca = team_colors(g, "away")
+        d.rounded_rectangle([4 + E - 4, 5 * K, 4 + E + lw + 4, ROWS - 5 * K], radius=3 * K, fill=fill)
+    if lead_h:
+        fill, cr = team_colors(g, "home")
+        d.rounded_rectangle([W - 4 - E - rw - 4, 5 * K, W - 4 - E + 4, ROWS - 5 * K], radius=3 * K, fill=fill)
+    centered(d, left,  big, ca, cx=4 + E + lw // 2)
+    centered(d, right, big, cr, cx=W - 4 - E - rw // 2)
     live = g["state"] == "in"
     gap_l, gap_r = 4 + E + lw, W - 4 - E - big.getlength(right)
     mx = int((gap_l + gap_r) / 2)                        # middle of the space between the teams

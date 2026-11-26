@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126030849">
+<meta name="build" content="20261126032419">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -2383,11 +2383,14 @@ const Demo = (() => {
     if (LS) { drawLogo(g, teamLogo(x, "away"), 4, H / 2, LS); drawLogo(g, teamLogo(x, "home"), W - 4 - LS, H / 2, LS); }
     const my = mine(x);
     g.font = font(big); const lw = g.measureText(left).width, rw = g.measureText(right).width;
-    center(left, big, x.away === my ? C.gold : C.white, 4 + E + lw / 2);
-    center(right, big, x.home === my ? C.gold : C.white, W - 4 - E - rw / 2);
-    g.fillStyle = C.green;
-    if (!pre && x.ascore > x.hscore) g.fillRect(4 + E, H - 3 * K, lw, 2 * K);
-    if (!pre && x.hscore > x.ascore) g.fillRect(W - 4 - E - rw, H - 3 * K, rw, 2 * K);
+    let ca = x.away === my ? C.gold : C.white, cr = x.home === my ? C.gold : C.white;
+    const pill = (x0, w, side) => { const [fill, tc] = teamColors(x, side); g.fillStyle = fill;   // leader: its team color behind it
+      g.beginPath(); (g.roundRect ? g.roundRect(x0 - 4, 5 * K, w + 8, H - 10 * K, 3 * K) : g.rect(x0 - 4, 5 * K, w + 8, H - 10 * K)); g.fill(); return tc; };
+    if (!pre && x.ascore > x.hscore) ca = pill(4 + E, lw, "away");
+    if (!pre && x.hscore > x.ascore) cr = pill(W - 4 - E - rw, rw, "home");
+    g.font = font(big);
+    center(left, big, ca, 4 + E + lw / 2);
+    center(right, big, cr, W - 4 - E - rw / 2);
     const mx = ((4 + E + lw) + (W - 4 - E - rw)) / 2, gap = (W - 4 - E - rw) - (4 + E + lw) - 6;   // middle of the space between the teams
     const yT = Math.round(H * 0.29), yB = Math.round(H * 0.71);
     if (mid2 && x.state === "in") { center(mid1, small, C.red, mx, yT); center(mid2, small, downColor(x), mx, yB); }
