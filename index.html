@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126034707">
+<meta name="build" content="20261126034908">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -870,7 +870,7 @@ function setFollow(base, sports) {                         // sports: null off, 
 ["#pickLive", "#pickClose"].forEach(sel => $(sel).onclick = () => {
   const base = sel === "#pickLive" ? "@live" : "@close";
   followOpen = followOpen === base ? null : base;
-  renderFollowMenu();
+  renderGames();
 });
 $("#followMenu").onclick = e => {
   const b = e.target.closest("button"); if (!b || !followOpen) return;
