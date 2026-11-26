@@ -3011,7 +3011,7 @@ class Feed:
                 return [("trivia", dict(pool[(n + i) % len(pool)], cat=f"HALFTIME TRIVIA  ·  {pool[(n + i) % len(pool)].get('cat', '')}"))
                         for i in range(3)]
             n = int(time.time() // max(60, (ctl.extra_every if ctl.extra_every > 0 else 3) * 60))
-            out.append(("trivia", pool[n % len(pool)]))
+            out.insert(0, ("trivia", pool[n % len(pool)]))        # trivia leads the round
         return out
 
     def trivia_pool(self):
@@ -4020,15 +4020,18 @@ def run_display(ctl, feed, matrix):
                             every = 1
                         if queue and (st["lap"] if every < 0 else time.time() - st["last"] >= every * 60):
                             st["lap"] = False
-                            scr_inter = {"alone": False, "i": 0, "start": time.time(), "from": frame.copy(), "queue": queue}
+                            scr_inter = {"alone": False, "i": 0, "start": time.time(), "from": frame.copy(), "queue": queue, "kind": kind}
                             break
             if scr_inter is not None:
                 if scr_inter["alone"]:
                     scr_inter["queue"] = feed.screen_list()
                 queue = scr_inter["queue"]
                 if not queue or (scr_inter["alone"] and not feed.screens_alone) or (not scr_inter["alone"] and scr_inter["i"] >= len(queue)):
-                    for st in scr_state.values():
-                        st["last"], st["lap"] = time.time(), False
+                    # only the section that just ran waits for its next turn; the others (e.g. Extras after the
+                    # weather) keep theirs, so every section gets its go instead of the first one hogging each lap
+                    for k_, st in scr_state.items():
+                        if scr_inter["alone"] or k_ == scr_inter.get("kind"):
+                            st["last"], st["lap"] = time.time(), False
                     scr_inter = None
                 else:
                     kind, data = queue[scr_inter["i"] % len(queue)]
