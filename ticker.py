@@ -3578,6 +3578,10 @@ def make_handler(ctl, feed):
                 if name == "manifest.json":
                     body = body.replace(b'"Bar Ticker"', b'"Bar Ticker Pi"')
                 self.send(200, body, STATIC_FILES[name])
+            elif path == "/api/extras":                   # what the Extras screens have right now (for checking)
+                self.send(200, {"standings": [t for t, _ in feed.standings], "last_night": len(feed.last_night),
+                                "trivia": len(feed.trivia), "halftime": bool(feed.halftime()),
+                                "round": [x[0] for x in feed.extra_items()]})
             elif path == "/api/wiring":
                 rows = [[o, sp + 1, on] for o, sp, _, on in WIRING] or [[o, sp + 1, True] for o, sp, _ in PANEL_MAP]
                 for o, sp in [(2, 1), (2, 2), (1, 1), (1, 2), (3, 1), (3, 2)]:      # always 5 spots: fill in the rest, off
