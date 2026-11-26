@@ -1078,8 +1078,7 @@ def screen_header(d, text, color, short=None):
     for t in [text] + (short or []):                      # a shorter strip: drop words until it fits
         if f.getlength(t) <= W - 14:
             break
-    d.text((8, HEAD_H // 2), t, font=f, fill=color, anchor="lm")
-    d.line([(0, HEAD_H), (W, HEAD_H)], fill=RULE)
+    d.text((W // 2, HEAD_H // 2), t, font=f, fill=color, anchor="mm")   # centered over however many panels are on
 
 def wx_days_per_screen():
     return max(2, min(5, W // 75))
