@@ -3019,6 +3019,15 @@ class Feed:
         cats = set(self.ctl.trivia_cats)
         return [q for q in self.trivia if not cats or q.get("cat") in cats] or self.trivia
 
+    def halftime_top(self):
+        """One of my favorite teams' games, held on the top row, at halftime: the whole ticker turns into trivia."""
+        if self.ctl.pin == "off" or not self.trivia:
+            return None
+        for g in self.pinned:
+            if g["state"] == "in" and "half" in (g.get("detail") or "").lower() and mine(g)[0]:
+                return g
+        return None
+
     def halftime(self):
         """A game you're watching (my teams, held on top, or picked) that's at halftime right now, else None."""
         ctl = self.ctl
@@ -3950,7 +3959,8 @@ def run_display(ctl, feed, matrix):
     player = pictures.Player(ctl.lib, W, ROWS)          # Picture mode: one picture or the slideshow
     inter, lap, last_pic, pic_n = None, False, time.time(), 0   # pictures popping up in the ticker
     inter_last = None
-    show_t0, show_n, show_inter = time.time(), 0, None  # Shows: on their own, or popping up in the ticker
+    show_t0, show_n, show_inter = time.time(), 0, None
+    ht_t0 = None                                       # halftime trivia started (my team held on top)  # Shows: on their own, or popping up in the ticker
     pacer = Pacer()
     scr_inter = None                                    # weather / stock screens held on the strip for a few seconds
     KINDS = ("sports", "pl", "stock", "wx", "extra")
@@ -3987,6 +3997,7 @@ def run_display(ctl, feed, matrix):
             if scr_inter is not None:                   # the trivia / weather screen picks up where it was
                 scr_inter["start"] += time.time() - start
             show_t0 += time.time() - start
+            ht_t0 = ht_t0 + time.time() - start if ht_t0 is not None else None
         al = feed.next_alert()
         th = ctl.theme(al.key) if al and (al.key == ANY_CLOSE or (al.game["league"], al.abbr) in MY_TEAMS) else None
         if al and (th is None or th["on"]):       # takeover, then go back to whatever was showing
@@ -3997,6 +4008,7 @@ def run_display(ctl, feed, matrix):
             if scr_inter is not None:
                 scr_inter["start"] += time.time() - start
             show_t0 += time.time() - start             # Trivia only: the question picks up where it was
+            ht_t0 = ht_t0 + time.time() - start if ht_t0 is not None else None
         if ctl.version != seen:                   # something changed on the phone
             seen, x, img_i = ctl.version, W, 0
             card_i, card_t0 = 0, time.time()
@@ -4006,6 +4018,21 @@ def run_display(ctl, feed, matrix):
 
         mode = ctl.mode
         shuffle = ctl.pic_order == "shuffle"
+
+        # ---- halftime with my team held on top: trivia, nothing else, until the game starts again
+        ht = feed.halftime_top() if mode == "scroll" else None
+        if ht:
+            if ht_t0 is None:
+                ht_t0, scr_inter, show_inter, inter = time.time(), None, None, None
+            pool = feed.trivia_pool()
+            L = ctl.trivia_secs + 6
+            t = time.time() - ht_t0
+            n = int(t // L)
+            q = pool[(n + int(ht_t0) // 7) % len(pool)]
+            name = (mine(ht)[1] or (ht["home"],))[0]
+            show(trivia_frame(dict(q, cat=f"HALFTIME TRIVIA  ·  {name}"), t - n * L, ctl.trivia_secs)); time.sleep(1 / 20)
+            continue
+        ht_t0 = None
 
         # ---- weather / stock screens: held for a few seconds, then back to the ticker (or they just stay if nothing else is on)
         if mode == "scroll" and show_inter is None and inter is None:
