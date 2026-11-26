@@ -3051,8 +3051,11 @@ class Feed:
             sp, tot = spread_num(g), g.get("total")
             old = self.lines.get(g["id"])
             self.lines[g["id"]] = (sp, tot)
-            if old is None or not ctl.line_alerts or not ctl.sports_on or (ctl.leagues and g["league"] not in ctl.leagues and not mine(g)[0]):
-                continue
+            watched = mine(g)[0] or g["id"] in ctl.game_ids or g["id"] in {p["id"] for p in self.pinned}
+            if old is None or not ctl.line_alerts or not ctl.sports_on or not watched:
+                continue                                 # only my teams and the games I picked / hold on top
+            if time.time() - getattr(self, "_line_at", 0) < 300:
+                continue                                 # at most one line-move takeover every 5 minutes
             moved = []
             if sp and old[0] and (sp[0] != old[0][0] or abs(sp[1] - old[0][1]) >= LINE_MOVE["spread"]):
                 moved.append(f"{old[0][0]} {old[0][1]:+g} → {sp[0]} {sp[1]:+g}")
@@ -3062,6 +3065,7 @@ class Feed:
             except (TypeError, ValueError):
                 pass
             if moved:
+                self._line_at = time.time()
                 self.notices.append(Notice("line", "LINE MOVE  ·  " + "   ".join(moved),
                                            f"{g['away']} @ {g['home']}  ·  {when(g)}", (0, 110, 150), "up", 9))
 
@@ -3980,6 +3984,9 @@ def run_display(ctl, feed, matrix):
             while (t := time.time() - start) < nt.secs:
                 show(notice_frame(nt, t)); time.sleep(1 / 30)
             x, inter, last_pic = W, None, time.time()
+            if scr_inter is not None:                   # the trivia / weather screen picks up where it was
+                scr_inter["start"] += time.time() - start
+            show_t0 += time.time() - start
         al = feed.next_alert()
         th = ctl.theme(al.key) if al and (al.key == ANY_CLOSE or (al.game["league"], al.abbr) in MY_TEAMS) else None
         if al and (th is None or th["on"]):       # takeover, then go back to whatever was showing
@@ -3987,6 +3994,9 @@ def run_display(ctl, feed, matrix):
             while (t := time.time() - start) < secs:
                 show(alert_frame(al, t, th, ctl.lib, ctl.pic_boost)); time.sleep(1 / 30)
             x, inter, last_pic = W, None, time.time()
+            if scr_inter is not None:
+                scr_inter["start"] += time.time() - start
+            show_t0 += time.time() - start             # Trivia only: the question picks up where it was
         if ctl.version != seen:                   # something changed on the phone
             seen, x, img_i = ctl.version, W, 0
             card_i, card_t0 = 0, time.time()
