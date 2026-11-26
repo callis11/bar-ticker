@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126043349">
+<meta name="build" content="20261126043722">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -910,6 +910,42 @@ $("#moreGames").onclick = () => {
   renderGames();
   if (!gamesOpen) $("#games").scrollIntoView({block:"nearest", behavior:"smooth"});
 };
+// ---- Extras: trivia, last night, standings, countdown, stat leaders; line alerts; win probability; scheduled messages
+var EXTRA_NAMES = {trivia: "Trivia", lastnight: "Last night's finals", standings: "Standings", countdown: "Countdown", leaders: "Stat leaders"};
+var DAY_NAMES = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+var schedDays = new Set([0,1,2,3,4,5,6]);
+function renderExtras() {
+  const on = S.extra_on !== false, picks = S.extras || Object.keys(EXTRA_NAMES);
+  $("#extraOn").checked = on; $("#extraBox").style.opacity = on ? 1 : .4;
+  document.querySelectorAll("#extraPick button").forEach(b => b.classList.toggle("on", picks.includes(b.dataset.x)));
+  document.querySelectorAll("#extraStyle button").forEach(b => b.classList.toggle("on", b.dataset.v === (S.extra_style || "fade")));
+  document.querySelectorAll("#extraEvery button").forEach(b => b.classList.toggle("on", +b.dataset.v === (S.extra_every ?? 5)));
+  document.querySelectorAll("#triviaSecs button").forEach(b => b.classList.toggle("on", +b.dataset.v === (S.trivia_secs || 12)));
+  $("#extraHint").textContent = picks.length ? `${picks.map(p => EXTRA_NAMES[p]).join(", ")} take turns between the crawl. Trivia shows the question with a countdown, then the answer. At halftime of a game you're watching, a 3-question trivia round comes up every minute.` : "Pick at least one.";
+  $("#lineAl").checked = S.line_alerts !== false;
+  $("#wpBar").checked = !!S.wp_bar;
+  $("#schedDays").innerHTML = DAY_NAMES.map((n, i) => `<button data-d="${i}" class="${schedDays.has(i) ? "on" : ""}">${n}</button>`).join("");
+  const fmt = t => { const [h, m] = t.split(":").map(Number); return `${(h % 12) || 12}${m ? ":" + String(m).padStart(2, "0") : ""}${h < 12 ? "am" : "pm"}`; };
+  $("#schedList").innerHTML = (S.sched || []).map((m, i) => `<div class="game" style="cursor:default"><span class="check" style="background:${m.color}"></span>
+    <span class="teams">${esc(m.text)}</span><span class="st">${m.days.length === 7 ? "Every day" : m.days.map(d => DAY_NAMES[d]).join(" ")} ${fmt(m.start)}-${fmt(m.end)}</span>
+    <button class="btn ghost" data-del="${i}" style="width:auto;margin:0 0 0 6px;padding:2px 10px">✕</button></div>`).join("");
+}
+window.renderExtras = renderExtras;                 // this part of the page sits inside another block: let render() reach it
+$("#extraOn").onchange = e => save({extra_on: e.target.checked}, e.target.checked ? "Extras on" : "Extras off");
+$("#extraPick").onclick = e => { const b = e.target.closest("button"); if (b) save({extras: toggleList(S.extras || Object.keys(EXTRA_NAMES), b.dataset.x)}, EXTRA_NAMES[b.dataset.x]); };
+$("#extraStyle").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({extra_style: b.dataset.v}, "Extras: " + b.textContent.toLowerCase()); };
+$("#extraEvery").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({extra_every: +b.dataset.v}, "Extras come up: " + b.textContent.toLowerCase()); };
+$("#triviaSecs").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({trivia_secs: +b.dataset.v}, `${b.dataset.v} seconds to answer`); };
+$("#lineAl").onchange = e => save({line_alerts: e.target.checked}, e.target.checked ? "Line move alerts on" : "Line move alerts off");
+$("#wpBar").onchange = e => save({wp_bar: e.target.checked}, e.target.checked ? "Win probability bar on" : "Win probability bar off");
+$("#schedDays").onclick = e => { const b = e.target.closest("button"); if (!b) return; const d = +b.dataset.d; schedDays.has(d) ? schedDays.delete(d) : schedDays.add(d); renderExtras(); };
+$("#schedAdd").onclick = () => {
+  const text = $("#schedText").value.trim(); if (!text) return toast("Type a message first");
+  if (!schedDays.size) return toast("Pick at least one day");
+  save({sched: [...(S.sched || []), {text, days: [...schedDays].sort(), start: $("#schedStart").value || "00:00", end: $("#schedEnd").value || "23:59", color: $("#schedColor").value}]}, "Message scheduled");
+  $("#schedText").value = "";
+};
+$("#schedList").onclick = e => { const b = e.target.closest("[data-del]"); if (b) save({sched: (S.sched || []).filter((_, i) => i !== +b.dataset.del)}, "Message removed"); };
 $("#pickNone").onclick = () => setGames([]);
 $("#colors").innerHTML = COLORS.map(c => `<button data-c="${c}" style="background:${c}" aria-label="color ${c}"></button>`).join("");
 $("#colors").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.color = b.dataset.c; render();
@@ -3007,99 +3043,6 @@ const Demo = (() => {
                                  wx_status: wxData ? (wxData.live ? wxData.place : "sample weather") : "", stock_bad: []});
   }
 
-  $("#refreshBtn").onclick = async () => {
-  const b = $("#refreshBtn"); if (b.classList.contains("spin")) return;
-  b.classList.add("spin");
-  try {
-    if (DEMO) await Demo.refresh(); else await api("/api/refresh", {method:"POST", body:"{}"});
-    await new Promise(r => setTimeout(r, DEMO ? 300 : 2500));   // give the ticker a moment to pull fresh data
-    await poll(); toast("Up to date");
-  } catch { toast("Couldn't reach the ticker"); }
-  b.classList.remove("spin");
-};
-
-async function restartTicker(path, working) {
-  if (DEMO) return toast("Not available in the demo");
-  const btns = [$("#updateBtn"), $("#restartBtn")]; btns.forEach(b => b.disabled = true); toast(working);
-  try {
-    const r = await api(path, {method:"POST", body:"{}"});
-    toast((r.msg || "Restarting") + "…");
-    await new Promise(r => setTimeout(r, 4000));
-    for (let i = 0; i < 40; i++) {                       // wait for it to come back, then reload the page (it may have changed)
-      try { const x = await fetch("/api/state", {cache:"no-store"}); if (x.ok) return location.reload(); } catch {}
-      await new Promise(r => setTimeout(r, 1500));
-    }
-    toast("Still starting. Reload in a minute");
-  } catch (e) { toast(e.message || "Couldn't reach the ticker"); }
-  btns.forEach(b => b.disabled = false);
-}
-$("#updateBtn").onclick = () => restartTicker("/api/update", "Checking for updates…");
-$("#restartBtn").onclick = () => restartTicker("/api/restart", "Restarting…");
-let wiring = [[2,1,true],[2,2,true],[1,1,true],[1,2,true],[3,1,false]];   // 5 panel spots: [port, 1st/2nd, on]
-function drawWiring() {
-  while (wiring.length < 5) wiring.push([3, 2, false]);
-  $("#wiringRows").innerHTML = wiring.slice(0, 5).map((w, i) => `<div style="display:flex;gap:6px;align-items:center;margin:4px 0;opacity:${w[2] ? 1 : .45}">
-    <label style="width:92px;display:flex;gap:6px;align-items:center"><input type="checkbox" data-i="${i}" data-k="2" ${w[2] ? "checked" : ""}> Panel ${i + 1}</label>
-    <select data-i="${i}" data-k="0">${[1,2,3].map(p => `<option value="${p}" ${w[0]==p?"selected":""}>Port ${p}</option>`).join("")}</select>
-    <select data-i="${i}" data-k="1"><option value="1" ${w[1]==1?"selected":""}>1st</option><option value="2" ${w[1]==2?"selected":""}>2nd</option></select></div>`).join("");
-  $("#wiringRows").querySelectorAll("select,input").forEach(s => s.onchange = () => {
-    wiring[+s.dataset.i][+s.dataset.k] = s.type === "checkbox" ? s.checked : +s.value; drawWiring(); });
-  const on = wiring.filter(w => w[2]).length;
-  $("#wiringSum").textContent = `${on} of 5 panels on. The ticker spreads across the ones that are on, left to right. Turn a panel on when it's plugged in.`;
-}
-if (!DEMO) fetch("/api/wiring").then(r => r.json()).then(w => {
-  wiring = w.map.map(x => [x[0], x[1], x[2] !== false]); $("#wiringFlip").checked = !!w.flip; drawWiring();
-}).catch(drawWiring); else drawWiring();
-$("#wiringSave").onclick = async () => {
-  if (DEMO) return toast("Not available in the demo");
-  try {
-    const r = await api("/api/wiring", {method:"POST", body: JSON.stringify({map: wiring.slice(0, 5), flip: $("#wiringFlip").checked})});
-    if (!r.msg) return toast("The ticker is still running old code: restart the Pi (sudo reboot), then try again");
-    toast(r.msg + "…"); await new Promise(r => setTimeout(r, 6000)); location.reload();
-  } catch (e) { toast(e.message || "Couldn't save"); }
-};
-// ---- Extras: trivia, last night, standings, countdown, stat leaders; line alerts; win probability; scheduled messages
-var EXTRA_NAMES = {trivia: "Trivia", lastnight: "Last night's finals", standings: "Standings", countdown: "Countdown", leaders: "Stat leaders"};
-var DAY_NAMES = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-var schedDays = new Set([0,1,2,3,4,5,6]);
-function renderExtras() {
-  const on = S.extra_on !== false, picks = S.extras || Object.keys(EXTRA_NAMES);
-  $("#extraOn").checked = on; $("#extraBox").style.opacity = on ? 1 : .4;
-  document.querySelectorAll("#extraPick button").forEach(b => b.classList.toggle("on", picks.includes(b.dataset.x)));
-  document.querySelectorAll("#extraStyle button").forEach(b => b.classList.toggle("on", b.dataset.v === (S.extra_style || "fade")));
-  document.querySelectorAll("#extraEvery button").forEach(b => b.classList.toggle("on", +b.dataset.v === (S.extra_every ?? 5)));
-  document.querySelectorAll("#triviaSecs button").forEach(b => b.classList.toggle("on", +b.dataset.v === (S.trivia_secs || 12)));
-  $("#extraHint").textContent = picks.length ? `${picks.map(p => EXTRA_NAMES[p]).join(", ")} take turns between the crawl. Trivia shows the question with a countdown, then the answer. At halftime of a game you're watching, a 3-question trivia round comes up every minute.` : "Pick at least one.";
-  $("#lineAl").checked = S.line_alerts !== false;
-  $("#wpBar").checked = !!S.wp_bar;
-  $("#schedDays").innerHTML = DAY_NAMES.map((n, i) => `<button data-d="${i}" class="${schedDays.has(i) ? "on" : ""}">${n}</button>`).join("");
-  const fmt = t => { const [h, m] = t.split(":").map(Number); return `${(h % 12) || 12}${m ? ":" + String(m).padStart(2, "0") : ""}${h < 12 ? "am" : "pm"}`; };
-  $("#schedList").innerHTML = (S.sched || []).map((m, i) => `<div class="game" style="cursor:default"><span class="check" style="background:${m.color}"></span>
-    <span class="teams">${esc(m.text)}</span><span class="st">${m.days.length === 7 ? "Every day" : m.days.map(d => DAY_NAMES[d]).join(" ")} ${fmt(m.start)}-${fmt(m.end)}</span>
-    <button class="btn ghost" data-del="${i}" style="width:auto;margin:0 0 0 6px;padding:2px 10px">✕</button></div>`).join("");
-}
-window.renderExtras = renderExtras;                 // this part of the page sits inside another block: let render() reach it
-$("#extraOn").onchange = e => save({extra_on: e.target.checked}, e.target.checked ? "Extras on" : "Extras off");
-$("#extraPick").onclick = e => { const b = e.target.closest("button"); if (b) save({extras: toggleList(S.extras || Object.keys(EXTRA_NAMES), b.dataset.x)}, EXTRA_NAMES[b.dataset.x]); };
-$("#extraStyle").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({extra_style: b.dataset.v}, "Extras: " + b.textContent.toLowerCase()); };
-$("#extraEvery").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({extra_every: +b.dataset.v}, "Extras come up: " + b.textContent.toLowerCase()); };
-$("#triviaSecs").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({trivia_secs: +b.dataset.v}, `${b.dataset.v} seconds to answer`); };
-$("#lineAl").onchange = e => save({line_alerts: e.target.checked}, e.target.checked ? "Line move alerts on" : "Line move alerts off");
-$("#wpBar").onchange = e => save({wp_bar: e.target.checked}, e.target.checked ? "Win probability bar on" : "Win probability bar off");
-$("#schedDays").onclick = e => { const b = e.target.closest("button"); if (!b) return; const d = +b.dataset.d; schedDays.has(d) ? schedDays.delete(d) : schedDays.add(d); renderExtras(); };
-$("#schedAdd").onclick = () => {
-  const text = $("#schedText").value.trim(); if (!text) return toast("Type a message first");
-  if (!schedDays.size) return toast("Pick at least one day");
-  save({sched: [...(S.sched || []), {text, days: [...schedDays].sort(), start: $("#schedStart").value || "00:00", end: $("#schedEnd").value || "23:59", color: $("#schedColor").value}]}, "Message scheduled");
-  $("#schedText").value = "";
-};
-$("#schedList").onclick = e => { const b = e.target.closest("[data-del]"); if (b) save({sched: (S.sched || []).filter((_, i) => i !== +b.dataset.del)}, "Message removed"); };
-$("#panelCheckBtn").onclick = async () => {
-  const r = await fetch("/api/panel-check", {method: "POST"}).then(r => r.json()).catch(() => null);
-  $("#panelCheckMsg").textContent = !r ? "Couldn't reach the ticker." : r.on
-    ? "Each panel now shows PORT 1/2/3 and 1st/2nd. Panels that stay dark get no signal. Tap again to stop. Set up for: " + r.panels_txt
-    : "Panel check off.";
-};
 
 async function start() {
     $("#demoBar").classList.add("on");
@@ -3198,6 +3141,65 @@ async function start() {
   return {start: async () => { DEMO_ON = true; return start(); }, api, testAlert, refresh, thumb, decodeGIF, picFile, preview,
           get previewing() { return !!previewing; }};
 })();
+
+// ---- refresh / update / restart / Wiring / Panel check: top level, so they use the real ticker (not the demo's pretend one)
+$("#refreshBtn").onclick = async () => {
+  const b = $("#refreshBtn"); if (b.classList.contains("spin")) return;
+  b.classList.add("spin");
+  try {
+    if (DEMO) await Demo.refresh(); else await api("/api/refresh", {method:"POST", body:"{}"});
+    await new Promise(r => setTimeout(r, DEMO ? 300 : 2500));   // give the ticker a moment to pull fresh data
+    await poll(); toast("Up to date");
+  } catch { toast("Couldn't reach the ticker"); }
+  b.classList.remove("spin");
+};
+
+async function restartTicker(path, working) {
+  if (DEMO) return toast("Not available in the demo");
+  const btns = [$("#updateBtn"), $("#restartBtn")]; btns.forEach(b => b.disabled = true); toast(working);
+  try {
+    const r = await api(path, {method:"POST", body:"{}"});
+    toast((r.msg || "Restarting") + "…");
+    await new Promise(r => setTimeout(r, 4000));
+    for (let i = 0; i < 40; i++) {                       // wait for it to come back, then reload the page (it may have changed)
+      try { const x = await fetch("/api/state", {cache:"no-store"}); if (x.ok) return location.reload(); } catch {}
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    toast("Still starting. Reload in a minute");
+  } catch (e) { toast(e.message || "Couldn't reach the ticker"); }
+  btns.forEach(b => b.disabled = false);
+}
+$("#updateBtn").onclick = () => restartTicker("/api/update", "Checking for updates…");
+$("#restartBtn").onclick = () => restartTicker("/api/restart", "Restarting…");
+let wiring = [[2,1,true],[2,2,true],[1,1,true],[1,2,true],[3,1,false]];   // 5 panel spots: [port, 1st/2nd, on]
+function drawWiring() {
+  while (wiring.length < 5) wiring.push([3, 2, false]);
+  $("#wiringRows").innerHTML = wiring.slice(0, 5).map((w, i) => `<div style="display:flex;gap:6px;align-items:center;margin:4px 0;opacity:${w[2] ? 1 : .45}">
+    <label style="width:92px;display:flex;gap:6px;align-items:center"><input type="checkbox" data-i="${i}" data-k="2" ${w[2] ? "checked" : ""}> Panel ${i + 1}</label>
+    <select data-i="${i}" data-k="0">${[1,2,3].map(p => `<option value="${p}" ${w[0]==p?"selected":""}>Port ${p}</option>`).join("")}</select>
+    <select data-i="${i}" data-k="1"><option value="1" ${w[1]==1?"selected":""}>1st</option><option value="2" ${w[1]==2?"selected":""}>2nd</option></select></div>`).join("");
+  $("#wiringRows").querySelectorAll("select,input").forEach(s => s.onchange = () => {
+    wiring[+s.dataset.i][+s.dataset.k] = s.type === "checkbox" ? s.checked : +s.value; drawWiring(); });
+  const on = wiring.filter(w => w[2]).length;
+  $("#wiringSum").textContent = `${on} of 5 panels on. The ticker spreads across the ones that are on, left to right. Turn a panel on when it's plugged in.`;
+}
+if (!DEMO) fetch("/api/wiring").then(r => r.json()).then(w => {
+  wiring = w.map.map(x => [x[0], x[1], x[2] !== false]); $("#wiringFlip").checked = !!w.flip; drawWiring();
+}).catch(drawWiring); else drawWiring();
+$("#wiringSave").onclick = async () => {
+  if (DEMO) return toast("Not available in the demo");
+  try {
+    const r = await api("/api/wiring", {method:"POST", body: JSON.stringify({map: wiring.slice(0, 5), flip: $("#wiringFlip").checked})});
+    if (!r.msg) return toast("The ticker is still running old code: restart the Pi (sudo reboot), then try again");
+    toast(r.msg + "…"); await new Promise(r => setTimeout(r, 6000)); location.reload();
+  } catch (e) { toast(e.message || "Couldn't save"); }
+};
+$("#panelCheckBtn").onclick = async () => {
+  const r = await fetch("/api/panel-check", {method: "POST"}).then(r => r.json()).catch(() => null);
+  $("#panelCheckMsg").textContent = !r ? "Couldn't reach the ticker." : r.on
+    ? "Each panel now shows PORT 1/2/3 and 1st/2nd. Panels that stay dark get no signal. Tap again to stop. Set up for: " + r.panels_txt
+    : "Panel check off.";
+};
 
 // GitHub Pages lets phones keep an old copy of this page for a while (longer as a home-screen app).
 // Check for a newer one when the page opens or comes back to the front, and reload into it.
