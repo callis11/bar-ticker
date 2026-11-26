@@ -372,6 +372,7 @@ def parse_game(label, ev):
         poss="away" if poss and poss in ids(a) else "home" if poss and poss in ids(h) else "",
         id=f"{label}-{ev['id']}", league=label,
         away=a["team"]["abbreviation"], home=h["team"]["abbreviation"],
+        aname=str(a["team"].get("name") or a["team"]["abbreviation"]), hname=str(h["team"].get("name") or h["team"]["abbreviation"]),
         acolor=_hexrgb(a["team"].get("color")), hcolor=_hexrgb(h["team"].get("color")),
         alogo=str(a["team"].get("logo") or ""), hlogo=str(h["team"].get("logo") or ""),
         aid=str(a["team"].get("id") or ""), hid=str(h["team"].get("id") or ""),
@@ -1446,9 +1447,40 @@ class AlertWatcher:
         self.rz_at = {}                                  # game id -> when its last red-zone alert fired
         self.seen_any = set()
 
-    def check(self, games, ctl=None):
+    def held_alerts(self, g, old):
+        """A game held on the top row that isn't one of my teams: touchdowns, big plays, red zone and the win,
+        for whichever side it happens to, in that team's own colors."""
+        def info(side):
+            c1, _ = team_colors(g, side)
+            alt = g.get("aalt" if side == "away" else "halt")
+            c2 = alt if alt and alt != c1 and _lum(alt) >= 28 else WHITE
+            return ((g.get("aname" if side == "away" else "hname") or g[side]).upper(), c1, c2)
+        foot = g["league"] in ("NFL", "CFB")
+        for side, sc in (("away", "ascore"), ("home", "hscore")):
+            if foot and g[sc] - old[sc] >= 6:
+                self.queue.append(Alert("td", g, g[side], info(side)))
+            rz_now = g["state"] == "in" and g.get("redzone") and g.get("poss") == side
+            rz_old = old.get("redzone") and old.get("poss") == side
+            if foot and rz_now and not rz_old and time.time() - self.rz_at.get(g["id"], 0) > 120:
+                self.rz_at[g["id"]] = time.time()
+                self.queue.append(Alert("redzone", g, g[side], info(side)))
+        if foot and g.get("play_id") and g["play_id"] != old.get("play_id"):
+            kind, who = play_alert(g, old)
+            if kind in ("sack", "int", "fumble", "fg", "big") and who in ("away", "home"):
+                self.queue.append(Alert(kind, g, g[who], info(who)))
+        if old["state"] == "in" and g["state"] == "post" and g["ascore"] != g["hscore"]:
+            win = "away" if g["ascore"] > g["hscore"] else "home"
+            self.queue.append(Alert("win", g, g[win], info(win)))
+
+    def check(self, games, ctl=None, held=()):
         for g in games:
             abbr, team = mine(g)
+            if not abbr and g["id"] in held:              # the game you're holding on top: its own alerts
+                old = self.prev.get(g["id"])
+                self.prev[g["id"]] = g
+                if old is not None:
+                    self.held_alerts(g, old)
+                continue
             if not abbr:
                 if g["id"] not in self.seen_any:            # first look (e.g. just switched on): no alert
                     self.seen_any.add(g["id"])
@@ -2664,7 +2696,7 @@ class Feed:
                             self.last_error = str(e)
                         last[label] = now
                 self.games = [g for l, _, _ in LEAGUES for g in by_league.get(l, [])]
-                self.watcher.check(self.games, self.ctl)
+                self.watcher.check(self.games, self.ctl, {g["id"] for g in self.pinned_games()})
                 self.note_finishes()
                 if now - last_pl > PL_REFRESH:    # ParlayLabs files are big (~8 MB) and change slowly
                     self.pl, last_pl = parlaylabs() or self.pl, now
