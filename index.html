@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126025852">
+<meta name="build" content="20261126025938">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -457,6 +457,7 @@
   <label class="row" for="refresh"><span>Score updates</span><span id="refreshV"></span></label>
   <input type="range" id="refresh" min="5" max="60" step="5">
   <p class="hint">How often the whole board checks ESPN. Lions, Pistons, MSU and the games you picked always check every 5 seconds when they're live. If scores stop updating, slow this down.</p>
+  <div class="switch"><span>College rankings <small class="dim">(#12 MSU on college games)</small></span><input type="checkbox" id="ranks"></div>
   <h2 class="sect">Screens</h2>
   <button class="btn ghost" id="panelCheckBtn" style="width:100%">Panel check (shows each panel's port for 60 s)</button>
   <p class="hint" id="panelCheckMsg"></p>
@@ -473,7 +474,6 @@
 <div class="card">
   <h2>Settings</h2>
   <div class="switch"><span>Team alerts <small class="dim">(all your teams; set them up on the Alerts tab)</small></span><input type="checkbox" id="alerts"></div>
-  <div class="switch"><span>College rankings (#12 MSU)</span><input type="checkbox" id="ranks"></div>
 </div>
 
 <div class="toast" id="toast"></div>
