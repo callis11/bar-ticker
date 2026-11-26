@@ -2231,7 +2231,7 @@ DEMO_COLORS = {"MIN": (79, 38, 131), "DET": (0, 118, 182), "CHI": (11, 22, 42), 
 
 HALF_SIZE = 20          # text size on a half-height row (split screen)
 
-def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE):
+def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE, bar=True):
     """One game on a single line, for a half-height row: | MIN 17  DET 24  4th 3:12
     Before kickoff: | KC @ BUF  4:25 PM  KC +120 BUF -142  O/U 51.5"""
     f, fs = font(size), font(max(10, size - 4))
@@ -2261,12 +2261,13 @@ def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE):
     bsize = size / 22
     LH = h - 6                                            # logo size on a half-height row
     plen = lambda t, pf: 11 * bsize + 5 if t == "@BALL" else LH + 4 if t.startswith("@LOGO") else pf.getlength(t)
-    width = int(9 + sum(plen(t, pf) for t, _, pf in parts) + 6)
+    width = int((9 if bar else 3) + sum(plen(t, pf) for t, _, pf in parts) + 6)
     img = Image.new("RGB", (width, h))
     d = ImageDraw.Draw(img)
     lg = {l: c for l, _, c in LEAGUES}.get(g["league"], GRAY)
-    d.rectangle([0, 3, 2, h - 4], fill=lg)
-    x = 9
+    if bar:                                               # league-color bar in front (the crawl; not the held top row)
+        d.rectangle([0, 3, 2, h - 4], fill=lg)
+    x = 9 if bar else 3
     for t, c, pf in parts:
         if t == "@BALL":
             x += draw_ball(d, x, h / 2, bsize) + 5
@@ -2286,11 +2287,11 @@ def pinned_frame(games, t, ctl):
     odds = ctl.show_odds()
     gap = 28
     for size in (22, 20, 18, 16):                         # biggest text that fits them all at once, else pages at 20
-        pics = [game_line(g, odds, TOP_H, size) for g in games]
+        pics = [game_line(g, odds, TOP_H, size, bar=False) for g in games]
         if sum(p.width for p in pics) + gap * (len(pics) - 1) <= W:
             break
     else:
-        pics = [game_line(g, odds, TOP_H, 20) for g in games]
+        pics = [game_line(g, odds, TOP_H, 20, bar=False) for g in games]
     # a short strip: a game wider than the whole screen shrinks to fit (never clipped), centered
     pics = [p if p.width <= W - 8 else p.resize((W - 8, max(1, round(p.height * (W - 8) / p.width))), Image.LANCZOS) for p in pics]
     pages, cur, w = [], [], 0

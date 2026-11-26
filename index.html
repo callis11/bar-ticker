@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126030423">
+<meta name="build" content="20261126030849">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -2156,7 +2156,7 @@ const Demo = (() => {
     return cnv;
   }
   const HALF_PX = 20, TOP_H = H / 2 - 1, BOTTOM_H = H / 2;
-  function gameLine(x, h = BOTTOM_H, size = HALF_PX) {      // one game on one line, for a half-height row
+  function gameLine(x, h = BOTTOM_H, size = HALF_PX, bar = true) {      // one game on one line, for a half-height row
     const pre = x.state === "pre", my = mine(x), small = Math.max(10, size - 4);
     const tcol = (side, sc, other) => x[side] === my ? C.gold : pre || x[sc] >= other ? C.white : "#969696";
     const lg = logosReady(x), LH = h - 6;
@@ -2169,9 +2169,9 @@ const Demo = (() => {
          ...ball("home"), [`${team(x, "home")} ${x.hscore}`, tcol("home", "hscore", x.ascore), size], ["  " + x.detail, x.state === "in" ? C.red : "#969696", small],
          ...(downs(x) ? [["  " + downs(x), downColor(x), small]] : [])];
     const bs = size / 22, plen = (t, n) => t === "@BALL" ? 11 * bs + 5 : t.startsWith("@LOGO") ? LH + 4 : measure(t, n);
-    const cnv = newCanvasH(9 + parts.reduce((a, [t, , n]) => a + plen(t, n), 0) + 6, h), c = cnv.getContext("2d");
-    c.fillStyle = LEAGUE_COLORS[x.league] || C.gray; c.fillRect(0, 3, 3, h - 6);
-    let px = 9;
+    const x0 = bar ? 9 : 3, cnv = newCanvasH(x0 + parts.reduce((a, [t, , n]) => a + plen(t, n), 0) + 6, h), c = cnv.getContext("2d");
+    if (bar) { c.fillStyle = LEAGUE_COLORS[x.league] || C.gray; c.fillRect(0, 3, 3, h - 6); }
+    let px = x0;
     for (const [t, col, n] of parts) {
       if (t.startsWith("@LOGO")) { drawLogo(c, teamLogo(x, t.slice(5)), px, h / 2, LH); px += LH + 4; }
       else px += t === "@BALL" ? drawBall(c, px, h / 2, bs) + 5 : textAt(c, px, h / 2, t, n, col);
@@ -2192,8 +2192,8 @@ const Demo = (() => {
   function drawPinned(list, t) {                  // top row: as many as fit side by side, else pages that take turns
     const gap = 28;
     let pics;
-    for (const n of [22, 20, 18, 16]) { pics = list.map(z => gameLine(z, TOP_H, n)); if (pics.reduce((a, p) => a + p.width, 0) + gap * (pics.length - 1) <= W) break; pics = null; }
-    pics = pics || list.map(z => gameLine(z, TOP_H, 20));
+    for (const n of [22, 20, 18, 16]) { pics = list.map(z => gameLine(z, TOP_H, n, false)); if (pics.reduce((a, p) => a + p.width, 0) + gap * (pics.length - 1) <= W) break; pics = null; }
+    pics = pics || list.map(z => gameLine(z, TOP_H, 20, false));
     const pages = [[]]; let w = 0;
     for (const p of pics) { const cur = pages[pages.length - 1]; if (cur.length && w + gap + p.width > W) { pages.push([p]); w = p.width; } else { w += (cur.length ? gap : 0) + p.width; cur.push(p); } }
     const pi = Math.floor(t / Math.max(2, S.hold || 5)) % pages.length, page = pages[pi];
