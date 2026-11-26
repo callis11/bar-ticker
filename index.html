@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126025806">
+<meta name="build" content="20261126025852">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -448,6 +448,15 @@
   <h2>Ticker</h2>
   <div class="row3" style="grid-template-columns:1fr 1fr"><button class="btn" id="updateBtn">Update &amp; restart</button><button class="btn ghost" id="restartBtn">Restart</button></div>
   <p class="hint">Update gets the newest ticker code from GitHub, then restarts (about 10 seconds). It also does this by itself every couple of minutes. Restart just restarts, for when something looks stuck.</p>
+  <h2 class="sect">Display</h2>
+  <label class="row" for="bright"><span>Brightness</span><span id="brightV"></span></label>
+  <input type="range" id="bright" min="5" max="100" step="5">
+  <label class="row" for="delay"><span>TV delay</span><span id="delayV"></span></label>
+  <input type="range" id="delay" min="0" max="90" step="1">
+  <p class="hint">Holds team alerts back so they flash when the play shows on your TV, not before.</p>
+  <label class="row" for="refresh"><span>Score updates</span><span id="refreshV"></span></label>
+  <input type="range" id="refresh" min="5" max="60" step="5">
+  <p class="hint">How often the whole board checks ESPN. Lions, Pistons, MSU and the games you picked always check every 5 seconds when they're live. If scores stop updating, slow this down.</p>
   <h2 class="sect">Screens</h2>
   <button class="btn ghost" id="panelCheckBtn" style="width:100%">Panel check (shows each panel's port for 60 s)</button>
   <p class="hint" id="panelCheckMsg"></p>
@@ -463,14 +472,6 @@
 
 <div class="card">
   <h2>Settings</h2>
-  <label class="row" for="bright"><span>Brightness</span><span id="brightV"></span></label>
-  <input type="range" id="bright" min="5" max="100" step="5">
-  <label class="row" for="delay"><span>TV delay</span><span id="delayV"></span></label>
-  <input type="range" id="delay" min="0" max="90" step="1">
-  <p class="hint">Holds team alerts back so they flash when the play shows on your TV, not before.</p>
-  <label class="row" for="refresh"><span>Score updates</span><span id="refreshV"></span></label>
-  <input type="range" id="refresh" min="5" max="60" step="5">
-  <p class="hint">How often the whole board checks ESPN. Lions, Pistons, MSU and the games you picked always check every 5 seconds when they're live. If scores stop updating, slow this down.</p>
   <div class="switch"><span>Team alerts <small class="dim">(all your teams; set them up on the Alerts tab)</small></span><input type="checkbox" id="alerts"></div>
   <div class="switch"><span>College rankings (#12 MSU)</span><input type="checkbox" id="ranks"></div>
 </div>
