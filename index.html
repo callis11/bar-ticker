@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126024451">
+<meta name="build" content="20261126024841">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -686,8 +686,8 @@ function render() {
   $("#pinHint").textContent = {
     off: "Splits the ticker in two: live scores stay put on the top row while everything else crawls along the bottom.",
     mine: "Top row: Lions, Pistons and MSU games while they're live (and 15 min after). The rest crawls underneath. Back to full size when none are on.",
-    live: "Top row: every live game in your sports, side by side (they take turns if they don't all fit). The rest crawls underneath.",
-    picked: "Top row: the games you picked above (My teams / Live / Close / tapped games). Underneath: any other games you picked, plus ParlayLabs, stocks and weather if they are on. Never every game."}[S.pin || "off"];
+    live: "Top row: every live game in your sports, taking turns. The games you picked crawl underneath.",
+    picked: "Top row: the games you tapped in Show games, held still. Every other game in your sports crawls underneath."}[S.pin || "off"];
   document.querySelectorAll("#daysPick button").forEach(b => b.classList.toggle("on", b.dataset.d === (S.days || "week")));
   $("#oddsOn").checked = S.odds_on !== false;
   $("#oddsPick").style.opacity = S.odds_on === false ? .35 : 1;
@@ -2333,8 +2333,7 @@ const Demo = (() => {
     if (pinned.length) {
       const ids = new Set(pinned.map(z => z.id));
       let rest = lastShown.filter(z => !ids.has(z.id));
-      if (!rest.length && !(S.pin === "picked" || (S.game_ids || []).length))   // picked games: never fill in with every game
-        rest = games.filter(z => !ids.has(z.id) && (!(S.leagues || []).length || S.leagues.includes(z.league)));
+      if (!rest.length) rest = games.filter(z => !ids.has(z.id) && (!(S.leagues || []).length || S.leagues.includes(z.league)));
       const keepShown = lastShown, bsegs = segments(rest); lastShown = keepShown;
       bottom = makeStrip(bsegs, false, BOTTOM_H);
       bottomOff = S.msg_in_scroll && S.effect === "blink" ? makeStrip(bsegs, true, BOTTOM_H) : null;
