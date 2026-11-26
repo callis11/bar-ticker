@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126043802">
+<meta name="build" content="20261126045435">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -330,6 +330,9 @@
     <div class="seg" id="extraStyle"><span class="segLabel">Style</span><button data-v="cut">Cut</button><button data-v="fade">Fade</button><button data-v="flash">Flash</button><button data-v="slide">Slide up</button><button data-v="push">Slide left</button></div>
     <div class="seg" id="extraEvery"><span class="segLabel">Comes up</span><button data-v="-1">Each lap</button><button data-v="2">2 min</button><button data-v="5">5 min</button><button data-v="10">10 min</button></div>
     <div class="seg" id="triviaSecs"><span class="segLabel">Trivia</span><button data-v="8">8 s</button><button data-v="12">12 s</button><button data-v="20">20 s</button></div>
+    <p class="hint" style="margin:6px 0 4px">Trivia categories</p>
+    <div class="chips wrap" id="triviaCats"></div>
+    <button class="btn" id="triviaOnly" style="margin:8px 0 4px">Trivia only</button>
     <p class="hint" id="extraHint" style="margin:4px 0 8px"></p>
   </div>
   <div class="switch" style="margin:6px 0 4px"><span>Line move alerts <small class="dim">(spread moves 1.5+ or total 2+)</small></span><input type="checkbox" id="lineAl"></div>
@@ -922,6 +925,10 @@ function renderExtras() {
   document.querySelectorAll("#extraEvery button").forEach(b => b.classList.toggle("on", +b.dataset.v === (S.extra_every ?? 5)));
   document.querySelectorAll("#triviaSecs button").forEach(b => b.classList.toggle("on", +b.dataset.v === (S.trivia_secs || 12)));
   $("#extraHint").textContent = picks.length ? `${picks.map(p => EXTRA_NAMES[p]).join(", ")} take turns between the crawl. Trivia shows the question with a countdown, then the answer. At halftime of a game you're watching, a 3-question trivia round comes up every minute.` : "Pick at least one.";
+  const tc = S.trivia_cats || [];
+  $("#triviaCats").innerHTML = `<button data-c="" class="${tc.length ? "" : "on"}">All</button>` + TRIVIA_CATS.map(c => `<button data-c="${c}" class="${tc.includes(c) ? "on" : ""}">${titleCase(c)}</button>`).join("");
+  $("#triviaOnly").textContent = S.mode === "trivia" ? "Stop trivia (back to the ticker)" : "Trivia only (questions back to back)";
+  $("#triviaOnly").classList.toggle("ghost", S.mode === "trivia");
   $("#lineAl").checked = S.line_alerts !== false;
   $("#wpBar").checked = !!S.wp_bar;
   $("#schedDays").innerHTML = DAY_NAMES.map((n, i) => `<button data-d="${i}" class="${schedDays.has(i) ? "on" : ""}">${n}</button>`).join("");
@@ -936,6 +943,13 @@ $("#extraPick").onclick = e => { const b = e.target.closest("button"); if (b) sa
 $("#extraStyle").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({extra_style: b.dataset.v}, "Extras: " + b.textContent.toLowerCase()); };
 $("#extraEvery").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({extra_every: +b.dataset.v}, "Extras come up: " + b.textContent.toLowerCase()); };
 $("#triviaSecs").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) save({trivia_secs: +b.dataset.v}, `${b.dataset.v} seconds to answer`); };
+var TRIVIA_CATS = ["LIONS","NFL","PISTONS","NBA","MSU","COLLEGE","RED WINGS","NHL","TIGERS","MLB","GOLF","SOCCER","OLYMPICS"];
+var titleCase = c => c === "NFL" || c === "NBA" || c === "NHL" || c === "MLB" || c === "MSU" ? c : c.split(" ").map(w => w[0] + w.slice(1).toLowerCase()).join(" ");
+$("#triviaCats").onclick = e => { const b = e.target.closest("button"); if (!b) return;
+  if (!b.dataset.c) return save({trivia_cats: []}, "Trivia: every category");
+  const cur = S.trivia_cats || [], next = toggleList(cur, b.dataset.c);
+  save({trivia_cats: next.length === TRIVIA_CATS.length ? [] : next}, "Trivia categories updated"); };
+$("#triviaOnly").onclick = () => S.mode === "trivia" ? save({mode: "scroll"}, "Back to the ticker") : save({mode: "trivia"}, "Trivia only: questions back to back");
 $("#lineAl").onchange = e => save({line_alerts: e.target.checked}, e.target.checked ? "Line move alerts on" : "Line move alerts off");
 $("#wpBar").onchange = e => save({wp_bar: e.target.checked}, e.target.checked ? "Win probability bar on" : "Win probability bar off");
 $("#schedDays").onclick = e => { const b = e.target.closest("button"); if (!b) return; const d = +b.dataset.d; schedDays.has(d) ? schedDays.delete(d) : schedDays.add(d); renderExtras(); };

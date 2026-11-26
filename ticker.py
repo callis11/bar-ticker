@@ -162,6 +162,7 @@ WHITE, GOLD, GREEN, RED, GRAY = (255,255,255), (255,190,0), (0,230,80), (255,40,
 ODDS_COLOR, DOT = (0, 200, 200), ("  •  ", (60, 60, 60))
 
 EXTRAS = ["trivia", "lastnight", "standings", "countdown", "leaders"]   # what the Extras screens can show
+TRIVIA_CATS = ["LIONS", "NFL", "PISTONS", "NBA", "MSU", "COLLEGE", "RED WINGS", "NHL", "TIGERS", "MLB", "GOLF", "SOCCER", "OLYMPICS"]
 
 # ------------------------------------------------------------------ control state (set from the phone)
 class Control:
@@ -187,7 +188,7 @@ class Control:
                        "steps": [{"kind": "words", "text": "GO LIONS!", "fx": "steady", "bg": "color", "secs": 5}]}],
             "show_id": "", "show_every": -1, "logos": True,
             # Extras: trivia, last night's finals, standings, countdown to my teams' games, stat leaders (held screens)
-            "extra_on": True, "extras": list(EXTRAS), "extra_style": "fade", "extra_every": 5, "trivia_secs": 12,
+            "extra_on": True, "extras": list(EXTRAS), "extra_style": "fade", "extra_every": 5, "trivia_secs": 12, "trivia_cats": [],
             "line_alerts": True, "wp_bar": False,
             # your messages on a schedule: [{"text", "days": [0-6, Mon=0], "start": "16:00", "end": "18:00", "color"}]
             "sched": [],
@@ -301,6 +302,7 @@ class Control:
         self.extra_style = self.extra_style if self.extra_style in MOTIONS and self.extra_style != "scroll" else "fade"
         self.extra_every = int(self.extra_every) if int(self.extra_every) in SCREEN_EVERY else 5
         self.trivia_secs = max(5, min(30, int(self.trivia_secs)))
+        self.trivia_cats = [c for c in TRIVIA_CATS if c in (self.trivia_cats or [])]   # empty = every category
         sched = []
         for m in (self.sched or [])[:12]:
             try:
@@ -3002,14 +3004,20 @@ class Feed:
         if "standings" in ctl.extras:
             out += [("standings", st) for st in self.standings]
         if "trivia" in ctl.extras and self.trivia:
+            pool = self.trivia_pool()
             ht = self.halftime()
             if ht:                                       # halftime of a game you're watching: a trivia round, 3 in a row
                 n = int(time.time() // 60) * 3
-                return [("trivia", dict(self.trivia[(n + i) % len(self.trivia)], cat=f"HALFTIME TRIVIA  ·  {self.trivia[(n + i) % len(self.trivia)].get('cat', '')}"))
+                return [("trivia", dict(pool[(n + i) % len(pool)], cat=f"HALFTIME TRIVIA  ·  {pool[(n + i) % len(pool)].get('cat', '')}"))
                         for i in range(3)]
             n = int(time.time() // max(60, (ctl.extra_every if ctl.extra_every > 0 else 3) * 60))
-            out.append(("trivia", self.trivia[n % len(self.trivia)]))
+            out.append(("trivia", pool[n % len(pool)]))
         return out
+
+    def trivia_pool(self):
+        """The questions from the categories picked on the phone (all of them when none are picked)."""
+        cats = set(self.ctl.trivia_cats)
+        return [q for q in self.trivia if not cats or q.get("cat") in cats] or self.trivia
 
     def halftime(self):
         """A game you're watching (my teams, held on top, or picked) that's at halftime right now, else None."""
@@ -4093,7 +4101,13 @@ def run_display(ctl, feed, matrix):
                 show(img); time.sleep(step / ctl.speed)
             else:
                 show(img); time.sleep(1 / 30)
-        elif mode == "message":
+        elif mode == "trivia":                    # Trivia only: one question after another, nothing else
+            pool = feed.trivia_pool()
+            L = ctl.trivia_secs + 6
+            t = time.time() - show_t0
+            n = int(t // L)
+            q = pool[(n + int(show_t0) // 7) % len(pool)]
+            show(trivia_frame(q, t - n * L, ctl.trivia_secs)); time.sleep(1 / 20)
             img, scrolling, w = message_frame(ctl, time.time(), x)
             show(img)
             step = speed_step(ctl.speed)
