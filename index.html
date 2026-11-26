@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126025938">
+<meta name="build" content="20261126030251">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -2197,7 +2197,6 @@ const Demo = (() => {
     let px = Math.max(0, (W - page.reduce((a, p) => a + p.width, 0) - gap * (page.length - 1)) / 2);
     page.forEach((p, i) => { if (i) { g.fillStyle = "#3c3c3c"; g.fillRect(px - gap / 2, 6, 1, TOP_H - 12); } g.drawImage(p, Math.round(px), 0); px += p.width + gap; });
     if (pages.length > 1) pages.forEach((_, i) => { g.fillStyle = i === pi ? "#fff" : "#464646"; g.fillRect(W - 6 - (pages.length - i) * 5, TOP_H - 3, 2, 2); });
-    g.fillStyle = "#232332"; g.fillRect(0, TOP_H, W, 1);
   }
   function subBlock(text, color, h = H) {
     if (h < H) { const cnv = newCanvasH(measure(text.trim(), 15) + 14, h); textAt(cnv.getContext("2d"), 4, h / 2, text.trim(), 15, color); return cnv; }

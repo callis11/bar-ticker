@@ -3638,7 +3638,6 @@ def run_display(ctl, feed, matrix):
             x -= n
             img = Image.new("RGB", (W, ROWS))
             img.paste(pinned_frame(feed.pinned, t, ctl), (0, 0))
-            ImageDraw.Draw(img).line([(0, TOP_H), (W, TOP_H)], fill=(35, 35, 50))
             if x < -bottom.width or x > W:
                 x, lap = W, True
                 mark_lap()
