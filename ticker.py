@@ -2969,12 +2969,13 @@ class Feed:
                     (mine(g)[0] or g["id"] in held or g["id"] in ctl.game_ids) and (g["state"] == "in" or self.linger_left(g))]
             out += [("leaders", g) for g in live[:2]]
         if "lastnight" in ctl.extras and self.last_night:
-            per = max(2, min(5, W // 105))
-            for lg, _, _ in LEAGUES:
+            per, shown = max(2, min(5, W // 105)), 0
+            for lg, _, _ in LEAGUES:                     # one screen per league (my teams and ranked games first), 3 at most
                 gs = [g for g in self.last_night if g["league"] == lg and want(g)]
                 gs.sort(key=lambda g: (not mine(g)[0], not g.get("ranked")))
-                for i in range(0, min(len(gs), per * 2), per):
-                    out.append(("lastnight", (f"LAST NIGHT  ·  {lg}", gs[i:i + per])))
+                if gs and shown < 3:
+                    out.append(("lastnight", (f"LAST NIGHT  ·  {lg}", gs[:per])))
+                    shown += 1
         if "standings" in ctl.extras:
             out += [("standings", st) for st in self.standings]
         if "trivia" in ctl.extras and self.trivia:
