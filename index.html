@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126035333">
+<meta name="build" content="20261126035711">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -1667,6 +1667,7 @@ const Demo = (() => {
   for (const f of ['700 20px "Barlow Condensed"', '600 20px "Oswald"'])
     if (document.fonts) document.fonts.load(f).then(() => { fontsReady++; }).catch(() => {});
   const shortTime = d => d.split(" - ").pop().replace(/ E[SD]T$/, "");
+  const whenTV = x => shortTime(x.detail) + (x.tv ? " · " + x.tv : "");   // start time with the TV channel
 
   async function loadLive() {           // works when hosted on GitHub Pages; falls back to samples
     try {
@@ -1986,7 +1987,7 @@ const Demo = (() => {
     const p = picks();
     if (x.state === "pre") {
       const line2 = (p.includes("ou") && x.total ? `O/U ${x.total}` : "") || (p.includes("spread") && x.spread ? x.spread : "");
-      const first = shortTime(x.detail);
+      const first = whenTV(x);
       if (!line2 && first.includes(" ") && first.length > 8) { const i = first.indexOf(" "); return [[first.slice(0, i).toUpperCase(), "#aaa"], [first.slice(i + 1), "#aaa"]]; }
       return [[first, "#aaa"], ...(line2 ? [[line2, C.odds]] : [])];
     }
@@ -2076,7 +2077,7 @@ const Demo = (() => {
     const p = picks();
     if (x.state === "pre") {
       const extra = (p.includes("ou") && x.total ? `O/U ${x.total}` : "") || (p.includes("spread") && x.spread ? x.spread : "");
-      return [[shortTime(x.detail).toUpperCase(), "#afafaf"], ...(extra ? [[extra, "#969696"]] : [])];
+      return [[whenTV(x).toUpperCase(), "#afafaf"], ...(extra ? [[extra, "#969696"]] : [])];
     }
     if (x.state === "in") return [[x.detail.toUpperCase(), null], ...(downs(x) ? [[downs(x).toUpperCase(), downColor(x)]] : [])];
     return [[x.detail.toUpperCase(), null]];
@@ -2185,7 +2186,7 @@ const Demo = (() => {
     const parts = pre
       ? [...(lg ? [["@LOGOaway", null, size]] : []), [team(x, "away"), tcol("away", "ascore", 0), size], [" @ ", C.gray, size],
          ...(lg ? [["@LOGOhome", null, size]] : []), [team(x, "home"), tcol("home", "hscore", 0), size],
-         ["  " + shortTime(x.detail), "#aaa", small], ...(oddsText(x) ? [["  " + oddsText(x), C.odds, small]] : [])]
+         ["  " + whenTV(x), "#aaa", small], ...(oddsText(x) ? [["  " + oddsText(x), C.odds, small]] : [])]
       : [...ball("away"), [`${team(x, "away")} ${x.ascore}`, tcol("away", "ascore", x.hscore), size], ["  ", C.white, size],
          ...ball("home"), [`${team(x, "home")} ${x.hscore}`, tcol("home", "hscore", x.ascore), size], ["  " + x.detail, x.state === "in" ? C.red : "#969696", small],
          ...(downs(x) ? [["  " + downs(x), downColor(x), small]] : [])];
@@ -2389,7 +2390,7 @@ const Demo = (() => {
     const A = team(x, "away"), Hm = team(x, "home");
     const left = pre ? (ml ? `${A} ${x.mla}` : A) : `${A} ${x.ascore}`;
     const right = pre ? (ml ? `${x.mlh} ${Hm}` : Hm) : `${x.hscore} ${Hm}`;
-    const mid1 = pre ? shortTime(x.detail) : x.detail;
+    const mid1 = pre ? whenTV(x) : x.detail;
     const mid2 = !pre ? downs(x) : (picks().includes("ou") && x.total ? `O/U ${x.total}` : "") ||
                              (picks().includes("spread") && x.spread ? x.spread : "");
     let big = 24 * K, small;

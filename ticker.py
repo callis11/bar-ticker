@@ -355,6 +355,26 @@ def clock_secs(txt):
     except ValueError:
         return 0
 
+def tv_channel(comp):
+    """The national TV channel(s) ESPN lists for a game: "FOX", "ESPN/ABC", "Prime Video" ("" if none listed)."""
+    names = []
+    for b in comp.get("geoBroadcasts") or []:
+        if ((b.get("type") or {}).get("shortName") or "TV") in ("TV", "Streaming") and \
+                ((b.get("market") or {}).get("type") or "National") == "National":
+            n = ((b.get("media") or {}).get("shortName") or "").strip()
+            if n and n not in names:
+                names.append(n)
+    if not names:
+        for b in comp.get("broadcasts") or []:
+            if (b.get("market") or "national") == "national":
+                names += [n for n in (b.get("names") or []) if n and n not in names]
+    return "/".join(names[:2])
+
+def when(g):
+    """Start time with the channel: "Thu 1:00 PM · FOX"."""
+    t = short_time(g["detail"])
+    return f"{t} · {g['tv']}" if g.get("tv") else t
+
 def parse_game(label, ev):
     comp = ev["competitions"][0]
     teams = {c["homeAway"]: c for c in comp["competitors"]}
@@ -367,6 +387,7 @@ def parse_game(label, ev):
     lp = sit.get("lastPlay") or {}                  # the play that just happened (sacks, picks, field goals...)
     lp_team = str((lp.get("team") or {}).get("id") or "")
     return dict(
+        tv=tv_channel(comp),
         play_id=str(lp.get("id") or ""), play_type=str((lp.get("type") or {}).get("text") or ""),
         play_text=str(lp.get("text") or ""), play_yds=lp.get("statYardage"),
         play_team="away" if lp_team and lp_team in ids(a) else "home" if lp_team and lp_team in ids(h) else "",
@@ -1811,7 +1832,7 @@ def game_frame(g, rotate=0, odds=("ou", "ml")):
     away, home = team(g, "away"), team(g, "home")
     left  = (f"{away} {g['mla']}" if ml else away) if pre else f"{away} {g['ascore']}"
     right = (f"{g['mlh']} {home}" if ml else home) if pre else f"{g['hscore']} {home}"
-    mid1  = short_time(g["detail"]) if pre else g["detail"]
+    mid1  = when(g) if pre else g["detail"]
     mid2  = downs(g)                                     # live football: the down under the clock
     if pre:
         mid2 = (f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or \
@@ -1956,7 +1977,7 @@ def game_status(g, odds):
     if g["state"] == "pre":
         line2 = ((f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or
                  (g.get("spread") or "" if "spread" in odds else ""))
-        first = short_time(g["detail"])
+        first = when(g)
         if not line2 and " " in first and len(first) > 8:          # "Sun 4:25 PM" -> "Sun" / "4:25 PM"
             day, rest = first.split(" ", 1)
             return [(day.upper(), (170, 170, 170)), (rest, (170, 170, 170))]
@@ -2135,7 +2156,7 @@ def line_piece(parts, pad=14):
 def one_line_status(g, odds):
     """[(text, color)] after the teams on a one-line game: FINAL / 4TH 3:12 · 3RD & 7 · DET 35 / SUN 4:25 PM  O/U 51.5"""
     if g["state"] == "pre":
-        out = [(short_time(g["detail"]).upper(), (175, 175, 175))]
+        out = [(when(g).upper(), (175, 175, 175))]
         extra = (f"O/U {g['total']}" if "ou" in odds and g.get("total") else "") or (g.get("spread") or "" if "spread" in odds else "")
         return out + ([(extra, (150, 150, 150))] if extra else [])
     if g["state"] == "in":
@@ -2286,7 +2307,7 @@ def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE, bar=True):
         lg_ = (lambda side: [("@LOGO" + side, None, f)]) if logos_ready(g) else (lambda side: [])
         parts += lg_("away") + [(team(g, "away"), tcol("away", "ascore", 0), f), (" @ ", GRAY, f)] + lg_("home") + \
                  [(team(g, "home"), tcol("home", "hscore", 0), f),
-                  ("  " + short_time(g["detail"]), (170, 170, 170), fs)]
+                  ("  " + when(g), (170, 170, 170), fs)]
         line = odds_text(g, odds)
         if line:
             parts.append(("  " + line, ODDS_COLOR, fs))
