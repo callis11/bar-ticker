@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126030251">
+<meta name="build" content="20261126030423">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -694,7 +694,7 @@ function render() {
     off: "Splits the ticker in two: live scores stay put on the top row while everything else crawls along the bottom.",
     mine: "Top row: Lions, Pistons and MSU games while they're live (and 15 min after). The rest crawls underneath. Back to full size when none are on.",
     live: "Top row: every live game in your sports, taking turns. The games you picked crawl underneath.",
-    picked: "Top row: the games you tapped in Show games, held still. Every other game in your sports crawls underneath."}[S.pin || "off"];
+    picked: "Top row: the games you tapped in Show games, held still. Live, Close and My teams games crawl underneath (or every game in your sports if those are off)."}[S.pin || "off"];
   document.querySelectorAll("#daysPick button").forEach(b => b.classList.toggle("on", b.dataset.d === (S.days || "week")));
   $("#oddsOn").checked = S.odds_on !== false;
   $("#oddsPick").style.opacity = S.odds_on === false ? .35 : 1;
@@ -2183,7 +2183,10 @@ const Demo = (() => {
     if (pin === "mine") return myGames().filter(z => z.state === "in");
     if (pin === "live") return games.filter(z => z.state === "in" && (!(S.leagues || []).length || S.leagues.includes(z.league)))
       .sort((a, b) => !!mine(b) - !!mine(a) || isClose(b) - isClose(a) || a.league.localeCompare(b.league));
-    if (pin === "picked" && (S.game_ids || []).length) return pickedGames();
+    if (pin === "picked" && (S.game_ids || []).length) {        // tapped games on top; Live/Close/My teams crawl underneath
+      const tapped = (S.game_ids || []).filter(i => !i.startsWith("@")).map(i => games.find(q => q.id === i)).filter(Boolean);
+      return tapped.length ? tapped : pickedGames();
+    }
     return [];
   }
   function drawPinned(list, t) {                  // top row: as many as fit side by side, else pages that take turns

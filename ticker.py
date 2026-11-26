@@ -2895,7 +2895,10 @@ class Feed:
             now = [g for g in self.games if live(g) and (not ctl.leagues or g["league"] in ctl.leagues)]
             now.sort(key=lambda g: (not mine(g)[0], not is_close(g), g["league"]))
         elif ctl.pin == "picked" and ctl.game_ids:
-            now = self.picked()
+            # the games you tapped in the list go on top; My teams / Live / Close only add to the crawl underneath
+            # (if you only turned those buttons on, they go on top instead)
+            tapped = [g for g in (self.game(i) for i in ctl.game_ids if not i.startswith("@")) if g]
+            now = tapped or self.picked()
         return now
 
     def build_split(self, pl, build):
