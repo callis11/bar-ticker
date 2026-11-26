@@ -3260,11 +3260,11 @@ def make_handler(ctl, feed):
                 elif path in ("/api/update", "/api/restart"):   # the phone's Update / Restart buttons
                     here, msg = os.path.dirname(os.path.abspath(__file__)), "Restarting"
                     if path == "/api/update":
-                        before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=here, capture_output=True, text=True).stdout.strip()
-                        r = subprocess.run(["git", "pull", "--ff-only", "-q"], cwd=here, capture_output=True, text=True, timeout=90)
+                        before = subprocess.run(["git", "-c", "safe.directory=*", "rev-parse", "HEAD"], cwd=here, capture_output=True, text=True).stdout.strip()
+                        r = subprocess.run(["git", "-c", "safe.directory=*", "pull", "--ff-only", "-q"], cwd=here, capture_output=True, text=True, timeout=90)
                         if r.returncode:
                             return self.send(500, {"error": "Update failed: " + ((r.stderr or r.stdout).strip()[-160:] or "git pull")})
-                        after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=here, capture_output=True, text=True).stdout.strip()
+                        after = subprocess.run(["git", "-c", "safe.directory=*", "rev-parse", "HEAD"], cwd=here, capture_output=True, text=True).stdout.strip()
                         msg = "Updated, restarting" if before != after else "Already up to date, restarting"
                     def restart():
                         time.sleep(1.0)                       # let the answer reach the phone first
