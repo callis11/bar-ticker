@@ -4108,6 +4108,7 @@ def run_display(ctl, feed, matrix):
             n = int(t // L)
             q = pool[(n + int(show_t0) // 7) % len(pool)]
             show(trivia_frame(q, t - n * L, ctl.trivia_secs)); time.sleep(1 / 20)
+        elif mode == "message":
             img, scrolling, w = message_frame(ctl, time.time(), x)
             show(img)
             step = speed_step(ctl.speed)
