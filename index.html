@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bar Ticker">
 <meta name="application-name" content="Bar Ticker">
-<meta name="build" content="20261126024841">
+<meta name="build" content="20261126025630">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -2155,7 +2155,8 @@ const Demo = (() => {
     const lg = logosReady(x), LH = h - 6;
     const ball = side => (x.state === "in" && x.poss === side ? [["@BALL", null, size]] : []).concat(lg ? [["@LOGO" + side, null, size]] : []);
     const parts = pre
-      ? [[team(x, "away"), tcol("away", "ascore", 0), size], [" @ ", C.gray, size], [team(x, "home"), tcol("home", "hscore", 0), size],
+      ? [...(lg ? [["@LOGOaway", null, size]] : []), [team(x, "away"), tcol("away", "ascore", 0), size], [" @ ", C.gray, size],
+         ...(lg ? [["@LOGOhome", null, size]] : []), [team(x, "home"), tcol("home", "hscore", 0), size],
          ["  " + shortTime(x.detail), "#aaa", small], ...(oddsText(x) ? [["  " + oddsText(x), C.odds, small]] : [])]
       : [...ball("away"), [`${team(x, "away")} ${x.ascore}`, tcol("away", "ascore", x.hscore), size], ["  ", C.white, size],
          ...ball("home"), [`${team(x, "home")} ${x.hscore}`, tcol("home", "hscore", x.ascore), size], ["  " + x.detail, x.state === "in" ? C.red : "#969696", small],

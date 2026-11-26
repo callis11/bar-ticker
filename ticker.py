@@ -2242,7 +2242,9 @@ def game_line(g, odds=("ou", "ml"), h=BOTTOM_H, size=HALF_SIZE):
         if pre or g[sc] >= other: return WHITE
         return (150, 150, 150)
     if pre:
-        parts += [(team(g, "away"), tcol("away", "ascore", 0), f), (" @ ", GRAY, f), (team(g, "home"), tcol("home", "hscore", 0), f),
+        lg_ = (lambda side: [("@LOGO" + side, None, f)]) if logos_ready(g) else (lambda side: [])
+        parts += lg_("away") + [(team(g, "away"), tcol("away", "ascore", 0), f), (" @ ", GRAY, f)] + lg_("home") + \
+                 [(team(g, "home"), tcol("home", "hscore", 0), f),
                   ("  " + short_time(g["detail"]), (170, 170, 170), fs)]
         line = odds_text(g, odds)
         if line:
